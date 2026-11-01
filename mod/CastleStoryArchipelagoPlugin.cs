@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.1")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.2")]
     public sealed class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -25,6 +25,9 @@ namespace CastleStoryArchipelago
         private ConfigEntry<bool> showOverlay;
         private float nextRead;
         private int lastWave;
+        private int lastObservedWave = -1;
+        private int waveEventCount;
+        private float lastWaveEventTime;
         private Harmony harmony;
         internal static CastleStoryArchipelagoPlugin Instance;
 
@@ -62,11 +65,11 @@ namespace CastleStoryArchipelago
             try
             {
                 File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                    "Castle Story Archipelago plugin Awake() reached. Version 0.2.1." + Environment.NewLine +
+                    "Castle Story Archipelago plugin Awake() reached. Version 0.2.2." + Environment.NewLine +
                     "If the overlay is missing, check BepInEx/LogOutput.log for Harmony errors.");
             }
             catch (Exception markerError) { Logger.LogWarning("Cannot write diagnostic marker: " + markerError.Message); }
-            Logger.LogInfo("Castle Story Archipelago plugin initialised (v0.2.1).");
+            Logger.LogInfo("Castle Story Archipelago plugin initialised (v0.2.2).");
             automaticWaveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "EXPERIMENTAL: enable wave checks after verifying that the StatsTracker hook corresponds to completed rounds.");
             markWaveOnStatEvent = Config.Bind("Invasion", "StatEventMeansWaveComplete", false,
@@ -95,7 +98,12 @@ namespace CastleStoryArchipelago
 
         private void HandleWave(int wave)
         {
-            Logger.LogInfo("Castle Story stats InvasionWave(" + wave + ") fired. Does this indicate round START or END?");
+            waveEventCount++;
+            lastObservedWave = wave;
+            lastWaveEventTime = Time.realtimeSinceStartup;
+            Logger.LogInfo("[AP WAVE EVENT] InvasionWave(" + wave + ") at t=" +
+                lastWaveEventTime.ToString("F1") + "s; event #" + waveEventCount +
+                ". Wave START/END timing remains unverified.");
             if (!automaticWaveChecks.Value || !markWaveOnStatEvent.Value) return;
             if (wave < 1 || wave > goalWave || String.IsNullOrEmpty(token)) return;
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
@@ -119,8 +127,10 @@ namespace CastleStoryArchipelago
                 ReadBridge();
             }
             if (Input.GetKeyDown(KeyCode.F8))
-                Logger.LogInfo("Castle Story AP session=" + seed + ", checked=" + checkedIds.Count +
-                    ", received=" + itemIndices.Count + ". Wave hook requires in-game validation.");
+                Logger.LogInfo("[AP TEST MARKER F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
+                    "s; last event wave=" + lastObservedWave + "; events=" + waveEventCount +
+                    "; session=" + seed + "; checks=" + checkedIds.Count +
+                    "; received=" + itemIndices.Count);
         }
 
         private void ReadBridge()
@@ -184,13 +194,16 @@ namespace CastleStoryArchipelago
             if (showOverlay == null || !showOverlay.Value) return;
             var originalDepth = GUI.depth;
             GUI.depth = -10000; // Draw in front of the game's immediate-mode GUI.
-            GUI.Box(new Rect(8, 8, 660, 80), "");
+            GUI.Box(new Rect(8, 8, 660, 105), "");
             GUI.Label(new Rect(18, 16, 635, 25),
-                "Castle Story AP v0.2.1 [EXPERIMENTAL] - " +
+                "Castle Story AP v0.2.2 [EXPERIMENTAL] - " +
                 (token.Length == 0 ? "No connection (normal during hook test)" : "Connected"));
             GUI.Label(new Rect(18, 42, 635, 30),
                 "Seed: " + seed + " | Checks: " + checkedIds.Count + "/" + goalWave +
                 " | Hook checks: " + (automaticWaveChecks.Value && markWaveOnStatEvent.Value ? "ON" : "LOG ONLY"));
+            GUI.Label(new Rect(18, 69, 635, 25),
+                "Observed wave stat: " + lastObservedWave + " | Events: " + waveEventCount +
+                " | Press F8 to mark timing in log");
             GUI.depth = originalDepth;
         }
 

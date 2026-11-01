@@ -31,6 +31,13 @@ The supplied `Assembly-CSharp-firstpass.dll` contains `Brix.Game.StatsTracker.In
 
 The default BepInEx settings are deliberately **LOG ONLY**. Don't enable `EnableWaveChecks` and `StatEventMeansWaveComplete` until the log confirms that the stats callback means a *completed* wave. If it fires at wave start, a different hook or an adjusted mapping will be required. Press F8 to log the current integration status.
 
+
+## Validation note — 2026-11-01
+
+The first real-game test with **v0.2.1** confirmed the plugin loaded and Harmony hooked `StatsTracker.InvasionWave(int)`. The log recorded four `InvasionWave(0)` calls and one `InvasionWave(1)` call. The tester manually started **one wave** and defeated both enemies. This is consistent with a counter progressing to 1 but **does not establish that the event fires at wave completion**.
+
+Version **0.2.2** displays the last observed wave and event count in the overlay and logs elapsed game time for each wave event. Press F8 at three points during **a single short wave** (before starting, after starting, after defeating the final enemy), then send `BepInEx/LogOutput.log`. F8 adds timestamped `[AP TEST MARKER F8]` lines. Leave `Hook checks: LOG ONLY` until start/end timing is confirmed.
+
 ## Technical limitations
 
 - Item effects/unlocks (archers, knights, catapults, etc.) are NOT implemented. The APWorld's items are placeholders.
