@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.2")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.3")]
     public sealed class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -21,7 +21,6 @@ namespace CastleStoryArchipelago
         private readonly HashSet<int> checkedIds = new HashSet<int>();
         private readonly HashSet<int> itemIndices = new HashSet<int>();
         private ConfigEntry<bool> automaticWaveChecks;
-        private ConfigEntry<bool> markWaveOnStatEvent;
         private ConfigEntry<bool> showOverlay;
         private float nextRead;
         private int lastWave;
@@ -65,15 +64,13 @@ namespace CastleStoryArchipelago
             try
             {
                 File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                    "Castle Story Archipelago plugin Awake() reached. Version 0.2.2." + Environment.NewLine +
+                    "Castle Story Archipelago plugin Awake() reached. Version 0.2.3." + Environment.NewLine +
                     "If the overlay is missing, check BepInEx/LogOutput.log for Harmony errors.");
             }
             catch (Exception markerError) { Logger.LogWarning("Cannot write diagnostic marker: " + markerError.Message); }
-            Logger.LogInfo("Castle Story Archipelago plugin initialised (v0.2.2).");
+            Logger.LogInfo("Castle Story Archipelago plugin initialised (v0.2.3).");
             automaticWaveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
-                "EXPERIMENTAL: enable wave checks after verifying that the StatsTracker hook corresponds to completed rounds.");
-            markWaveOnStatEvent = Config.Bind("Invasion", "StatEventMeansWaveComplete", false,
-                "Must be enabled along with EnableWaveChecks to send real AP checks. Start with logs only.");
+                "OPT-IN: send checks for completed invasion waves 1-10 with an AP session. Do not enable for normal saves.");
             showOverlay = Config.Bind("Interface", "ShowOverlay", true, "Display experimental integration status.");
             try
             {
@@ -103,9 +100,21 @@ namespace CastleStoryArchipelago
             lastWaveEventTime = Time.realtimeSinceStartup;
             Logger.LogInfo("[AP WAVE EVENT] InvasionWave(" + wave + ") at t=" +
                 lastWaveEventTime.ToString("F1") + "s; event #" + waveEventCount +
-                ". Wave START/END timing remains unverified.");
-            if (!automaticWaveChecks.Value || !markWaveOnStatEvent.Value) return;
-            if (wave < 1 || wave > goalWave || String.IsNullOrEmpty(token)) return;
+                (wave > 0 ? ". Positive wave counter; observed after completion." :
+                ". Zero = not a completed wave."));
+            // The first manual test found wave 0 on startup and wave 1 after enemy defeat.
+            // Sending remains opt-in because save-to-seed binding is not implemented.
+            if (wave < 1 || wave > goalWave) return;
+            if (!automaticWaveChecks.Value)
+            {
+                Logger.LogInfo("[AP CHECK] Candidate wave " + wave + " observed, sending disabled.");
+                return;
+            }
+            if (String.IsNullOrEmpty(token))
+            {
+                Logger.LogWarning("[AP CHECK] Completed wave " + wave + " but no AP session is active.");
+                return;
+            }
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
             {
                 Logger.LogWarning("Ignoring nonsequential wave " + wave + "; previous wave has no check.");
@@ -196,11 +205,11 @@ namespace CastleStoryArchipelago
             GUI.depth = -10000; // Draw in front of the game's immediate-mode GUI.
             GUI.Box(new Rect(8, 8, 660, 105), "");
             GUI.Label(new Rect(18, 16, 635, 25),
-                "Castle Story AP v0.2.2 [EXPERIMENTAL] - " +
+                "Castle Story AP v0.2.3 [EXPERIMENTAL] - " +
                 (token.Length == 0 ? "No connection (normal during hook test)" : "Connected"));
             GUI.Label(new Rect(18, 42, 635, 30),
                 "Seed: " + seed + " | Checks: " + checkedIds.Count + "/" + goalWave +
-                " | Hook checks: " + (automaticWaveChecks.Value && markWaveOnStatEvent.Value ? "ON" : "LOG ONLY"));
+                " | Hook checks: " + (automaticWaveChecks.Value ? "ON (AP session required)" : "LOG ONLY"));
             GUI.Label(new Rect(18, 69, 635, 25),
                 "Observed wave stat: " + lastObservedWave + " | Events: " + waveEventCount +
                 " | Press F8 to mark timing in log");
