@@ -1,59 +1,62 @@
 # Castle Story × Archipelago
 
-**Developer preview — not a fully playable Archipelago integration.** This repository contains an APWorld generator, websocket bridge and an experimental BepInEx/Harmony hook into the actual game's invasion statistics. In-game unlocks, grants and save-to-seed binding still require implementation. First-wave completion timing has been observed in one run. Do not use this build for a serious multiworld.
+**Experimental v0.3.0** — Invasion and Conquest slots in the Archipelago world, client/server bridge, BepInEx game hooks, and receipt of remote items into an in-game HUD. **Received items are shown, but not yet applied to real resources, equipment or units.** Conquest capture detection is unvalidated and opt-in.
 
-## Discovered from supplied game assemblies
+## How it works
 
-The supplied `Assembly-CSharp-firstpass.dll` contains `Brix.Game.StatsTracker.InvasionWave(int)`, `GameWon()` and `GameLost()`. The tiny `Assembly-CSharp.dll` is not the primary game-code assembly. `InvasionWave(int)` is a **statistics event**. In one controlled run, `InvasionWave(0)` occurred before and during the first wave, and `InvasionWave(1)` occurred after the player defeated both enemies. Positive values are *candidate completed-wave counts*. Sending to Archipelago is **opt-in** while save binding is unfinished.
+- **Invasion**: wave 1 to 10 completion checks from `Brix.Game.StatsTracker.InvasionWave(int)`. F8 timing tests on 2026-11-01 showed `InvasionWave(1)` after the user defeated wave 1. Wave 10 sends the Archipelago goal.
+- **Conquest**: three distinct capture-event candidates from `CrystalVisuals.PlayCapturedSound()`, plus victory from `Brix.Game.StatsTracker.GameWon()`. Conquest should involve capturing shards, then destroying or capturing the enemy Home Crystal. **Capture-event accuracy and victory hook still require in-game validation.**
+- **AP networking**: WebSocket connection, item synchronization, reconnect and mode/seed-specific checks. Server checks and received items are demonstrated by automated mock protocol tests.
+- **Safeguards**: location IDs are filtered by mode, session token and seed. **Do not reuse a regular save or connect a different seed to an ongoing game**: binding a Castle Story save to a particular Archipelago seed has not been implemented yet.
 
-## Layout
+## Download and install
 
-- `apworld/castle_story/`: ten invasion locations, stable IDs, generation logic
-- `client/bridge.py`: Archipelago websocket client with seed/slot file bridge
-- `mod/`: BepInEx 5 Mono/Harmony plugin; reflective game hook, no distributed game DLLs
-- `tests/`: small protocol/catalog checks
-- `.github/workflows/build.yml`: APWorld tests, packaging, experimental plugin build
+1. Run or select a green workflow under [Actions](https://github.com/LuDoSniper/CastleStory-Archipelago/actions). Download `castle-story-bepinex-plugin` and `castle-story-apworld`.
+2. Install BepInEx 5 Unity Mono matching the architecture of `Castle Story.exe`. The supported test game uses **Unity 5.6** and a 64-bit executable. Place `CastleStoryArchipelago.dll` inside `Castle Story/BepInEx/plugins/`.
+3. Install the `castle_story.apworld` through the Archipelago Launcher and restart it. Create a YAML file inside the Archipelago `Players` folder (example below), then generate a seed and start its server.
+4. Install Python 3.11+ and install dependencies with `py -m pip install -r client/requirements.txt`.
+5. In a terminal from the downloaded repository, run:
 
-## Setup (Windows)
+```powershell
+py client/bridge.py --server localhost:38281 --slot CastleStoryPlayer --bridge-dir "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Castle Story\\BepInEx\\config\\castle_story_archipelago"
+```
 
-1. Download the CI artifacts from **Actions** once the workflow succeeds.
-2. Install `castle_story.apworld` using Archipelago Launcher, then generate a Castle Story slot YAML and seed.
-3. Install BepInEx **5 Unity Mono**, matching the Castle Story executable architecture, into your Castle Story folder. Run the game once.
-4. Place `CastleStoryArchipelago.dll` in `<game>/BepInEx/plugins/`.
-5. Install Python 3.11+ and run `pip install -r client/requirements.txt`.
-6. Launch the bridge:
+Replace `--server` with the actual AP host and port, `--slot` with the slot name in YAML, and `--bridge-dir` with the path to your own game's BepInEx config directory.
 
-   ```powershell
-   python client/bridge.py --server localhost:38281 --slot "CastleStoryPlayer" --bridge-dir "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Castle Story\\BepInEx\\config\\castle_story_archipelago"
-   ```
+### YAML (choose a mode before generating)
 
-7. Launch Castle Story, start **Invasion** and inspect `BepInEx/LogOutput.log` for `InvasionWave(...)` while observing whether the wave is starting or ending.
+```yaml
+name: CastleStoryPlayer
+game: Castle Story
+Castle Story:
+  game_mode: invasion  # or conquest
+```
 
-The default BepInEx setting `EnableWaveChecks = false` stays **LOG ONLY**. Version **0.2.3** permits opt-in wave checks for values 1–10 when both `EnableWaveChecks = true` and a matching bridge session are present. For a controlled multiworld test, connect the intended AP slot, launch a **new Invasion game**, edit `BepInEx/config/fr.castlestory.archipelago.cfg`, and restart the game. Confirm `Hook checks: ON` in the overlay. Do not use a personal save: save-to-seed binding is **not** implemented. The old `StatEventMeansWaveComplete` key is obsolete and ignored. Press F8 to log status.
+### Enable checks for a disposable test run
 
+BepInEx creates `BepInEx/config/fr.castlestory.archipelago.cfg` after the first successful mod startup. Keep the game **closed** while editing this file.
 
-## Validation note — 2026-11-01
+- Invasion: `[Invasion] EnableWaveChecks = true`
+- Conquest: `[Conquest] EnableVictoryCheck = true`. Set `EnableCaptureChecks = true` **only for a controlled, disposable Conquest capture test**, because `PlayCapturedSound` is a candidate hook that may also run for non-shard captures.
 
-The first real-game test with **v0.2.1** confirmed the plugin loaded and Harmony hooked `StatsTracker.InvasionWave(int)`. The log recorded four `InvasionWave(0)` calls and one `InvasionWave(1)` call. The tester manually started **one wave** and defeated both enemies. This is consistent with a counter progressing to 1 but **does not establish that the event fires at wave completion**.
+Restart the game, verify the AP HUD shows the correct mode and `CONNECTED`, and **start a new match**. Do not turn on both modes and assume they mix: each AP slot has exactly one mode.
 
-Version **0.2.2** collected a second real-game log with F8 markers **before starting (85.5s)**, **after starting (91.4s)**, and **after finishing (157.2s)**. Wave 0 events occurred at **90.6s**, **140.3s** and **153.6s**. Wave 1 occurred at **153.7s**, between the start and completion markers, consistent with the user's report of killing both enemies. Version **0.2.3** therefore offers opt-in AP checks on positive wave values. This is one controlled observation, not proof across all game modes.
+### Test without a full match
 
-## Technical limitations
+Use the Python unit tests to check network packet filtering. F8 in-game prints wave/capture/victory statistics in `BepInEx/LogOutput.log`. To validate Conquest, capture **one neutral shard** and send the log showing `[AP CONQUEST CAPTURE]`. Mark the time before and after capture using F8, then (if possible) obtain a match victory log separately.
 
-- Item effects/unlocks (archers, knights, catapults, etc.) are NOT implemented. The APWorld's items are placeholders.
-- Check persistence is session-token scoped, **not save-game scoped**. Reusing a save with another seed is unsafe.
-- The goal packet is derived from checked wave 10; currently only usable once completion timing has been validated.
-- No guarantee the portable NuGet Unity assemblies match your game's Unity version; a CI failure may require adjusting dependencies after inspecting logs.
-- A running real game, real multiworld server and installed BepInEx are required to validate behavior.
+## Constraints and future work
+
+- Item grants are HUD/inventory synchronization only; physical game effects and gameplay gates are not implemented yet. This avoids falsely claiming unlocks that the game has not received.
+- Conquest capture callback could fire on unrelated crystals. Never enable capture check sending for production until tested.
+- Per-save AP seed binding, save restoration, APWorld generation using the full Archipelago distribution, and real multiworld game interoperability require validation.
+- The APWorld is a *developer prototype*, not yet a balanced randomizer; do not use for a long multiworld campaign.
+- Do not commit Castle Story proprietary assemblies to this repository.
 
 ## Development
 
-```sh
+```bash
 pip install -r client/requirements.txt
 python -m unittest discover -s tests -v
 python tools/pack.py
 ```
-
-For bugs, include the failing GitHub Actions job URL, `BepInEx/LogOutput.log`, your Castle Story version and whether a hooked `InvasionWave(n)` appeared at round start or completion. Do not publish your private seeds/passwords in logs.
-
-We never commit proprietary Castle Story assemblies.
