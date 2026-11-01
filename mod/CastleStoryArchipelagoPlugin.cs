@@ -155,7 +155,8 @@ namespace CastleStoryArchipelago
             // A faction argument is present in the actual game's DLL signature.
             // Only the local player's faction may generate a candidate check.
             // Sound may also be played on non-shard crystals; opt-in remains required.
-            if (mode != "Conquest") return;
+            // Diagnostics are always enabled, even without an AP server/slot.
+            // Only actual checks are gated on the Conquest slot below.
             bool ownedByPlayer = false;
             try
             {
@@ -183,7 +184,7 @@ namespace CastleStoryArchipelago
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
             conquestCaptured++;
-            if (!captureChecks.Value || !bridgeConnected) return;
+            if (mode != "Conquest" || !captureChecks.Value || !bridgeConnected) return;
             if (conquestCaptured <= 3 && checkedIds.Add(ConquestBase + conquestCaptured))
             {
                 WriteChecks();
