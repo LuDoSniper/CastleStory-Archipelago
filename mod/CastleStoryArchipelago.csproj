@@ -10,6 +10,6 @@
   <PackageReference Include="BepInEx.Core" Version="5.4.23.2" />
   <PackageReference Include="BepInEx.Unity.Mono" Version="5.4.23.2" />
   <PackageReference Include="HarmonyX" Version="2.10.1" />
-  <PackageReference Include="UnityEngine.Modules" Version="2019.4.40" />
+  <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
  </ItemGroup>
 </Project>
