@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <TargetFramework>net35</TargetFramework>
+  <LangVersion>latest</LangVersion>
+  <Nullable>disable</Nullable>
+  <AssemblyName>CastleStoryArchipelago</AssemblyName>
+ </PropertyGroup>
+ <ItemGroup>
+  <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  <PackageReference Include="BepInEx.Core" Version="5.4.23.2" />
+  <PackageReference Include="BepInEx.Unity.Mono" Version="5.4.23.2" />
+  <PackageReference Include="HarmonyX" Version="2.10.1" />
+  <PackageReference Include="UnityEngine.Modules" Version="2019.4.40" />
+ </ItemGroup>
+</Project>

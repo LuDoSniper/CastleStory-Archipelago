@@ -1,0 +1,11 @@
+GAME = "Castle Story"
+LOCATION_BASE = 276810000
+ITEM_BASE = 276811000
+WAVES = tuple(range(1, 11))
+LOCATION_NAME_TO_ID = {f"Invasion - Survive Wave {n}": LOCATION_BASE + n for n in WAVES}
+ITEM_NAMES = ("Archer Unlock", "Knight Unlock", "Catapult Unlock", "Bricktron Reinforcement", "Wood Supply", "Stone Supply")
+ITEM_NAME_TO_ID = {name: ITEM_BASE + i for i, name in enumerate(ITEM_NAMES, 1)}
+PROGRESSION_ITEMS = ("Archer Unlock", "Knight Unlock", "Catapult Unlock")
+ITEM_POOL = ("Archer Unlock", "Knight Unlock", "Catapult Unlock", "Bricktron Reinforcement", "Bricktron Reinforcement", "Wood Supply", "Wood Supply", "Wood Supply", "Stone Supply", "Stone Supply")
+GOAL_NAME = "Goal - Survive Wave 10"
+GOAL_ITEM_NAME = "Home Crystal Defended"

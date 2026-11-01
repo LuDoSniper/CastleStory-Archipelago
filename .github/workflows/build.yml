@@ -1,0 +1,37 @@
+name: Test and package Castle Story AP
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: client/requirements.txt
+      - run: pip install -r client/requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python -m compileall -q client apworld
+      - run: python tools/pack.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: castle-story-apworld
+          path: castle_story.apworld
+  mod:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet build mod/CastleStoryArchipelago.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: castle-story-bepinex-plugin
+          path: mod/bin/Release/net35/CastleStoryArchipelago.dll
