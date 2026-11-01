@@ -1,0 +1,7 @@
+# Castle Story APWorld example. Copy into the Archipelago Players/ folder.
+# IMPORTANT: use a new save/level and match your chosen in-game mode.
+name: CastleStoryPlayer
+game: Castle Story
+Castle Story:
+  game_mode: invasion
+  # Change to 'conquest' for a Conquest slot.
