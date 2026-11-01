@@ -85,7 +85,7 @@ namespace CastleStoryArchipelago
             Patch("Brix.Game.StatsTracker", "InvasionWave", "OnInvasionWave",
                 new [] { typeof(int) });
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
-            Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", Type.EmptyTypes);
+            Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
         }
 
@@ -122,9 +122,9 @@ namespace CastleStoryArchipelago
             if (Instance != null) Instance.RecordVictory();
         }
 
-        private static void OnCapturedSound(object __instance)
+        private static void OnCapturedSound(object __instance, object __0)
         {
-            if (Instance != null) Instance.RecordCapture(__instance);
+            if (Instance != null) Instance.RecordCapture(__instance, __0);
         }
 
         private void RecordWave(int wave)
@@ -150,11 +150,30 @@ namespace CastleStoryArchipelago
             }
         }
 
-        private void RecordCapture(object captured)
+        private void RecordCapture(object captured, object faction)
         {
-            // This method is a DIAGNOSTIC CANDIDATE: CrystalVisuals.PlayCapturedSound
-            // may be called by entities beyond capturable shards. Default checks OFF.
+            // A faction argument is present in the actual game's DLL signature.
+            // Only the local player's faction may generate a candidate check.
+            // Sound may also be played on non-shard crystals; opt-in remains required.
             if (mode != "Conquest") return;
+            bool ownedByPlayer = false;
+            try
+            {
+                if (faction != null)
+                {
+                    var ownedProperty = AccessTools.Property(faction.GetType(), "IsOwnedByMe");
+                    if (ownedProperty != null)
+                        ownedByPlayer = Convert.ToBoolean(ownedProperty.GetValue(faction, null));
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogWarning("[AP CONQUEST CAPTURE] Could not check faction ownership: " + e.Message);
+            }
+            Logger.LogInfo("[AP CONQUEST CAPTURE] faction=" +
+                (faction == null ? "<null>" : faction.GetType().FullName) +
+                " ownedByPlayer=" + ownedByPlayer);
+            if (!ownedByPlayer) return;
             int objectId = captured == null ? 0 :
                 (captured is UnityEngine.Object ? ((UnityEngine.Object)captured).GetInstanceID()
                  : captured.GetHashCode());
