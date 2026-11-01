@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+bin/
+obj/
+.vs/
+*.apworld
+!.github/
