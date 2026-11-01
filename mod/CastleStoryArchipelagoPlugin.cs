@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.0")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.2.1")]
     public sealed class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -57,6 +57,16 @@ namespace CastleStoryArchipelago
             Instance = this;
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
+            // This marker confirms Awake() ran, even if the game blocks OnGUI overlays.
+            // Safe diagnostic: no AP password or token is written.
+            try
+            {
+                File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
+                    "Castle Story Archipelago plugin Awake() reached. Version 0.2.1." + Environment.NewLine +
+                    "If the overlay is missing, check BepInEx/LogOutput.log for Harmony errors.");
+            }
+            catch (Exception markerError) { Logger.LogWarning("Cannot write diagnostic marker: " + markerError.Message); }
+            Logger.LogInfo("Castle Story Archipelago plugin initialised (v0.2.1).");
             automaticWaveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "EXPERIMENTAL: enable wave checks after verifying that the StatsTracker hook corresponds to completed rounds.");
             markWaveOnStatEvent = Config.Bind("Invasion", "StatEventMeansWaveComplete", false,
@@ -171,11 +181,17 @@ namespace CastleStoryArchipelago
 
         private void OnGUI()
         {
-            if (!showOverlay.Value) return;
-            GUI.Label(new Rect(12, 12, 650, 58),
-                "Castle Story AP [EXPERIMENTAL] | " + (token.Length == 0 ? "No connection" : "Connected") +
-                "\nSeed: " + seed + " | Checks: " + checkedIds.Count + "/" + goalWave +
+            if (showOverlay == null || !showOverlay.Value) return;
+            var originalDepth = GUI.depth;
+            GUI.depth = -10000; // Draw in front of the game's immediate-mode GUI.
+            GUI.Box(new Rect(8, 8, 660, 80), "");
+            GUI.Label(new Rect(18, 16, 635, 25),
+                "Castle Story AP v0.2.1 [EXPERIMENTAL] - " +
+                (token.Length == 0 ? "No connection (normal during hook test)" : "Connected"));
+            GUI.Label(new Rect(18, 42, 635, 30),
+                "Seed: " + seed + " | Checks: " + checkedIds.Count + "/" + goalWave +
                 " | Hook checks: " + (automaticWaveChecks.Value && markWaveOnStatEvent.Value ? "ON" : "LOG ONLY"));
+            GUI.depth = originalDepth;
         }
 
         private void OnDestroy()

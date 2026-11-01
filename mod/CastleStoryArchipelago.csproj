@@ -9,6 +9,7 @@
   <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   <PackageReference Include="BepInEx.Core" Version="5.4.21" />
   <PackageReference Include="HarmonyX" Version="2.9.0" />
-  <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
+  <!-- Castle Story references UnityEngine.dll, not UnityEngine.CoreModule.dll. -->
+  <PackageReference Include="UnityEngine" Version="5.6.1" IncludeAssets="compile" />
  </ItemGroup>
 </Project>
