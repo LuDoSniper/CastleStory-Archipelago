@@ -69,7 +69,8 @@ class NativeUiIntegrationTests(unittest.TestCase):
 
     def test_legacy_dialog_helpers_still_do_not_override_native_screen(self):
         native = NATIVE.read_text(encoding="utf-8")
-        self.assertIn("RestoreNativeEntries();", native)
+        self.assertIn("seed filter retained", native)
+        self.assertNotIn("Instance.RestoreNativeEntries();", native)
         self.assertIn("if (disconnectPending || String.IsNullOrEmpty(token)) return true;", native)
         ui = UI.read_text(encoding="utf-8")
         self.assertIn('bridgeConnected ? "Retour au jeu" : "Se connecter"', ui)
