@@ -162,6 +162,11 @@ namespace CastleStoryArchipelago
                 RectTransform rect = label.transform as RectTransform;
                 if (rect != null)
                 {
+                    // Put the caption directly under the cloned button root:
+                    // the original prefab's nested layout was clipping long
+                    // labels such as Déconnexion.
+                    rect.SetParent(obj.transform, false);
+                    rect.SetAsLastSibling();
                     rect.anchorMin = Vector2.zero;
                     rect.anchorMax = Vector2.one;
                     rect.offsetMin = Vector2.zero;
