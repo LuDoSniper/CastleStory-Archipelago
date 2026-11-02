@@ -61,28 +61,35 @@ namespace CastleStoryArchipelago
                 BindingFlags.Instance | BindingFlags.Public);
         }
 
-        private static string NativeUiLabel(GameObject obj)
+        private static List<string> NativeUiLabels(GameObject obj)
         {
-            if (obj == null) return null;
+            var labels = new List<string>();
+            if (obj == null) return labels;
             foreach (string typeName in new [] {
                 "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
             {
                 Type textType = FindRuntimeType(typeName);
                 if (textType == null) continue;
-                var property = RuntimeTextProperty(textType);
+                PropertyInfo property = RuntimeTextProperty(textType);
                 if (property == null) continue;
                 foreach (Component text in obj.GetComponentsInChildren(textType, true))
                 {
                     try
                     {
                         string value = property.GetValue(text, null) as string;
-                        if (!String.IsNullOrEmpty(value) && value.Trim().Length > 0)
-                            return value.Trim();
+                        if (!String.IsNullOrEmpty(value))
+                            labels.Add(value.Trim());
                     }
                     catch (Exception) { }
                 }
             }
-            return null;
+            return labels;
+        }
+
+        private static string NativeUiLabel(GameObject obj)
+        {
+            List<string> labels = NativeUiLabels(obj);
+            return labels.Count == 0 ? null : labels[0];
         }
 
         private static bool SetNativeUiLabel(GameObject obj, string value)
@@ -167,8 +174,10 @@ namespace CastleStoryArchipelago
                     Component button = instance as Component;
                     if (button == null || button.gameObject == null ||
                         !button.gameObject.activeInHierarchy) continue;
-                    string name = NativeUiLabel(button.gameObject);
-                    if (!IsPlayLabel(name)) continue;
+                    string name = null;
+                    foreach (string label in NativeUiLabels(button.gameObject))
+                        if (IsPlayLabel(label)) { name = label; break; }
+                    if (name == null) continue;
                     GameObject source = button.gameObject;
                     GameObject copy = UnityEngine.Object.Instantiate(source)
                         as GameObject;
@@ -272,14 +281,20 @@ namespace CastleStoryArchipelago
                 Component button = value as Component;
                 if (button == null || button.gameObject == null) continue;
                 GameObject go = button.gameObject;
-                string label = NativeUiLabel(go);
-                if (String.IsNullOrEmpty(label)) continue;
-                string namedMode = NativeModeFromLabel(label);
-                string mapId;
-                bool forbidden = IsSandboxLabel(label) ||
-                    (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
-                    (nativeMapLabels.TryGetValue(NormalizeNativeLabel(label), out mapId) &&
-                     !AllowedSeedMap(mapId));
+                bool forbidden = false;
+                foreach (string label in NativeUiLabels(go))
+                {
+                    string namedMode = NativeModeFromLabel(label);
+                    string mapId;
+                    if (IsSandboxLabel(label) ||
+                        (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
+                        (nativeMapLabels.TryGetValue(NormalizeNativeLabel(label), out mapId) &&
+                         !AllowedSeedMap(mapId)))
+                    {
+                        forbidden = true;
+                        break;
+                    }
+                }
                 // Only exact native labels verified by the map registry are
                 // hidden. Unknown buttons are left untouched; the native
                 // OnOk guard still blocks every non-seed map/mode.
