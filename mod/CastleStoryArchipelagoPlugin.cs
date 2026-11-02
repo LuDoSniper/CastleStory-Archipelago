@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.9")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.7.0")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -113,8 +113,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.9 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.9 initialised.");
+                "Castle Story Archipelago v0.7.0 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.7.0 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -130,6 +130,7 @@ namespace CastleStoryArchipelago
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
             InstallBonusSpawnHooks();
+            Logger.LogInfo("[AP NATIVE UI] Native main menu integration enabled; F7 fallback.");
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
         }
 
@@ -657,7 +658,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.9 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.7.0 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -752,6 +753,12 @@ namespace CastleStoryArchipelago
             ProcessPendingNativeBonus();
             HandleModalRawInput();
             UpdateNativeInputShield();
+            UpdateNativeArchipelagoIntegration();
+            if (Input.GetKeyDown(KeyCode.F7))
+            {
+                apMenuOpen = !apMenuOpen;
+                Logger.LogInfo("[AP NATIVE UI] F7 connection panel=" + apMenuOpen);
+            }
             if (Input.GetKeyDown(KeyCode.F8))
             {
                 debugOverlayVisible = !debugOverlayVisible;
@@ -781,7 +788,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.9 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.7.0 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -826,6 +833,10 @@ namespace CastleStoryArchipelago
                 localBridge = null;
             }
             DestroyNativeInputShield();
+            RestoreNativeEntries();
+            if (nativeArchipelagoButton != null)
+                UnityEngine.Object.Destroy(nativeArchipelagoButton);
+            nativeArchipelagoButton = null;
             CleanupApUi();
             if (Instance == this) Instance = null;
         }
