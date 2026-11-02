@@ -438,8 +438,10 @@ namespace CastleStoryArchipelago
             DrawBackdrop();
             BlockImGuiClicksOutsidePanel(panel);
             GUI.Box(panel, "", panelStyle);
-            DrawTopBar(panel, "MULTIWORLD  /  CONNEXION",
-                       "Archipelago", "Connecte-toi pour accéder aux missions de ta seed.");
+            DrawTopBar(panel, "CASTLE STORY  /  ARCHIPELAGO",
+                       "Archipelago", bridgeConnected ?
+                       "Session active. Le menu Nouvelle partie suit ta seed." :
+                       "Connecte-toi pour activer la campagne Archipelago.");
             if (GUI.Button(new Rect(panel.xMax - 68, panel.y + 25, 40, 38),
                            "X", closeButton))
                 apMenuOpen = false;
@@ -468,14 +470,10 @@ namespace CastleStoryArchipelago
                 bridgeConnected ? bodyStyle : miniStyle);
             float bottom = panel.yMax - 64;
             if (GUI.Button(new Rect(x, bottom, inner * .63f - 7, 43),
-                           bridgeConnected ? "Voir la campagne" : "Se connecter",
+                           bridgeConnected ? "Retour au jeu" : "Se connecter",
                            primaryButton))
             {
-                if (bridgeConnected)
-                {
-                    apMenuOpen = false;
-                    campaignPreviewOpen = true;
-                }
+                if (bridgeConnected) apMenuOpen = false;
                 else WriteConnection(true);
             }
             if (GUI.Button(new Rect(x + inner * .63f + 5, bottom,
@@ -727,14 +725,10 @@ namespace CastleStoryArchipelago
                 ReadLocalBridgeStatus();
                 GUI.depth = -29000;
 
-                // Do not dismiss the popup on a transient heartbeat loss.
-                // Its message (and shielding) must remain visible to the user.
-                if (nativeNewGameVisible || campaignPreviewOpen)
-                    DrawCampaign();
-                else if (apMenuOpen)
-                    DrawConnection();
-
-                DrawBrandingButton();
+                // The map and mode selection now live entirely in Castle
+                // Story's native menu. Only the connection dialog remains.
+                if (apMenuOpen) DrawConnection();
+                else DrawArchipelagoIntroCredit();
                 lastUiException = "";
             }
             catch (Exception error)
