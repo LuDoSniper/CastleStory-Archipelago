@@ -37,6 +37,8 @@ namespace CastleStoryArchipelago
         private ConfigEntry<bool> showOverlay;
         private readonly HashSet<int> checkedIds = new HashSet<int>();
         private readonly HashSet<int> capturedObjects = new HashSet<int>();
+        private readonly HashSet<string> capturedKeys = new HashSet<string>();
+        private readonly HashSet<string> conqueredMissions = new HashSet<string>();
         private readonly Dictionary<int, int> inventory = new Dictionary<int, int>();
         internal static CastleStoryArchipelagoPlugin Instance;
 
@@ -56,6 +58,8 @@ namespace CastleStoryArchipelago
             public string mode;
             public int[] location_ids;
             public bool goal;
+            public string[] captured_keys;
+            public string[] completed_missions;
         }
         [Serializable] private sealed class ItemEntry
         {
@@ -139,6 +143,12 @@ namespace CastleStoryArchipelago
                 " at t=" + Time.realtimeSinceStartup.ToString("F1") +
                 "s event #" + waveEventCount);
             if ((mode != "Invasion" && mode != "Hybrid") || wave < 1 || wave > goalWave) return;
+            if (campaign != null && campaign.ready &&
+                !IsSelectedMissionType("Invasion"))
+            {
+                Logger.LogWarning("[AP MISSION] Invasion wave ignored; select an Invasion mission.");
+                return;
+            }
             if (!waveChecks.Value || !bridgeConnected) return;
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
             {
@@ -187,6 +197,20 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP CONQUEST CAPTURE] candidate id=" + objectId +
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
+            if (campaign != null && campaign.ready)
+            {
+                if (!IsSelectedMissionType("Conquest"))
+                {
+                    Logger.LogWarning("[AP MISSION] Capture ignored: select a Conquest mission.");
+                    return;
+                }
+                string key = CaptureKey(captured);
+                if (!capturedKeys.Add(key))
+                {
+                    Logger.LogInfo("[AP MISSION] Duplicate capture skipped: " + key);
+                    return;
+                }
+            }
             conquestCaptured++;
             if ((mode != "Conquest" && mode != "Hybrid") || !captureChecks.Value || !bridgeConnected)
             {
@@ -209,10 +233,56 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP VICTORY] StatsTracker.GameWon() at t=" +
                 Time.realtimeSinceStartup.ToString("F1") + "s, mode=" + mode);
             if ((mode != "Conquest" && mode != "Hybrid") || !victoryChecks.Value || !bridgeConnected) return;
-            conquestVictory = true;
+            if (campaign != null && campaign.ready && campaign.missions != null)
+            {
+                if (!IsSelectedMissionType("Conquest"))
+                {
+                    Logger.LogWarning("[AP MISSION] Victory ignored: no Conquest mission selected.");
+                    return;
+                }
+                conqueredMissions.Add(chosenMission);
+                conquestVictory = campaign.missions.Where(m => m != null &&
+                    m.mode == "Conquest").All(m => conqueredMissions.Contains(m.id));
+                Logger.LogInfo("[AP MISSION] Won " + chosenMission +
+                    ". All Conquest missions complete=" + conquestVictory);
+                if (!conquestVictory)
+                {
+                    WriteChecks();
+                    return;
+                }
+            }
+            else conquestVictory = true; // Backward compatibility with v0.3 slots.
             if (checkedIds.Add(ConquestBase + 100))
                 Logger.LogInfo("[AP CHECK] Conquest victory detected");
             WriteChecks();
+        }
+
+        private bool IsSelectedMissionType(string expected)
+        {
+            if (campaign == null || campaign.missions == null) return false;
+            foreach (MissionFile mission in campaign.missions)
+                if (mission != null && mission.id == chosenMission &&
+                    mission.mode == expected) return true;
+            return false;
+        }
+
+        private string CaptureKey(object crystal)
+        {
+            // Map-specific + position-based key where available. Unlike Unity's
+            // GetInstanceID(), transform positions tend to survive save reloads.
+            string id = crystal == null ? "unknown" : crystal.GetHashCode().ToString();
+            var component = crystal as Component;
+            if (component != null)
+            {
+                Vector3 p = component.transform.position;
+                id = Math.Round(p.x, 1).ToString("F1",
+                    System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    Math.Round(p.y, 1).ToString("F1",
+                    System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    Math.Round(p.z, 1).ToString("F1",
+                    System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return chosenMission + "|" + id;
         }
 
         private static bool ValidCheck(string selectedMode, int id, int waveLimit, int shardLimit)
@@ -249,6 +319,9 @@ namespace CastleStoryArchipelago
                     campaign = session.campaign;
                     checkedIds.Clear();
                     capturedObjects.Clear();
+                    capturedKeys.Clear();
+                    conqueredMissions.Clear();
+                    chosenMission = "";
                     inventory.Clear();
                     conquestCaptured = 0;
                     conquestVictory = false;
@@ -259,9 +332,19 @@ namespace CastleStoryArchipelago
                         var prior = JsonUtility.FromJson<CheckFile>(
                             File.ReadAllText(checksPath));
                         if (prior != null && prior.token == token &&
-                            prior.mode == mode && prior.location_ids != null)
-                            foreach (int id in prior.location_ids)
-                                if (ValidCheck(mode, id, goalWave, shardGoal)) checkedIds.Add(id);
+                            prior.mode == mode)
+                        {
+                            if (prior.location_ids != null)
+                                foreach (int id in prior.location_ids)
+                                    if (ValidCheck(mode, id, goalWave, shardGoal))
+                                        checkedIds.Add(id);
+                            if (prior.captured_keys != null)
+                                foreach (string key in prior.captured_keys)
+                                    if (!String.IsNullOrEmpty(key)) capturedKeys.Add(key);
+                            if (prior.completed_missions != null)
+                                foreach (string id in prior.completed_missions)
+                                    if (!String.IsNullOrEmpty(id)) conqueredMissions.Add(id);
+                        }
                     }
                     if (mode == "Invasion" || mode == "Hybrid")
                     {
@@ -322,6 +405,8 @@ namespace CastleStoryArchipelago
             File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
                 token = token, mode = mode,
                 location_ids = checkedIds.OrderBy(x => x).ToArray(),
+                captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
+                completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
                 goal = won
             }));
             if (File.Exists(path)) File.Delete(path);
