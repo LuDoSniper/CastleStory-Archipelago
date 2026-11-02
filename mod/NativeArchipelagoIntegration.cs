@@ -780,6 +780,57 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
         }
 
+        private void ProbeTitleScreenHierarchy()
+        {
+            if (!titleSceneSeen || nativeStarterMenu != null) return;
+            Logger.LogInfo("[AP TITLE PROBE] SceneMenu native roots, before opening New Game:");
+            int found = 0;
+            foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>())
+            {
+                if (go == null || go.name.StartsWith("Archipelago_", StringComparison.Ordinal))
+                    continue;
+                string name = (go.name ?? "").ToLowerInvariant();
+                if (!(name.Contains("play") || name.Contains("jouer") ||
+                      name.Contains("option") || name.Contains("menu") ||
+                      name.Contains("button") || name.Contains("bouton") ||
+                      name.Contains("intro") || name.Contains("logo")))
+                    continue;
+                string components = "";
+                foreach (Component item in go.GetComponents<Component>())
+                {
+                    if (item == null) continue;
+                    if (components.Length > 170) break;
+                    components += (components.Length > 0 ? "," : "") +
+                        item.GetType().Name;
+                }
+                Logger.LogInfo("[AP TITLE PROBE] object=" + go.name +
+                    " parent=" + (go.transform.parent == null ?
+                        "root" : go.transform.parent.name) +
+                    " components=" + components);
+                if (++found == 65) break;
+            }
+            Type labelType = FindRuntimeType("UnityEngine.UI.Text");
+            int texts = 0;
+            if (labelType != null)
+                foreach (UnityEngine.Object instance in
+                    UnityEngine.Object.FindObjectsOfType(labelType))
+                {
+                    Component label = instance as Component;
+                    if (label == null) continue;
+                    string value = GetUiProperty(label, "text") as string;
+                    if (IsPlayLabel(value) || IsOptionsLabel(value))
+                    {
+                        Logger.LogInfo("[AP TITLE PROBE] label=" + value +
+                            " object=" + label.name + " parent=" +
+                            (label.transform.parent == null ? "root" :
+                                label.transform.parent.name));
+                        texts++;
+                    }
+                }
+            Logger.LogInfo("[AP TITLE PROBE] done: objects=" + found +
+                " recognizedTitleLabels=" + texts);
+        }
+
         private void OnArchipelagoSceneChanged(
             UnityEngine.SceneManagement.Scene previous,
             UnityEngine.SceneManagement.Scene current)
@@ -808,6 +859,12 @@ namespace CastleStoryArchipelago
         private void UpdateNativeArchipelagoIntegration()
         {
             float now = Time.realtimeSinceStartup;
+            if (titleSceneSeen && !titleSceneEvidenceLogged &&
+                now - titleSceneReadyAt >= 1.6f)
+            {
+                titleSceneEvidenceLogged = true;
+                ProbeTitleScreenHierarchy();
+            }
             // Castle Story's first Play/Options screen is not represented by
             // UnityEngine.UI.Button; only the later map screen uses that type.
             // Start the independent credit from the title scene, never from
