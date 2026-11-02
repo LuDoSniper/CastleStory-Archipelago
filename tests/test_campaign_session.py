@@ -28,6 +28,10 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["campaign_status"], "missing")
             self.assertIn("NOUVELLE seed", data["campaign_message"])
             self.assertEqual(data["campaign"], {})
+            self.assertEqual(data["bridge_client_version"], "0.6.2")
+            self.assertTrue(data["slot_data_provided"])
+            self.assertFalse(data["manifest_provided"])
+            self.assertIn("game_mode", data["slot_data_fields"])
             self.assertEqual(ws.messages[-1]["cmd"], "Sync")
 
     async def test_valid_seed_manifest_exposed_to_unity(self):
@@ -46,6 +50,8 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["campaign_status"], "ready")
             self.assertEqual(data["campaign"]["missions"], seed["missions"])
             self.assertEqual(data["campaign_message"], "")
+            self.assertTrue(data["manifest_provided"])
+            self.assertIn("campaign", data["slot_data_fields"])
 
     async def test_unready_seed_manifest_includes_real_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,6 +72,21 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
                 "campaign": {"ready": True, "missions": "not an array"}
             })
             self.assertEqual(data["campaign_status"], "invalid")
+
+    async def test_absent_slot_data_records_absence_without_guessing_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            b = bridge.Bridge(folder, "Tester", "")
+            ws = FakeWS()
+            await b.on_message(ws, {"cmd": "RoomInfo", "seed_name": "old"})
+            await b.on_message(ws, {"cmd": "Connected", "slot": 1, "team": 0})
+            data = bridge.load_json(folder / "session.json")
+            self.assertTrue(data["connected"])
+            self.assertFalse(data["slot_data_provided"])
+            self.assertFalse(data["manifest_provided"])
+            self.assertEqual(data["campaign_status"], "missing")
+            self.assertEqual(data["slot_data_fields"], [])
+            self.assertEqual(data["bridge_client_version"], "0.6.2")
 
     def test_ingame_disconnect_overrides_manual_cli_server(self):
         with tempfile.TemporaryDirectory() as tmp:
