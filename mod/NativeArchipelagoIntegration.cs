@@ -424,11 +424,71 @@ namespace CastleStoryArchipelago
             nativeMapLabels[NormalizeNativeLabel(label)] = mapId;
         }
 
+        private static int TransformDepth(Transform node)
+        {
+            int depth = 0;
+            while (node != null && depth < 100)
+            {
+                depth++;
+                node = node.parent;
+            }
+            return depth;
+        }
+
+        private static bool IsUnderNativeMenu(Transform child, Transform group)
+        {
+            while (child != null)
+            {
+                if (child == group) return true;
+                child = child.parent;
+            }
+            return false;
+        }
+
+        private static Transform FindPlayMenuRoot(
+            List<Component> controls,
+            Dictionary<GameObject, List<string>> labels)
+        {
+            // Button wrappers often differ: the native menu choices need not
+            // share an immediate parent. Find the deepest shared ancestor of
+            // at least two New Game / Load / Multiplayer controls.
+            var counts = new Dictionary<Transform, int>();
+            foreach (Component control in controls)
+            {
+                if (control == null || control.gameObject == null) continue;
+                List<string> names;
+                if (!labels.TryGetValue(control.gameObject, out names)) continue;
+                bool anchor = false;
+                foreach (string label in names)
+                    if (IsSubmenuAnchor(label)) { anchor = true; break; }
+                if (!anchor) continue;
+                Transform parent = control.transform.parent;
+                for (int depth = 0; parent != null && depth < 6; depth++,
+                     parent = parent.parent)
+                {
+                    int n;
+                    counts.TryGetValue(parent, out n);
+                    counts[parent] = n + 1;
+                }
+            }
+            Transform best = null;
+            int maxDepth = -1;
+            foreach (var candidate in counts)
+                if (candidate.Value >= 2 && candidate.Key != null &&
+                    candidate.Key.GetComponent<Canvas>() == null)
+                {
+                    int depth = TransformDepth(candidate.Key);
+                    if (depth > maxDepth)
+                    {
+                        maxDepth = depth;
+                        best = candidate.Key;
+                    }
+                }
+            return best;
+        }
+
         private void RefreshNativeSeedMenu()
         {
-            // This method NEVER toggles a hidden native card every half-second.
-            // Re-enabling cards invokes Unity OnEnable and can rebuild/duplicate
-            // their child cards in Castle Story.
             if (disconnectPending || String.IsNullOrEmpty(token) ||
                 campaign == null || !campaign.ready ||
                 campaign.missions == null)
@@ -438,53 +498,52 @@ namespace CastleStoryArchipelago
             }
 
             string selectedNativeMode = SelectedNativeGamemode();
-            // Opening/closing the same native menu does NOT change this
-            // cache key: otherwise Back -> Invasion re-enables old tiles and
-            // triggers Castle Story's native OnEnable card duplication.
             string filterKey = token + "|" + selectedNativeMode;
             if (lastNativeFilterKey != filterKey)
             {
-                // Only restore when switching mode, seed or native menu.
-                // Once is safe; refreshing twice per second is not.
+                // Only a real seed/mode switch can restore hidden controls.
                 if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
                 lastNativeFilterKey = filterKey;
             }
 
-            Type buttonType = FindRuntimeType("UnityEngine.UI.Selectable");
-            // Supports native Toggle-derived mode controls as well as Buttons.
-            if (buttonType == null) return;
-            int hidden = 0;
-            var playGroups = new Dictionary<Transform, bool>();
-            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
+            Type selectable = FindRuntimeType("UnityEngine.UI.Selectable");
+            if (selectable == null) return;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var controls = new List<Component>();
+            var labels = new Dictionary<GameObject, List<string>>();
+            foreach (UnityEngine.Object value in
+                UnityEngine.Object.FindObjectsOfType(selectable))
             {
-                Component button = value as Component;
-                if (button == null || button.gameObject == null) continue;
-                GameObject go = button.gameObject;
-                if (hiddenNativeEntries.ContainsKey(go)) continue;
+                Component item = value as Component;
+                if (item == null || item.gameObject == null ||
+                    hiddenNativeEntries.ContainsKey(item.gameObject)) continue;
+                controls.Add(item);
+                labels[item.gameObject] = NativeUiLabels(item.gameObject);
+            }
+            Transform playRoot = FindPlayMenuRoot(controls, labels);
+            int hidden = 0;
+            foreach (Component item in controls)
+            {
+                if (item == null || item.gameObject == null) continue;
+                GameObject go = item.gameObject;
+                List<string> names;
+                if (!labels.TryGetValue(go, out names)) continue;
+                bool inPlaySubmenu = playRoot != null &&
+                    IsUnderNativeMenu(go.transform, playRoot);
+                bool allowedPlay = false;
                 bool forbidden = false;
-                Transform parent = go.transform.parent;
-                bool inPlaySubmenu;
-                if (parent == null || !playGroups.TryGetValue(parent, out inPlaySubmenu))
-                {
-                    inPlaySubmenu = IsPlaySubmenuGroup(parent, buttonType);
-                    if (parent != null) playGroups[parent] = inPlaySubmenu;
-                }
-                List<string> labels = NativeUiLabels(go);
-                bool allowedPlayEntry = false;
-                foreach (string candidate in labels)
-                    if (IsAllowedPlaySubmenuEntry(candidate))
-                        allowedPlayEntry = true;
-                // A prefab name (e.g. "NewGameButton") must not hide a
-                // properly labeled native New Game button.
-                if (inPlaySubmenu && !allowedPlayEntry)
+                foreach (string label in names)
+                    if (IsAllowedPlaySubmenuEntry(label)) allowedPlay = true;
+                if (inPlaySubmenu && !allowedPlay)
                     forbidden = true;
-                foreach (string label in labels)
+                foreach (string label in names)
                 {
                     string namedMode = NativeModeFromLabel(label);
                     string mapId;
                     if (IsSandboxLabel(label) ||
                         (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
-                        (nativeMapLabels.TryGetValue(NormalizeNativeLabel(label), out mapId) &&
+                        (nativeMapLabels.TryGetValue(
+                             NormalizeNativeLabel(label), out mapId) &&
                          !AllowedSeedMap(mapId, selectedNativeMode)) ||
                         IsForbiddenPlaySubmenuEntry(label))
                     {
@@ -492,16 +551,19 @@ namespace CastleStoryArchipelago
                         break;
                     }
                 }
-                if (forbidden)
-                {
-                    HideNativeEntry(go);
-                    hidden++;
-                }
+                if (!forbidden) continue;
+                HideNativeEntry(go);
+                hidden++;
             }
-            if (hidden > 0 && nativeRestrictionLogCount++ < 8)
+            watch.Stop();
+            if (hidden > 0 && nativeRestrictionLogCount++ < 12)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
-                    " new restricted controls; mode=" + selectedNativeMode +
-                    " seed=" + seed + ".");
+                    " controls, playGroup=" + (playRoot == null ? "not-found" : playRoot.name) +
+                    ", mode=" + selectedNativeMode + ", seed=" + seed + ".");
+            if (watch.ElapsedMilliseconds > 30)
+                Logger.LogWarning("[AP UI PERF] Native filter took " +
+                    watch.ElapsedMilliseconds + " ms for " + controls.Count +
+                    " active controls. No background polling active.");
         }
 
         private static bool IsAllowedPlaySubmenuEntry(string label)
