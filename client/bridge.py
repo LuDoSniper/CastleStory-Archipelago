@@ -23,7 +23,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.6.5"
+BRIDGE_CLIENT_VERSION = "0.6.6"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -220,6 +220,9 @@ class Bridge:
             "goal_wave": self.goal_wave, "shard_goal": self.shard_goal,
             "allowed_location_ids": sorted(self.allowed_ids),
             "campaign": self.campaign,
+            "campaign_mission_count": len(self.campaign.get("missions", []))
+                if isinstance(self.campaign, dict) and
+                   isinstance(self.campaign.get("missions"), list) else -1,
             "protocol_version": self.protocol_version,
             "bridge_client_version": BRIDGE_CLIENT_VERSION,
             "updated_at": time.time(),
@@ -233,6 +236,29 @@ class Bridge:
 
     def persist_session(self):
         if self.token:
+            campaign = self.campaign if isinstance(self.campaign, dict) else {}
+            missions = campaign.get("missions")
+            if not isinstance(missions, list):
+                missions = []
+            # Unity 5.6 may fail to deserialize a deeply nested missions[]
+            # under session.campaign. Mirror it at the root in a standalone
+            # file with the exact same token and a deterministic schema.
+            # Write it before session.json: the session acts as the commit
+            # marker for Unity's read loop.
+            save_json(self.directory / "campaign_view.json", {
+                "token": self.token,
+                "protocol_version": self.protocol_version,
+                "bridge_client_version": BRIDGE_CLIENT_VERSION,
+                "campaign_status": self.campaign_status,
+                "campaign_message": self.campaign_message,
+                "manifest_provided": self.manifest_provided,
+                "ready": campaign.get("ready") is True,
+                "mode": campaign.get("mode", self.mode),
+                "warning": campaign.get("warning", ""),
+                "missing_modes": campaign.get("missing_modes") or [],
+                "mission_count": len(missions),
+                "missions": missions,
+            })
             save_json(self.directory / "session.json", self.session_data())
 
     def persist_items(self):
