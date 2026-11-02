@@ -35,7 +35,7 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             folder = Path(tmp)
             seed = {"ready": True, "mode": "Hybrid", "missions": [
                 {"id": "invasion_1", "mode": "Invasion",
-                 "map_id": "official-map-key", "map": "Localized Display Name",
+                 "map_id": "official:map-key", "map": "Localized Display Name",
                  "wave_goal": 5}
             ]}
             _, _, data = await self.create_slot(folder, {

@@ -46,7 +46,7 @@ class CampaignPlanningTests(unittest.TestCase):
 
     def test_hybrid_without_conquest_pool_is_explicitly_unready(self):
         result = campaign.plan_campaign(
-            "Hybrid", 5, 8, {}, {"stable-map-a", "stable-map-b"}, 17)
+            "Hybrid", 5, 8, {}, {"official:stable-map-a", "official:stable-map-b"}, 17)
         self.assertFalse(result["ready"])
         self.assertEqual(len(result["missions"]), 1)
         self.assertIn("Conquest", result["warning"])
@@ -59,7 +59,7 @@ class CampaignPlanningTests(unittest.TestCase):
         self.assertIn("No Invasion", result["warning"])
 
     def test_invasion_seed_varies_among_configured_ids(self):
-        pool = {"stable-1", "stable-2", "stable-3", "stable-4"}
+        pool = {"official:stable-1", "official:stable-2", "official:stable-3", "official:stable-4"}
         samples = [campaign.plan_campaign("Invasion", 5, 3, {}, pool, seed)
                    ["missions"][0]["map_id"] for seed in range(24)]
         self.assertGreater(len(set(samples)), 1)
@@ -70,10 +70,10 @@ class CampaignPlanningTests(unittest.TestCase):
 
     def test_french_display_never_replaces_technical_identifier(self):
         result = campaign.plan_campaign(
-            "Hybrid", 2, 1, {"pioneer_pass_asset": 1},
-            {"pioneer_pass_asset", "other_invasion_asset"}, 42)
+            "Hybrid", 2, 1, {"official:pioneer_pass_asset": 1},
+            {"official:pioneer_pass_asset", "official:other_invasion_asset"}, 42)
         self.assertTrue(result["ready"])
-        self.assertEqual(result["missions"][1]["map_id"], "pioneer_pass_asset")
+        self.assertEqual(result["missions"][1]["map_id"], "official:pioneer_pass_asset")
         self.assertTrue(all("map_id" in m for m in result["missions"]))
 
     def test_no_unverified_maps_means_unready_not_fabricated(self):
