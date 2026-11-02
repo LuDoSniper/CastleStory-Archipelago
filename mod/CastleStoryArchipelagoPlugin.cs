@@ -834,6 +834,7 @@ namespace CastleStoryArchipelago
             }
             DestroyNativeInputShield();
             RestoreNativeEntries();
+            RestoreNativeMenuLayout();
             if (nativeArchipelagoButton != null)
                 UnityEngine.Object.Destroy(nativeArchipelagoButton);
             nativeArchipelagoButton = null;
