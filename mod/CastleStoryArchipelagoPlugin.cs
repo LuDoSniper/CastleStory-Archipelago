@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.1")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.2")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -53,6 +53,10 @@ namespace CastleStoryArchipelago
             public int shard_goal;
             public CampaignFile campaign;
             public int protocol_version;
+            public string bridge_client_version;
+            public bool slot_data_provided;
+            public bool manifest_provided;
+            public string[] slot_data_fields;
             public string campaign_status;
             public string campaign_message;
         }
@@ -83,8 +87,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.1 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.1 initialised.");
+                "Castle Story Archipelago v0.6.2 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.2 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -405,13 +409,25 @@ namespace CastleStoryArchipelago
                         (session.campaign.ready ? "ready" : "unready")) :
                     session.campaign_status;
                 string nextMessage = session.campaign_message ?? "";
-                if (campaignStatus != nextStatus || campaignMessage != nextMessage)
+                if (campaignStatus != nextStatus || campaignMessage != nextMessage ||
+                    slotProtocolVersion != session.protocol_version ||
+                    bridgeClientVersion != session.bridge_client_version)
                 {
-                    Logger.LogInfo("[AP CAMPAIGN] protocol=" + session.protocol_version +
+                    Logger.LogInfo("[AP CAMPAIGN] seed=" + (session.seed ?? "") +
+                        " protocol=" + session.protocol_version +
+                        " bridge=" + (session.bridge_client_version ?? "legacy") +
+                        " slot_data=" + session.slot_data_provided +
+                        " manifest=" + session.manifest_provided +
+                        " fields=" + String.Join(",", session.slot_data_fields ?? new string[0]) +
                         " status=" + nextStatus + " reason=" + nextMessage);
-                    campaignStatus = nextStatus;
-                    campaignMessage = nextMessage;
                 }
+                campaignStatus = nextStatus;
+                campaignMessage = nextMessage;
+                slotProtocolVersion = session.protocol_version;
+                bridgeClientVersion = session.bridge_client_version ?? "";
+                serverSlotDataProvided = session.slot_data_provided;
+                serverManifestProvided = session.manifest_provided;
+                serverSlotDataFields = session.slot_data_fields;
                 campaign = session.campaign;
                 bridgeConnected = session.connected && !disconnectPending;
                 var itemsPath = Path.Combine(directory, "items.json");
@@ -504,7 +520,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.1 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.2 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +

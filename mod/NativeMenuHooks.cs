@@ -298,6 +298,7 @@ namespace CastleStoryArchipelago
             if (Instance == null || !Object.ReferenceEquals(Instance.nativeStarterMenu, __instance))
                 return;
             Instance.nativeNewGameVisible = false;
+            Instance.nativeStarterMenu = null;
             Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed.");
         }
 

@@ -485,11 +485,6 @@ namespace CastleStoryArchipelago
             }
         }
 
-        private void LoggerCampaignDiagnostics()
-        {
-            // Diagnostic is available in UI; avoid verbose log spam from OnGUI.
-        }
-
         private void ExitCampaignToMainMenu()
         {
             // "Retour" means close the AP popup, not open another popup.
@@ -549,14 +544,19 @@ namespace CastleStoryArchipelago
                     "Seed : " + (String.IsNullOrEmpty(seed) ? "inconnue" : seed) +
                     "  |  Mode : " + mode + "  |  Protocole : " +
                     slotProtocolVersion, miniStyle);
-                GUI.Label(new Rect(x + 20, panel.y + 327, inner - 40, 48),
-                    "Client : " + (String.IsNullOrEmpty(bridgeClientVersion) ?
+                GUI.Label(new Rect(x + 20, panel.y + 327, inner - 40, 25),
+                    "Bridge : " + (String.IsNullOrEmpty(bridgeClientVersion) ?
                         "ancien / inconnu" : bridgeClientVersion) +
-                    "  |  Manifeste fourni : " +
+                    "  |  Manifeste transmis : " +
                     (serverManifestProvided ? "oui" : "non") +
-                    "  |  Slot data : " + (serverSlotDataProvided ? "oui" : "non"),
+                    "  |  Slot data : " +
+                    (serverSlotDataProvided ? "oui" : "non"), miniStyle);
+                GUI.Label(new Rect(x + 20, panel.y + 352, inner - 40, 30),
+                    "Champs du serveur : " +
+                    (serverSlotDataFields == null || serverSlotDataFields.Length == 0 ?
+                        "aucun" : String.Join(", ", serverSlotDataFields)),
                     miniStyle);
-                LoggerCampaignDiagnostics();
+
                 return;
             }
             if (!campaign.ready)
