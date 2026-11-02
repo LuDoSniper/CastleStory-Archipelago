@@ -493,8 +493,9 @@ namespace CastleStoryArchipelago
 
         private bool CanStartNativeMap(object menuInstance)
         {
-            // No connection: never alter the ordinary Castle Story flow.
-            if (!bridgeConnected) return true;
+            // Only an explicit disconnect or absent session restores vanilla
+            // starts. Short bridge drops must not bypass seed restrictions.
+            if (disconnectPending || String.IsNullOrEmpty(token)) return true;
             if (menuInstance == null ||
                 !menuInstance.GetType().Name.Contains("SpNewGameStarterMenu"))
                 return true;
