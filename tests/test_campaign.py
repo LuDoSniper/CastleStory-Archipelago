@@ -52,11 +52,24 @@ class CampaignPlanningTests(unittest.TestCase):
         self.assertIn("Conquest", result["warning"])
         self.assertIn("Hybrid requires", result["warning"])
 
-    def test_empty_invasion_pool_never_forces_pioneer_pass(self):
+    def test_empty_invasion_pool_produces_auto_invasion_mission(self):
         result = campaign.plan_campaign("Invasion", 5, 3, {}, set(), 2)
-        self.assertFalse(result["ready"])
-        self.assertEqual(result["missions"], [])
-        self.assertIn("No Invasion", result["warning"])
+        self.assertTrue(result["ready"])
+        self.assertEqual(len(result["missions"]), 1)
+        self.assertEqual(result["missions"][0]["map_id"], "auto:invasion")
+        self.assertEqual(result["missions"][0]["map_policy"], "local_seeded_invasion")
+        self.assertEqual(result["missions"][0]["wave_goal"], 5)
+
+    def test_hybrid_can_auto_pick_invasion_and_requires_conquest_capacity(self):
+        result = campaign.plan_campaign("Hybrid", 4, 3,
+                                        {"official:VerifiedConquest": 3},
+                                        set(), "seed42")
+        self.assertTrue(result["ready"])
+        self.assertEqual([m["mode"] for m in result["missions"]],
+                         ["Invasion", "Conquest"])
+        self.assertEqual(result["missions"][0]["map_id"], "auto:invasion")
+        self.assertEqual(result["missions"][1]["map_id"],
+                         "official:VerifiedConquest")
 
     def test_invasion_seed_varies_among_configured_ids(self):
         pool = {"official:stable-1", "official:stable-2", "official:stable-3", "official:stable-4"}
