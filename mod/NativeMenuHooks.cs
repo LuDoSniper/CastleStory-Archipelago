@@ -270,25 +270,37 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private bool unknownMapPathLogged;
         private string MapIdentity(object map)
         {
             if (map == null) return null;
             try
             {
                 var method = AccessTools.Method(map.GetType(), "GetHeightmapPath", Type.EmptyTypes);
-                string heightmap = method == null ? null : method.Invoke(map, null) as string;
-                if (String.IsNullOrEmpty(heightmap)) return null;
-                string canonical = heightmap.Replace('\\', '/');
-                int marker = canonical.IndexOf("/Maps/", StringComparison.OrdinalIgnoreCase);
-                if (marker >= 0)
+                string path = method == null ? null : method.Invoke(map, null) as string;
+                if (String.IsNullOrEmpty(path)) return null;
+                string normalized = path.Replace('\\', '/');
+                // Stable internal map folders; NEVER use localized Asset_Map labels.
+                string[] needles = { "/Info/UGC/Maps/", "/Info/Maps/", "/Maps/" };
+                string[] prefixes = { "workshop:", "official:", "official:" };
+                for (int i = 0; i < needles.Length; i++)
                 {
-                    string rest = canonical.Substring(marker + 6);
+                    int marker = normalized.IndexOf(needles[i],
+                        StringComparison.OrdinalIgnoreCase);
+                    if (marker < 0) continue;
+                    string rest = normalized.Substring(marker + needles[i].Length);
                     int slash = rest.IndexOf('/');
-                    if (slash > 0) return rest.Substring(0, slash);
+                    string folder = slash >= 0 ? rest.Substring(0, slash) : rest;
+                    if (!String.IsNullOrEmpty(folder) && folder != "." && folder != "..")
+                        return prefixes[i] + folder;
                 }
-                return Path.GetFileName(Path.GetDirectoryName(
-                    heightmap.Replace('/', Path.DirectorySeparatorChar)
-                             .Replace('\\', Path.DirectorySeparatorChar)));
+                if (!unknownMapPathLogged)
+                {
+                    unknownMapPathLogged = true;
+                    Logger.LogWarning("[AP MAPS] Unknown native heightmap path layout: " +
+                        normalized + ". No map identity was guessed.");
+                }
+                return null;
             }
             catch (Exception e)
             {
