@@ -28,7 +28,8 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["campaign_status"], "missing")
             self.assertIn("NOUVELLE seed", data["campaign_message"])
             self.assertEqual(data["campaign"], {})
-            self.assertEqual(data["bridge_client_version"], "0.6.2")
+            self.assertEqual(data["bridge_client_version"], "0.6.5")
+            self.assertGreater(data["updated_at"], 0)
             self.assertTrue(data["slot_data_provided"])
             self.assertFalse(data["manifest_provided"])
             self.assertIn("game_mode", data["slot_data_fields"])
@@ -86,7 +87,7 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(data["manifest_provided"])
             self.assertEqual(data["campaign_status"], "missing")
             self.assertEqual(data["slot_data_fields"], [])
-            self.assertEqual(data["bridge_client_version"], "0.6.2")
+            self.assertEqual(data["bridge_client_version"], "0.6.5")
 
     def test_ingame_disconnect_overrides_manual_cli_server(self):
         with tempfile.TemporaryDirectory() as tmp:
