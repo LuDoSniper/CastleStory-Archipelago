@@ -11,6 +11,7 @@ namespace CastleStoryArchipelago
         // The main menu button is a clone of a real Unity UI control, not an
         // IMGUI control drawn over the main menu.
         private GameObject nativeArchipelagoButton;
+        private Font nativeMenuFont;
         private readonly Dictionary<RectTransform, Vector2> shiftedMenuEntries =
             new Dictionary<RectTransform, Vector2>();
         private readonly Dictionary<GameObject, bool> hiddenNativeEntries =
@@ -117,6 +118,35 @@ namespace CastleStoryArchipelago
                 }
             }
             return false;
+        }
+
+        private void CaptureNativeMenuFont(GameObject source)
+        {
+            Type type = FindRuntimeType("UnityEngine.UI.Text");
+            if (type == null || source == null) return;
+            PropertyInfo property = type.GetProperty("font");
+            if (property == null) return;
+            foreach (Component label in source.GetComponentsInChildren(type, true))
+            {
+                try
+                {
+                    nativeMenuFont = property.GetValue(label, null) as Font;
+                    if (nativeMenuFont == null) continue;
+                    ApplyNativeTypography();
+                    return;
+                }
+                catch (Exception) { }
+            }
+        }
+
+        private void ApplyNativeTypography()
+        {
+            if (nativeMenuFont == null) return;
+            foreach (GUIStyle style in new [] {
+                titleStyle, subTitleStyle, bodyStyle, mutedStyle,
+                miniStyle, eyebrowStyle, errorStyle, inputLabelStyle,
+                primaryButton, secondaryButton, subtleButton, inputStyle })
+                if (style != null) style.font = nativeMenuFont;
         }
 
         private void OpenArchipelagoFromNativeMenu()
@@ -234,6 +264,7 @@ namespace CastleStoryArchipelago
                     }
                     copy.SetActive(true);
                     nativeArchipelagoButton = copy;
+                    CaptureNativeMenuFont(source);
                     Logger.LogInfo("[AP NATIVE UI] Created Archipelago entry after '" +
                         name + "' using its native Unity UI prefab.");
                     return;
