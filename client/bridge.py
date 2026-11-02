@@ -91,13 +91,13 @@ def validate_campaign_manifest(campaign, mode):
             return "Le manifeste contient une mission en double."
         ids.add(mission["id"])
         available_modes.add(kind)
+    if not campaign.get("ready", False):
+        return str(campaign.get("warning") or "La génération de la campagne a échoué.")
     expected = {"Invasion", "Conquest"} if mode == "Hybrid" else {mode}
     if not expected.issubset(available_modes):
         return ("Une campagne %s doit contenir des missions %s ; "
                 "vérifie les catalogues de cartes du YAML." %
                 (mode, " ET ".join(sorted(expected))))
-    if not campaign.get("ready", False):
-        return str(campaign.get("warning") or "La génération de la campagne a échoué.")
     return None
 
 
