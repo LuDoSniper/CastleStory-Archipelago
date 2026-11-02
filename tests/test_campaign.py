@@ -38,7 +38,11 @@ class CampaignPlanningTests(unittest.TestCase):
         self.assertTrue(result["ready"])
         self.assertEqual([m["mode"] for m in result["missions"]],
                          ["Invasion", "Conquest", "Conquest"])
-        self.assertEqual([m["shard_start"] for m in result["missions"][1:]], [1, 4])
+        missions = result["missions"][1:]
+        self.assertEqual(missions[0]["shard_start"], 1)
+        self.assertEqual(missions[1]["shard_start"],
+                         missions[0]["shard_start"] + {"A": 3, "B": 4}[missions[0]["map"]])
+        self.assertEqual(sum({"A": 3, "B": 4}[m["map"]] for m in missions), 7)
 
     def test_no_unverified_maps_means_unready_not_fabricated(self):
         result = campaign.plan_campaign(
