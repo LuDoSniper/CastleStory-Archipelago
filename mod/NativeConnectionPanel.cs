@@ -11,6 +11,8 @@ namespace CastleStoryArchipelago
         // The old IMGUI panel remains only as a compatibility fallback.
         private GameObject nativeConnectionPanel;
         private Component serverNativeInput, slotNativeInput, passwordNativeInput;
+        private Component nativeStatusLabel;
+        private string nativeStatusCache = "";
         private string nativePanelDiagnostic = "";
         private GameObject mainMenuPlayTemplate, mainMenuOptionsTemplate;
 
@@ -125,7 +127,7 @@ namespace CastleStoryArchipelago
             if (rect != null)
             {
                 rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
-                rect.sizeDelta = new Vector2(220, 51);
+                rect.sizeDelta = new Vector2(163, 49);
                 rect.anchoredPosition = new Vector2(x, y);
             }
             Component button = cloned.GetComponent(buttonType);
@@ -156,6 +158,9 @@ namespace CastleStoryArchipelago
         {
             if (nativeConnectionPanel != null)
             {
+                SetUiProperty(serverNativeInput, "text", loginServer);
+                SetUiProperty(slotNativeInput, "text", loginSlot);
+                SetUiProperty(passwordNativeInput, "text", "");
                 nativeConnectionPanel.SetActive(true);
                 UpdateNativePanelStatus();
                 return true;
@@ -195,14 +200,22 @@ namespace CastleStoryArchipelago
                     "SLOT", loginSlot, 11, false);
                 passwordNativeInput = AddNativeInput(mainMenuPlayTemplate, panel.transform,
                     "MOT DE PASSE", "", -95, true);
+                nativeStatusLabel = CloneNativeText(mainMenuPlayTemplate,
+                    panel.transform, "Archipelago déconnecté",
+                    new Vector2(515, 50), new Vector2(0, -172), 15);
                 var connect = CloneNativeAction(mainMenuPlayTemplate, panel.transform,
-                    "Se connecter", "NativeConnectAction", -125, -222);
+                    "Connexion", "NativeConnectAction", -177, -238);
+                var disconnect = CloneNativeAction(
+                    mainMenuOptionsTemplate != null ?
+                    mainMenuOptionsTemplate : mainMenuPlayTemplate,
+                    panel.transform, "Déconnexion", "NativeDisconnectAction", 0, -238);
                 var close = CloneNativeAction(
                     mainMenuOptionsTemplate != null ?
                     mainMenuOptionsTemplate : mainMenuPlayTemplate,
-                    panel.transform, "Fermer", "NativeCloseAction", 125, -222);
+                    panel.transform, "Fermer", "NativeCloseAction", 177, -238);
                 if (serverNativeInput == null || slotNativeInput == null ||
-                    passwordNativeInput == null || connect == null || close == null)
+                    passwordNativeInput == null || nativeStatusLabel == null ||
+                    connect == null || disconnect == null || close == null)
                     throw new InvalidOperationException("Native UI components incomplete");
                 nativeConnectionPanel = root;
                 UpdateNativePanelStatus();
@@ -229,9 +242,15 @@ namespace CastleStoryArchipelago
 
         private void UpdateNativePanelStatus()
         {
-            // A native panel never retains the password after an action.
-            if (passwordNativeInput != null && String.IsNullOrEmpty(loginPassword))
-                SetUiProperty(passwordNativeInput, "text", "");
+            if (nativeConnectionPanel == null || !nativeConnectionPanel.activeSelf)
+                return;
+            string message = bridgeConnected ?
+                "Connecté — " + mode + " / " + (loginSlot ?? "") : statusLine;
+            if (message != nativeStatusCache)
+            {
+                nativeStatusCache = message;
+                SetUiProperty(nativeStatusLabel, "text", message);
+            }
         }
 
         private void NativeConnectAction()
@@ -242,6 +261,14 @@ namespace CastleStoryArchipelago
             loginPassword = "";
             if (!String.IsNullOrEmpty(statusLine))
                 Logger.LogInfo("[AP NATIVE UI] Connect requested (credentials omitted).");
+        }
+
+        private void NativeDisconnectAction()
+        {
+            WriteConnection(false);
+            SetUiProperty(passwordNativeInput, "text", "");
+            loginPassword = "";
+            UpdateNativePanelStatus();
         }
 
         private void NativeCloseAction()
@@ -264,7 +291,7 @@ namespace CastleStoryArchipelago
             if (nativeConnectionPanel != null)
                 UnityEngine.Object.Destroy(nativeConnectionPanel);
             nativeConnectionPanel = null;
-            serverNativeInput = slotNativeInput = passwordNativeInput = null;
+            serverNativeInput = slotNativeInput = passwordNativeInput = nativeStatusLabel = null;
         }
     }
 }
