@@ -2,61 +2,63 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-
-class UiRegressionTests(unittest.TestCase):
-    def test_close_campaign_popup_does_not_navigate_native_menu(self):
-        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        self.assertIn("private void CloseCampaignPopup()", ui)
-        segment = ui.split("private void CloseCampaignPopup()", 1)[1].split("private void DrawCampaign()",1)[0]
-        self.assertIn("campaignPreviewOpen = false;", segment)
-        self.assertIn("apMenuOpen = false;", segment)
-        self.assertIn("nativeNewGameVisible = false;", segment)
-        self.assertIn("apPopupDismissedOnNativeScreen = true;", segment)
-        self.assertNotIn("CloseNativeNewGame(", segment)
-        self.assertIn("CloseCampaignPopup();", ui)
-        self.assertIn('"Fermer", subtleButton', ui)
-        native = (ROOT / "mod/NativeMenuHooks.cs").read_text(encoding="utf-8")
-        self.assertIn("!Instance.apPopupDismissedOnNativeScreen", native)
-        self.assertIn("Instance.apPopupDismissedOnNativeScreen = false;", native)
-
-    def test_modal_blocks_native_ui_without_consuming_its_own_clicks(self):
-        blocker = (ROOT / "mod/NativeInputShield.cs").read_text(encoding="utf-8")
-        self.assertIn("GraphicRaycaster", blocker)
-        self.assertIn("raycastTarget", blocker)
-        self.assertIn("ScreenSpaceOverlay", blocker)
-        self.assertIn("nativeInputShield.SetActive(modal)", blocker)
-        self.assertIn("DestroyNativeInputShield()", (
-            ROOT / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8"))
-        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        self.assertNotIn("Event.current.Use();\n            }\n            else if (apMenuOpen)", ui)
-        self.assertIn('"Fermer", subtleButton', ui)
-
-    def test_ui_displays_both_server_manifest_and_bridge_details(self):
-        code = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        self.assertIn("Manifeste transmis :", code)
-        self.assertIn("Champs du serveur :", code)
-        self.assertIn("slotProtocolVersion", code)
+UI = ROOT / "mod/ArchipelagoMenu.cs"
+NATIVE = ROOT / "mod/NativeMenuHooks.cs"
+INTEGRATION = ROOT / "mod/NativeArchipelagoIntegration.cs"
+PLUGIN = ROOT / "mod/CastleStoryArchipelagoPlugin.cs"
 
 
-    def test_mission_launch_errors_remain_visible_and_logged(self):
-        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        native = (ROOT / "mod/NativeMenuHooks.cs").read_text(encoding="utf-8")
-        self.assertIn("private void SetCampaignNotice(", ui)
-        self.assertIn("!bridgeConnected && String.IsNullOrEmpty(campaignNotice)", ui)
-        self.assertIn("!String.IsNullOrEmpty(campaignNotice) ? campaignNotice", ui)
-        self.assertIn("Pour jouer : ferme cette fenêtre, ouvre Nouvelle partie", ui)
-        self.assertIn("[AP LAUNCH] Blocked: native New Game menu", native)
-        self.assertIn("SetCampaignNotice(", native)
+class NativeUiIntegrationTests(unittest.TestCase):
+    def test_main_menu_uses_native_play_button_not_floating_logo(self):
+        ui = UI.read_text(encoding="utf-8")
+        native = INTEGRATION.read_text(encoding="utf-8")
+        plugin = PLUGIN.read_text(encoding="utf-8")
+        self.assertNotIn("                DrawBrandingButton();", ui)
+        self.assertIn("Archipelago_NativeMainMenuEntry", native)
+        self.assertIn("copy.transform.SetSiblingIndex(source.transform.GetSiblingIndex() + 1)", native)
+        self.assertIn('SetNativeUiLabel(copy, "Archipelago")', native)
+        self.assertIn("InstallNativeButtonListener", native)
+        self.assertIn("clickProperty.SetValue(clonedButton, click", native)
+        self.assertIn("if (Input.GetKeyDown(KeyCode.F7))", plugin)
 
-    def test_popup_survives_short_heartbeat_loss_and_logs_gui_exceptions(self):
-        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        blocker = (ROOT / "mod/NativeInputShield.cs").read_text(encoding="utf-8")
-        mod = (ROOT / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8")
-        self.assertIn("if (nativeNewGameVisible || campaignPreviewOpen)", ui)
-        self.assertIn("return apMenuOpen || nativeNewGameVisible || campaignPreviewOpen;", blocker)
-        self.assertIn('[AP UI EXCEPTION]', ui)
-        self.assertIn("finally { GUI.EndScrollView(); }", ui)
-        self.assertIn('Logger.LogInfo("[AP SESSION] Connection "', mod)
+    def test_native_seed_mode_map_restrictions_and_restore(self):
+        code = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn("IsSandboxLabel(label)", code)
+        self.assertIn('mode != "Hybrid" && namedMode != mode', code)
+        self.assertIn("!AllowedSeedMap(mapId)", code)
+        self.assertIn("nativeMapLabels.TryGetValue", code)
+        self.assertIn("private void RestoreNativeEntries()", code)
+        self.assertIn("disconnectPending || String.IsNullOrEmpty(token)", code)
+
+    def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
+        ui = UI.read_text(encoding="utf-8")
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("else DrawArchipelagoIntroCredit();", ui)
+        self.assertIn("if (apMenuOpen) DrawConnection();", ui)
+        self.assertIn("SelectMission(matching);", native)
+        self.assertIn("startedMission = matching.id;", native)
+        self.assertIn("String.Equals(MissionMapId(mission), mapId", native)
+        self.assertIn("String.Equals(mission.mode, modeId", native)
+        self.assertIn("return false;", native)
+        self.assertIn("ObserveNativeMapLabel(__0, __result as string)", native)
+        self.assertIn("Instance.nativeNewGameVisible = false;", native)
+
+    def test_intro_uses_bundled_official_logo_without_modifying_splash_assets(self):
+        native = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn("DrawArchipelagoIntroCredit()", native)
+        self.assertIn("LoadApLogo();", native)
+        self.assertIn("GUI.DrawTexture(logo, apLogo", native)
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("archipelago-logo.png", workflow)
+
+    def test_legacy_dialog_helpers_still_do_not_override_native_screen(self):
+        native = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("RestoreNativeEntries();", native)
+        self.assertIn("if (disconnectPending || String.IsNullOrEmpty(token)) return true;", native)
+        ui = UI.read_text(encoding="utf-8")
+        self.assertIn('bridgeConnected ? "Retour au jeu" : "Se connecter"', ui)
+        self.assertIn("[AP UI EXCEPTION]", ui)
+
 
 if __name__ == "__main__":
     unittest.main()
