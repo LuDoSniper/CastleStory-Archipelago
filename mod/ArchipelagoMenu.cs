@@ -306,7 +306,9 @@ namespace CastleStoryArchipelago
                 string path = Path.Combine(directory, "bridge_status.json");
                 if (!File.Exists(path)) return;
                 var state = JsonUtility.FromJson<BridgeStatusFile>(File.ReadAllText(path));
-                if (state != null && !String.IsNullOrEmpty(state.state))
+                // Do not hide an obsolete-client error behind a stale bridge status.
+                if (state != null && !String.IsNullOrEmpty(state.state) &&
+                    campaignStatus != "obsolete_bridge" && campaignStatus != "stale")
                     statusLine = state.state + ": " + (state.message ?? "");
             }
             catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }

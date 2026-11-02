@@ -54,6 +54,7 @@ namespace CastleStoryArchipelago
             public CampaignFile campaign;
             public int protocol_version;
             public string bridge_client_version;
+            public double updated_at;
             public bool slot_data_provided;
             public bool manifest_provided;
             public string[] slot_data_fields;
@@ -333,7 +334,11 @@ namespace CastleStoryArchipelago
             try
             {
                 var sessionPath = Path.Combine(directory, "session.json");
-                if (!File.Exists(sessionPath)) return;
+                if (!File.Exists(sessionPath))
+                {
+                    bridgeConnected = false;
+                    return;
+                }
                 var session = JsonUtility.FromJson<SessionFile>(File.ReadAllText(sessionPath));
                 if (session == null || String.IsNullOrEmpty(session.token)) return;
                 if (session.mode != "Invasion" && session.mode != "Conquest" && session.mode != "Hybrid")
@@ -429,7 +434,31 @@ namespace CastleStoryArchipelago
                 serverManifestProvided = session.manifest_provided;
                 serverSlotDataFields = session.slot_data_fields;
                 campaign = session.campaign;
-                bridgeConnected = session.connected && !disconnectPending;
+                DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0,
+                    DateTimeKind.Utc);
+                double nowSeconds = (DateTime.UtcNow - epoch).TotalSeconds;
+                double heartbeatAge = nowSeconds - session.updated_at;
+                bool modernBridge = !String.IsNullOrEmpty(session.bridge_client_version) &&
+                    session.updated_at > 0;
+                bool freshHeartbeat = modernBridge && heartbeatAge >= -5 &&
+                    heartbeatAge < 8;
+                bridgeConnected = session.connected && freshHeartbeat &&
+                    !disconnectPending;
+                if (!freshHeartbeat)
+                {
+                    if (session.connected)
+                    {
+                        statusLine = modernBridge ?
+                            "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
+                            "Bridge Archipelago ancien : installe le client 0.6.5 complet.";
+                        campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
+                        campaignMessage = statusLine;
+                    }
+                    else if (!disconnectPending)
+                    {
+                        statusLine = "Archipelago déconnecté.";
+                    }
+                }
                 var itemsPath = Path.Combine(directory, "items.json");
                 if (!File.Exists(itemsPath)) return;
                 var items = JsonUtility.FromJson<ItemsFile>(File.ReadAllText(itemsPath));

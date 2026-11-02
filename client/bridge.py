@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.6.2"
+BRIDGE_CLIENT_VERSION = "0.6.5"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -221,6 +222,7 @@ class Bridge:
             "campaign": self.campaign,
             "protocol_version": self.protocol_version,
             "bridge_client_version": BRIDGE_CLIENT_VERSION,
+            "updated_at": time.time(),
             "slot_data_provided": self.slot_data_provided,
             "slot_data_fields": self.slot_data_fields,
             "manifest_provided": self.manifest_provided,
@@ -449,6 +451,9 @@ class Bridge:
                     ) != self.request_snapshot):
                 raise ConnectionChanged()
             self.refresh_dynamic_campaign()
+            # Heartbeat: Unity must not mistake yesterday's persisted
+            # connected=true for a live server session.
+            self.persist_session()
             await self.poll_once(ws)
 
 async def run_once(url, bridge):
