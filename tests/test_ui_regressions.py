@@ -28,6 +28,9 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("!AllowedSeedMap(mapId, selectedNativeMode)", code)
         self.assertIn("nativeMapLabels.TryGetValue", code)
         self.assertIn("private void RestoreNativeEntries()", code)
+        self.assertIn("if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();", code)
+        self.assertIn("SelectedNativeGamemode()", code)
+        self.assertIn("RestoreNativeMenuLayout()", code)
         self.assertIn("disconnectPending || String.IsNullOrEmpty(token)", code)
 
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
@@ -40,6 +43,8 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("String.Equals(MissionMapId(mission), mapId", native)
         self.assertIn("String.Equals(mission.mode, modeId", native)
         self.assertIn("return false;", native)
+        self.assertIn("Blocked null native map starter", native)
+        self.assertNotIn('Name.Contains("SpNewGameStarterMenu")', native)
         self.assertIn("ObserveNativeMapLabel(__0, __result as string)", native)
         self.assertIn("Instance.nativeNewGameVisible = false;", native)
 
