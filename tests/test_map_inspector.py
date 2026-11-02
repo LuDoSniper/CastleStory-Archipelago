@@ -24,9 +24,9 @@ class MapInspectorTests(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertIsNone(results[0]["verified_shards"])
             self.assertEqual(len(results[0]["marker_evidence"]), 2)
-            self.assertEqual(maps.validate_approvals(results, {"MyOwnMap": 4}),
-                             {"MyOwnMap": 4})
-            self.assertIn('"MyOwnMap": 4', maps.yaml_fragment({"MyOwnMap": 4}))
+            self.assertEqual(maps.validate_approvals(results, {"official:MyOwnMap": 4}),
+                             {"official:MyOwnMap": 4})
+            self.assertIn('"official:MyOwnMap": 4', maps.yaml_fragment({"official:MyOwnMap": 4}))
 
     def test_cannot_approve_missing_or_invalid_maps(self):
         results = [{"name": "Test", "present_files": ["meta.json"]}]
@@ -37,12 +37,33 @@ class MapInspectorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             maps.validate_approvals(results, {"Test": True})
 
+    def test_unity_catalog_can_cover_embedded_official_assets(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            catalog = root / "BepInEx/config/castle_story_archipelago/installed_maps.json"
+            catalog.parent.mkdir(parents=True)
+            catalog.write_text(json.dumps({
+                "map_ids": ["official:Map123", "workshop:Steam456"]
+            }), encoding="utf-8")
+            entries = maps.scan(root)
+            self.assertEqual({e["name"] for e in entries},
+                             {"official:Map123", "workshop:Steam456"})
+            self.assertTrue(all(e.get("verified_in_unity") for e in entries))
+            self.assertEqual(maps.validate_approvals(entries, {"official:Map123": 5}),
+                             {"official:Map123": 5})
+            yaml = maps.yaml_fragment({"official:Map123": 5},
+                                      ["official:Map123", "workshop:Steam456"])
+            self.assertIn('invasion_map_pool:', yaml)
+            self.assertIn('workshop:Steam456', yaml)
+            self.assertIn('"official:Map123": 5', yaml)
+
     def test_scans_workshop_ugc_maps(self):
         with tempfile.TemporaryDirectory() as td:
             folder = Path(td) / "Info/UGC/Maps/Workshop_123"
             folder.mkdir(parents=True)
             result = maps.scan(td)
             self.assertEqual(result[0]["source"], "Info/UGC/Maps")
+            self.assertEqual(result[0]["name"], "workshop:Workshop_123")
 
 if __name__ == "__main__":
     unittest.main()
