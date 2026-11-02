@@ -742,6 +742,7 @@ namespace CastleStoryArchipelago
             {
                 nextRead = Time.realtimeSinceStartup + 0.7f;
                 ReadBridge();
+                FlushNativeMapCatalogIfIdle();
                 // Retry a temporarily locked ledger without depending on
                 // further InvasionWave callbacks.
                 if (checksDirty && (bridgeConnected || IsActiveInvasionMission()))
