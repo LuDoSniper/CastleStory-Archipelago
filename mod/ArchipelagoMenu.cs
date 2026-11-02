@@ -554,9 +554,10 @@ namespace CastleStoryArchipelago
                 CloseCampaignPopup();
                 return;
             }
-            if (campaign == null || campaign.missions == null)
+            if (campaign == null || campaign.missions == null ||
+                (campaign.missions.Length == 0 && campaignStatus == "ready"))
             {
-                GUI.Box(new Rect(x, panel.y + 167, inner, 285), "", cardStyle);
+                GUI.Box(new Rect(x, panel.y + 167, inner, 320), "", cardStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 33),
                     "Campagne Archipelago indisponible", subTitleStyle);
                 string reason = String.IsNullOrEmpty(campaignMessage) ?
@@ -578,10 +579,14 @@ namespace CastleStoryArchipelago
                     "  |  Slot data : " +
                     (serverSlotDataProvided ? "oui" : "non"), miniStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 352, inner - 40, 22),
+                    "Champs du serveur : " +
+                    (serverSlotDataFields == null || serverSlotDataFields.Length == 0 ?
+                        "aucun" : String.Join(", ", serverSlotDataFields)), miniStyle);
+                GUI.Label(new Rect(x + 20, panel.y + 377, inner - 40, 22),
                     "Missions côté bridge : " + bridgeManifestMissionCount +
                     "  |  Missions côté Unity : 0  |  État : " +
                     campaignStatus, miniStyle);
-                GUI.Label(new Rect(x + 20, panel.y + 377, inner - 40, 55),
+                GUI.Label(new Rect(x + 20, panel.y + 402, inner - 40, 55),
                     String.IsNullOrEmpty(campaignDecodeDiagnostic) ?
                         "Diagnostic en cours..." : campaignDecodeDiagnostic,
                     errorStyle);
