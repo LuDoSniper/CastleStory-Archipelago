@@ -1,6 +1,34 @@
-# Castle Story × Archipelago — v0.6.7 (transfert de campagne de secours)
+# Castle Story × Archipelago — v0.6.8 (stabilisation de la popup)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.6.8 — La mission apparaît, mais l'interface masque les erreurs
+
+Un test réel a confirmé que le bridge 0.6.7 et Unity décodent correctement
+une mission Invasion (`[AP MANIFEST] Transfert texte V1 : 1 mission(s)`).
+Le journal ne contient aucune exception de popup, mais plusieurs transitions
+du bouclier natif. Le client remplaçait aussi les messages de lancement par
+l'état du bridge chaque seconde, ce qui rendait les erreurs illisibles.
+
+- Les messages de sélection/lancement ont maintenant une zone dédiée et
+  restent visibles jusqu'à une nouvelle action.
+- Une coupure momentanée du heartbeat n'efface pas la popup ; elle affiche
+  une indication de connexion et conserve le bouclier anti-clics.
+- Le lancement sans `Nouvelle partie` ouverte indique précisément les
+  étapes à suivre et produit `[AP LAUNCH]` dans les logs.
+- Les exceptions IMGUI sont enregistrées en `[AP UI EXCEPTION]`, avec
+  restauration de l'état GUI et équilibrage du scroll view.
+- Les transitions de connexion sont enregistrées en `[AP SESSION]`.
+
+**Test recommandé :** installe le kit v0.6.8, reconnecte-toi à la même seed
+Invasion, ferme la fenêtre Archipelago, ouvre **Nouvelle partie** dans Castle
+Story, sélectionne la mission et clique sur **Lancer cette mission**. Si le
+lancement échoue, copie `[AP ACTION]`, `[AP LAUNCH]`, `[AP SESSION]` et
+`[AP UI EXCEPTION]` du log : les erreurs restent affichées dans la fenêtre,
+sans nécessiter de capture au bon moment.
+
+La liste des missions est confirmée sur Unity 5.6, mais le lancement d'une
+partie en jeu doit encore être validé manuellement.
 
 ## v0.6.7 — Transfert texte de secours pour Unity 5.6
 
