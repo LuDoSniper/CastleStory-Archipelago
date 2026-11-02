@@ -1,6 +1,37 @@
-# Castle Story × Archipelago — v0.6.5 (correctifs UI et bridge)
+# Castle Story × Archipelago — v0.6.6 (lecture du manifeste de campagne)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.6.6 — Le manifeste arrive dans le bridge, mais pas dans Unity
+
+Diagnostic confirmé par capture d'écran utilisateur : seed neuve, slot
+Invasion, protocole 6, bridge 0.6.5, `slot_data` et champ `campaign`
+effectivement reçus. Ce n'est **pas** une absence de connexion, ni une
+preuve de map manquante ; c'est le trajet **bridge → Unity** qui manque
+de visibilité ou de robustesse.
+
+Le bridge 0.6.6 produit maintenant deux fichiers atomiques :
+`session.json` (connexion et diagnostics) et
+`campaign_view.json` (manifeste plat, missions au niveau racine, token
+de la session, nombre attendu de missions). Unity 5.6 lit le manifeste
+plat et le recoupe avec le token actif. Cela évite de dépendre
+uniquement de la désérialisation imbriquée
+`session.campaign.missions` de l'ancien code.
+
+En cas d'échec, l'écran indique le nombre de missions fourni par le
+bridge, celui réellement décodé par Unity, le statut du manifeste et
+la cause du décodage. Le fichier `BepInEx/LogOutput.log` contient
+`[AP MANIFEST]` avec le même diagnostic. Aucune donnée sensible ne
+doit être copiée depuis `connection.json`.
+
+**Pour ce correctif, ne remplace pas l'APWorld et ne régénère pas une
+seed fonctionnelle.** Utilise l'installateur `Install-CastleStoryAP.ps1`
+du dernier kit, puis reconnecte-toi à la même session Invasion. Le
+bridge et le mod doivent tous les deux afficher la v0.6.6.
+
+La CI teste les fichiers et les contrats de transfert, pas
+l'exécution en conditions réelles de `JsonUtility` dans Castle Story :
+cette validation en jeu reste nécessaire.
 
 ## v0.6.5 : corriger les clics traversants et la session fantôme
 
