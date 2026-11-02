@@ -49,6 +49,8 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('ObserveAnyMenuOpened(object __instance)', hooks)
         self.assertIn('ScheduleNativeUiFilter("native starter OpenSelf")', hooks)
         self.assertIn('ScheduleNativeUiFilter("native library OpenSelf")', hooks)
+        self.assertIn("OnArchipelagoSceneChanged(", code)
+        self.assertIn("activeSceneChanged", PLUGIN.read_text(encoding="utf-8"))
 
     def test_map_catalog_is_not_rewritten_for_each_card(self):
         native = NATIVE.read_text(encoding="utf-8")
