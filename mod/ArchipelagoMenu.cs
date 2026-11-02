@@ -82,7 +82,7 @@ namespace CastleStoryArchipelago
             try
             {
                 if (localBridge != null && !localBridge.HasExited) return;
-                string exe = Path.Combine(Paths.PluginPath, "castle_story_ap", "castle-story-ap-bridge.exe");
+                string exe = Path.Combine(Path.Combine(Paths.PluginPath, "castle_story_ap"), "castle-story-ap-bridge.exe");
                 if (!File.Exists(exe))
                 {
                     statusLine = "Bridge executable not installed; use Start-Bridge.ps1.";
@@ -105,7 +105,7 @@ namespace CastleStoryArchipelago
 
         private static string Quote(string value)
         {
-            return "\\\"" + value.Replace("\\\"", "\\\\\\\"") + "\\\"";
+            return "\\"" + value.Replace("\\"", "\\\\"") + "\\"";
         }
 
         private void ReadLocalBridgeStatus()
