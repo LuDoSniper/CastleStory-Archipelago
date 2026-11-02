@@ -469,13 +469,17 @@ namespace CastleStoryArchipelago
                     inPlaySubmenu = IsPlaySubmenuGroup(parent, buttonType);
                     if (parent != null) playGroups[parent] = inPlaySubmenu;
                 }
-                foreach (string label in NativeUiLabels(go))
+                List<string> labels = NativeUiLabels(go);
+                bool allowedPlayEntry = false;
+                foreach (string candidate in labels)
+                    if (IsAllowedPlaySubmenuEntry(candidate))
+                        allowedPlayEntry = true;
+                // A prefab name (e.g. "NewGameButton") must not hide a
+                // properly labeled native New Game button.
+                if (inPlaySubmenu && !allowedPlayEntry)
+                    forbidden = true;
+                foreach (string label in labels)
                 {
-                    if (inPlaySubmenu && !IsAllowedPlaySubmenuEntry(label))
-                    {
-                        forbidden = true;
-                        break;
-                    }
                     string namedMode = NativeModeFromLabel(label);
                     string mapId;
                     if (IsSandboxLabel(label) ||
