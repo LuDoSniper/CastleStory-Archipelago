@@ -95,6 +95,7 @@ namespace CastleStoryArchipelago
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
+            InstallBonusSpawnHooks();
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
         }
 
@@ -429,6 +430,7 @@ namespace CastleStoryArchipelago
                 ProbeGameApis();
             if (Input.GetKeyDown(KeyCode.F10))
                 DumpBonusRewardQueue();
+            ProcessPendingNativeBonus();
             if (Input.GetKeyDown(KeyCode.F8))
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +

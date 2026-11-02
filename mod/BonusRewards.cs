@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using HarmonyLib;
+using BepInEx.Configuration;
 using UnityEngine;
 
 namespace CastleStoryArchipelago
@@ -29,6 +32,111 @@ namespace CastleStoryArchipelago
         private readonly Dictionary<int, BonusRewardTicket> bonusRewards =
             new Dictionary<int, BonusRewardTicket>();
         private string activeBonusToken = "";
+        private ConfigEntry<bool> nativeBonusSpawning;
+        private ConfigEntry<bool> bonusQuotaCompensation;
+        private MethodInfo nativeSpawnMethod;
+        private object nativeSpawnHost;
+        private object[] nativeSpawnPrototype;
+        private bool bonusSpawnInProgress;
+        private GameObject lastBonusSpawn;
+        private float nextBonusAttempt;
+        private readonly HashSet<int> trackedBonusInstanceIds = new HashSet<int>();
+
+        private void InstallBonusSpawnHooks()
+        {
+            nativeBonusSpawning = Config.Bind("Bonus Rewards", "EnableNativeBonusSpawns", false,
+                "DANGEROUS TEST ONLY: allow native SpawnUnit replay with recorded local ownership. " +
+                "Use a disposable SOLO save. A missing template leaves the reward pending.");
+            bonusQuotaCompensation = Config.Bind("Bonus Rewards", "ExperimentalExcludeBonusFromCrystalCount", false,
+                "DANGEROUS TEST ONLY: subtract tagged, living AP units from the home-nest " +
+                "character count. Other game systems may still count them.");
+            try
+            {
+                Type type = AccessTools.TypeByName("Brix.Game.Network.UNetProjectCmd");
+                nativeSpawnMethod = type == null ? null :
+                    AccessTools.Method(type, "SpawnUnit");
+                if (nativeSpawnMethod == null)
+                {
+                    Logger.LogWarning("[AP BONUS] Native SpawnUnit not found.");
+                    return;
+                }
+                var parameters = nativeSpawnMethod.GetParameters();
+                if (parameters.Length != 6 ||
+                    parameters[1].ParameterType != typeof(Vector3) ||
+                    parameters[2].ParameterType != typeof(Quaternion) ||
+                    parameters[3].ParameterType != typeof(GameObject) ||
+                    parameters[5].ParameterType != typeof(bool) ||
+                    nativeSpawnMethod.ReturnType != typeof(GameObject))
+                {
+                    nativeSpawnMethod = null;
+                    Logger.LogWarning("[AP BONUS] Native SpawnUnit signature differs. No rewards spawned.");
+                    return;
+                }
+                harmony.Patch(nativeSpawnMethod, postfix: new HarmonyMethod(
+                    AccessTools.Method(typeof(CastleStoryArchipelagoPlugin), "AfterNativeUnitSpawn")));
+                Logger.LogInfo("[AP BONUS] SpawnUnit hook attached; active spawn opt-in=" +
+                    nativeBonusSpawning.Value);
+            }
+            catch (Exception error)
+            {
+                nativeSpawnMethod = null;
+                Logger.LogWarning("[AP BONUS] Hook unavailable: " + error);
+            }
+        }
+
+        // Observe vanilla spawns. The callback has game-owned prefab keys and a
+        // validated owning GameObject, which we cannot safely invent from strings.
+        private static void AfterNativeUnitSpawn(object __instance, object[] __args,
+                                                  GameObject __result)
+        {
+            if (Instance != null)
+                Instance.ObserveNativeUnitSpawn(__instance, __args, __result);
+        }
+
+        private void ObserveNativeUnitSpawn(object sender, object[] parameters, GameObject unit)
+        {
+            if (unit == null) return;
+            if (bonusSpawnInProgress)
+            {
+                lastBonusSpawn = unit;
+                trackedBonusInstanceIds.Add(unit.GetInstanceID());
+                Logger.LogInfo("[AP BONUS] Native SpawnUnit returned AP bonus unit instance " +
+                    unit.GetInstanceID());
+                return;
+            }
+            if (parameters == null || parameters.Length != 6 ||
+                parameters[3] == null || !(parameters[3] is GameObject))
+                return;
+            if (!IsLocalOwnedUnit(unit))
+                return;
+            nativeSpawnHost = sender;
+            nativeSpawnPrototype = (object[])parameters.Clone();
+            Logger.LogInfo("[AP BONUS] Cached verified local native spawn template; " +
+                "asset=" + (parameters[0] == null ? "<null>" : parameters[0].ToString()) +
+                ", role=" + (parameters[4] == null ? "<null>" : parameters[4].ToString()));
+        }
+
+        private bool IsLocalOwnedUnit(GameObject gameObject)
+        {
+            try
+            {
+                foreach (Component part in gameObject.GetComponents<Component>())
+                {
+                    if (part == null || !part.GetType().Name.Contains("Affiliation")) continue;
+                    var factionProperty = AccessTools.Property(part.GetType(), "Faction");
+                    object faction = factionProperty == null ? null :
+                        factionProperty.GetValue(part, null);
+                    if (faction == null) return false;
+                    var owned = AccessTools.Property(faction.GetType(), "IsOwnedByMe");
+                    return owned != null && Convert.ToBoolean(owned.GetValue(faction, null));
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP BONUS] Could not validate local unit: " + error.Message);
+            }
+            return false;
+        }
 
         private static bool IsBonusUnitItem(int id)
         {
@@ -125,6 +233,87 @@ namespace CastleStoryArchipelago
             return bonusRewards.Values.Count(t => t.state == "pending");
         }
 
+        private void ProcessPendingNativeBonus()
+        {
+            if (nativeBonusSpawning == null || !nativeBonusSpawning.Value ||
+                !bridgeConnected || !IsSelectedMissionType("Invasion") &&
+                !IsSelectedMissionType("Conquest") ||
+                Time.realtimeSinceStartup < nextBonusAttempt) return;
+            nextBonusAttempt = Time.realtimeSinceStartup + 2f;
+            if (nativeSpawnMethod == null || nativeSpawnHost == null ||
+                nativeSpawnPrototype == null) return;
+            var ticket = bonusRewards.Values.Where(x => x.state == "pending")
+                .OrderBy(x => x.index).FirstOrDefault();
+            if (ticket == null) return;
+
+            var proto = (object[])nativeSpawnPrototype.Clone();
+            string desired = ticket.item == ItemBase + 8 ? "Worker" :
+                ticket.item == ItemBase + 9 ? "Archer" :
+                ticket.item == ItemBase + 10 ? "Knight" : "Alchemist";
+            Type roleType = nativeSpawnMethod.GetParameters()[4].ParameterType;
+            if (!roleType.IsEnum)
+            {
+                ticket.note = "Native occupation type is not an enum; cannot spawn.";
+                SaveBonusRewards();
+                return;
+            }
+            string role = Enum.GetNames(roleType).FirstOrDefault(x =>
+                x.Equals(desired, StringComparison.OrdinalIgnoreCase));
+            if (String.IsNullOrEmpty(role))
+            {
+                ticket.note = "Occupation missing: " + desired +
+                    ". Existing roles: " + String.Join(",", Enum.GetNames(roleType));
+                SaveBonusRewards();
+                return;
+            }
+            proto[4] = Enum.Parse(roleType, role);
+            if (proto[1] is Vector3)
+            {
+                Vector3 p = (Vector3)proto[1];
+                proto[1] = new Vector3(p.x + 1.5f, p.y + .2f, p.z + 1.5f);
+            }
+            // Write a 'spawning' intent before calling the game. A crash does
+            // not cause an unbounded duplicate grant on restart.
+            ticket.state = "spawning";
+            ticket.note = "Native spawn attempted; confirm actual unit creation.";
+            SaveBonusRewards();
+            try
+            {
+                bonusSpawnInProgress = true;
+                lastBonusSpawn = null;
+                object result = nativeSpawnMethod.Invoke(nativeSpawnHost, proto);
+                GameObject spawned = lastBonusSpawn ?? result as GameObject;
+                if (spawned != null && IsLocalOwnedUnit(spawned))
+                {
+                    ticket.state = "delivered";
+                    ticket.note = "Game returned a locally owned Unit GameObject. " +
+                        "Quota exclusion and equipment still require validation.";
+                    Logger.LogInfo("[AP BONUS] Delivered index " + ticket.index +
+                        ", role=" + desired + ", game instance=" + spawned.GetInstanceID());
+                }
+                else
+                {
+                    // An invocation may enqueue a network action with no immediate
+                    // result. Never retry automatically: could double spawn.
+                    ticket.state = "review";
+                    ticket.note = "Spawn returned without verified local GameObject. " +
+                        "Manual check required; automatic retry disabled.";
+                    Logger.LogWarning("[AP BONUS] Could not confirm spawn #" + ticket.index);
+                }
+            }
+            catch (Exception error)
+            {
+                ticket.state = "review";
+                ticket.note = "Native invocation failed: " + error.GetType().Name;
+                Logger.LogError("[AP BONUS] Native spawn failed: " + error);
+            }
+            finally
+            {
+                bonusSpawnInProgress = false;
+                SaveBonusRewards();
+            }
+        }
+
         private void DumpBonusRewardQueue()
         {
             Logger.LogInfo("[AP BONUS] F10 queue; token=" + token +
@@ -133,8 +322,15 @@ namespace CastleStoryArchipelago
                 Logger.LogInfo("[AP BONUS] index=" + ticket.index +
                     " item=" + ticket.item + " state=" + ticket.state +
                     " note=" + ticket.note);
-            Logger.LogInfo("[AP BONUS] GeneralRules.bricktronCap is NOT modified. " +
-                "Native SpawnUnit/kit assignment remains under research.");
+            Logger.LogInfo("[AP BONUS] Native template=" +
+                (nativeSpawnPrototype == null ? "not observed" : "observed") +
+                "; native spawning enabled=" +
+                (nativeBonusSpawning != null && nativeBonusSpawning.Value) +
+                "; tracked in this match=" + trackedBonusInstanceIds.Count);
+            if (nativeSpawnMethod != null)
+                Logger.LogInfo("[AP BONUS] Native method " + nativeSpawnMethod.ToString() +
+                    " roles=" + String.Join(",", Enum.GetNames(
+                        nativeSpawnMethod.GetParameters()[4].ParameterType)));
         }
     }
 }
