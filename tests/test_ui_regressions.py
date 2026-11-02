@@ -89,6 +89,20 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('ScheduleNativeUiFilter("title/menu interaction")', native)
         self.assertIn("pendingFilterPasses = 3;", native)
 
+    def test_native_mode_options_are_filtered_even_without_selectable(self):
+        code = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn("HideNativeNonSelectableChoices(selectedNativeMode)", code)
+        self.assertIn("private GameObject FindNativeChoiceRoot(", code)
+        self.assertIn("type.Contains(\"menuchoice\")", code)
+        self.assertIn("if (target == null || hiddenNativeEntries.ContainsKey(target))", code)
+        self.assertIn("if (selectable != null && current.GetComponent(selectable)", code)
+
+    def test_f7_never_falls_back_to_old_popup_only_due_to_missing_title_button(self):
+        code = (ROOT / "mod/NativeConnectionPanel.cs").read_text(encoding="utf-8")
+        self.assertIn("EnsureNativeConnectionTemplate()", code)
+        self.assertIn("AP_NativeConnectionButtonTemplate", code)
+        self.assertIn("Resources.GetBuiltinResource<Font>", code)
+
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
         native = NATIVE.read_text(encoding="utf-8")
