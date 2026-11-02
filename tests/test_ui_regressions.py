@@ -38,7 +38,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
     def test_native_ui_filter_is_event_driven_and_bounded(self):
         code = INTEGRATION.read_text(encoding="utf-8")
         hooks = NATIVE.read_text(encoding="utf-8")
-        self.assertIn("pendingFilterPasses = 6;", code)
+        self.assertIn("pendingFilterPasses = 3;", code)
         self.assertIn("if (pendingFilterPasses > 0 && now >= nextFilterPassAt)", code)
         update = code.split("private void UpdateNativeArchipelagoIntegration()", 1)[1]
         update = update.split("private void DrawArchipelagoIntroCredit()", 1)[0]
@@ -61,6 +61,33 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("nativeMapCatalogSaveAt = Time.realtimeSinceStartup + 1.5f;", section)
         self.assertIn("private void FlushNativeMapCatalogIfIdle()", native)
         self.assertIn("FlushNativeMapCatalogIfIdle();", plugin)
+
+    def test_title_button_and_credit_never_use_map_screen_play(self):
+        ui = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn("TryInstallTitleEntryFromText()", ui)
+        self.assertIn("Archipelago_NativeTitleEntry", ui)
+        self.assertIn("nativeStarterMenu != null ||", ui)
+        self.assertIn("observedMapAssets.Count > 0", ui)
+        self.assertIn('String.Equals(name, "SceneMenu"', ui)
+        self.assertIn("now - titleSceneReadyAt >= 4.0f", ui)
+        self.assertIn("ProbeTitleScreenHierarchy()", ui)
+
+    def test_login_uses_clean_text_layout_and_warm_game_palette(self):
+        panel = (ROOT / "mod/NativeConnectionPanel.cs").read_text(encoding="utf-8")
+        self.assertIn("TextAnchor.MiddleLeft", panel)
+        self.assertIn("TextAnchor.MiddleCenter", panel)
+        self.assertIn('new Color(.95f, .79f, .34f, 1f)', panel)
+        self.assertIn("rect.SetParent(obj.transform, false);", panel)
+        self.assertIn("nativeConnectPending", panel)
+        self.assertIn("Already connecting; duplicate click ignored", panel)
+        self.assertNotIn("UnityEngine.Object.Instantiate(item.gameObject)", panel)
+
+    def test_missing_tmp_resolution_is_not_retried_for_every_button(self):
+        native = INTEGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("TMPro.TextMeshProUGUI", native)
+        self.assertIn("CachedNativeUiLabels(", native)
+        self.assertIn('ScheduleNativeUiFilter("title/menu interaction")', native)
+        self.assertIn("pendingFilterPasses = 3;", native)
 
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
