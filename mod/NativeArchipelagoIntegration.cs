@@ -295,6 +295,33 @@ namespace CastleStoryArchipelago
                     " mode=" + mode + ".");
         }
 
+        private void ProbeNativeArchipelagoUi()
+        {
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Logger.LogInfo("[AP NATIVE UI PROBE] Starting. ButtonType=" +
+                (buttonType == null ? "absent" : buttonType.FullName) +
+                " menu=" + (nativeStarterMenu == null ?
+                    "not-open" : nativeStarterMenu.GetType().FullName) +
+                " recognizedNativeMaps=" + nativeMapLabels.Count +
+                " hiddenEntries=" + hiddenNativeEntries.Count);
+            if (buttonType == null) return;
+            int count = 0;
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
+            {
+                Component button = value as Component;
+                if (button == null || button.gameObject == null) continue;
+                string label = NativeUiLabel(button.gameObject);
+                if (String.IsNullOrEmpty(label)) continue;
+                string parent = button.transform.parent == null ?
+                    "root" : button.transform.parent.name;
+                Logger.LogInfo("[AP NATIVE UI PROBE] button='" +
+                    label.Replace("\n", " ") + "' name='" + button.name +
+                    "' parent='" + parent + "'");
+                if (++count >= 60) break;
+            }
+            Logger.LogInfo("[AP NATIVE UI PROBE] Finished. visibleButtons=" + count);
+        }
+
         private void UpdateNativeArchipelagoIntegration()
         {
             if (Time.realtimeSinceStartup < nextNativeUiRefresh) return;
