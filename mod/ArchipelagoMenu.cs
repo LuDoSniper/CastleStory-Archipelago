@@ -36,7 +36,7 @@ namespace CastleStoryArchipelago
             public string state;
             public string message;
         }
-        [Serializable] private sealed class MissionSelectionFile
+        [Serializable] private sealed class MissionChoisirionFile
         {
             public string token;
             public string mission_id;
@@ -50,7 +50,7 @@ namespace CastleStoryArchipelago
         private string loginSlot = "";
         private string loginPassword = "";
         private string chosenMission = "";
-        private string statusLine = "Connect to your Archipelago world.";
+        private string statusLine = "Connecte-toi à ta partie Archipelago.";
         private Process localBridge;
         private float nextBridgeStatusRead;
         private float logoScale = 1f;
@@ -219,7 +219,7 @@ namespace CastleStoryArchipelago
                 if (enable && (String.IsNullOrEmpty(loginServer.Trim()) ||
                                String.IsNullOrEmpty(loginSlot.Trim())))
                 {
-                    statusLine = "Server address and slot are required.";
+                    statusLine = "L'adresse du serveur et le nom du slot sont obligatoires.";
                     return;
                 }
                 File.WriteAllText(Path.Combine(directory, "connection.json"),
@@ -228,7 +228,7 @@ namespace CastleStoryArchipelago
                         slot = enable ? loginSlot.Trim() : "",
                         password = enable ? loginPassword : ""
                     }));
-                statusLine = enable ? "Connection requested." : "Disconnected.";
+                statusLine = enable ? "Connexion demandée." : "Déconnecté.";
                 if (enable) StartLocalBridge();
                 else
                 {
@@ -250,7 +250,7 @@ namespace CastleStoryArchipelago
                     "castle_story_ap"), "castle-story-ap-bridge.exe");
                 if (!File.Exists(exe))
                 {
-                    statusLine = "Client bridge not found. Install the full BepInEx/plugins folder.";
+                    statusLine = "Client manquant : installe tout le dossier BepInEx/plugins.";
                     return;
                 }
                 var info = new ProcessStartInfo(exe);
@@ -259,7 +259,7 @@ namespace CastleStoryArchipelago
                 info.CreateNoWindow = true;
                 info.WorkingDirectory = Path.GetDirectoryName(exe);
                 localBridge = Process.Start(info);
-                statusLine = "Starting Archipelago client...";
+                statusLine = "Démarrage du client Archipelago...";
             }
             catch (Exception error)
             {
@@ -290,18 +290,18 @@ namespace CastleStoryArchipelago
             catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
         }
 
-        private void SelectMission(MissionFile mission)
+        private void ChoisirMission(MissionFile mission)
         {
             if (mission == null || String.IsNullOrEmpty(token)) return;
             chosenMission = mission.id;
             try
             {
                 File.WriteAllText(Path.Combine(directory, "mission_selection.json"),
-                    JsonUtility.ToJson(new MissionSelectionFile {
+                    JsonUtility.ToJson(new MissionChoisirionFile {
                         token = token, mission_id = mission.id,
                         map = mission.map, mode = mission.mode
                     }));
-                Logger.LogInfo("[AP MISSION] Selected " + mission.id +
+                Logger.LogInfo("[AP MISSION] Choisie " + mission.id +
                     ", map " + mission.map + ", mode " + mission.mode);
             }
             catch (Exception error) { Logger.LogWarning("[AP MISSION] " + error.Message); }
@@ -325,14 +325,21 @@ namespace CastleStoryArchipelago
                 GUI.Label(logoRect, "AP", subTitleStyle);
             GUI.color = Color.white;
             if (GUI.Button(new Rect(15, 12, 67, 68), "", logoButton))
-                apMenuOpen = !apMenuOpen;
+            {
+                if (bridgeConnected && nativeNewGameVisible)
+                {
+                    CloseNativeNewGame();
+                    apMenuOpen = true;
+                }
+                else apMenuOpen = !apMenuOpen;
+            }
             if (bridgeConnected)
                 GUI.DrawTexture(new Rect(70, 17, 8, 8), greenPixel);
             if (hovered)
                 GUI.Label(new Rect(89, 30, 188, 30), "Archipelago", eyebrowStyle);
         }
 
-        private void DrawBackdrop()
+        private void DrawRetourdrop()
         {
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), overlayPixel);
         }
@@ -355,10 +362,10 @@ namespace CastleStoryArchipelago
             float height = Mathf.Min(580f, Mathf.Max(380f, Screen.height - 30f));
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
-            DrawBackdrop();
+            DrawRetourdrop();
             GUI.Box(panel, "", panelStyle);
-            DrawTopBar(panel, "MULTIWORLD  /  CONNECTION",
-                       "Archipelago", "Connect to your seed and unlock its Castle Story campaign.");
+            DrawTopBar(panel, "MULTIWORLD  /  CONNEXION",
+                       "Archipelago", "Connecte-toi pour accéder aux missions de ta seed.");
             if (GUI.Button(new Rect(panel.xMax - 68, panel.y + 25, 40, 38),
                            "X", closeButton))
                 apMenuOpen = false;
@@ -366,15 +373,15 @@ namespace CastleStoryArchipelago
             float x = panel.x + 30;
             float inner = panel.width - 60;
             float y = panel.y + 154;
-            GUI.Label(new Rect(x, y, inner, 20), "SERVER ADDRESS", inputLabelStyle);
+            GUI.Label(new Rect(x, y, inner, 20), "ADRESSE DU SERVEUR", inputLabelStyle);
             loginServer = GUI.TextField(new Rect(x, y + 24, inner, 43),
                 loginServer, 240, inputStyle);
             y += 79;
-            GUI.Label(new Rect(x, y, inner, 20), "SLOT NAME", inputLabelStyle);
+            GUI.Label(new Rect(x, y, inner, 20), "NOM DU SLOT", inputLabelStyle);
             loginSlot = GUI.TextField(new Rect(x, y + 24, inner, 43),
                 loginSlot, 140, inputStyle);
             y += 79;
-            GUI.Label(new Rect(x, y, inner, 20), "PASSWORD  (OPTIONAL)", inputLabelStyle);
+            GUI.Label(new Rect(x, y, inner, 20), "MOT DE PASSE  (FACULTATIF)", inputLabelStyle);
             loginPassword = GUI.PasswordField(new Rect(x, y + 24, inner, 43),
                 loginPassword, '*', 120, inputStyle);
 
@@ -383,11 +390,11 @@ namespace CastleStoryArchipelago
             GUI.DrawTexture(new Rect(x + 13, connectionY + 21, 10, 10),
                 bridgeConnected ? greenPixel : borderPixel);
             GUI.Label(new Rect(x + 33, connectionY + 7, inner - 48, 38),
-                bridgeConnected ? "Connected  /  " + mode : statusLine,
+                bridgeConnected ? "Connecté  /  " + mode : statusLine,
                 bridgeConnected ? bodyStyle : miniStyle);
             float bottom = panel.yMax - 64;
             if (GUI.Button(new Rect(x, bottom, inner * .63f - 7, 43),
-                           bridgeConnected ? "View campaign" : "Connect to server",
+                           bridgeConnected ? "Voir la campagne" : "Se connecter",
                            primaryButton))
             {
                 if (bridgeConnected)
@@ -399,7 +406,7 @@ namespace CastleStoryArchipelago
             }
             if (GUI.Button(new Rect(x + inner * .63f + 5, bottom,
                                      inner * .37f - 5, 43),
-                           bridgeConnected ? "Disconnect" : "Close",
+                           bridgeConnected ? "Déconnexion" : "Fermer",
                            secondaryButton))
             {
                 if (bridgeConnected) WriteConnection(false);
@@ -439,13 +446,13 @@ namespace CastleStoryArchipelago
             int goal = mission.mode == "Invasion" ? mission.wave_goal : mission.shard_count;
             GUI.Label(new Rect(card.x + 29, card.y + 62, card.width - 175, 22),
                 mission.mode == "Invasion" ?
-                    ("Survive " + goal + " waves") :
-                    ("Capture " + goal + " shards  /  " + CountMissionChecks(mission) + " completed"),
+                    ("Survivre à " + goal + " vagues") :
+                    ("Capturer " + goal + " shards  /  " + CountMissionChecks(mission) + " terminés"),
                 mutedStyle);
             if (GUI.Button(new Rect(card.xMax - 129, card.y + 29, 113, 39),
-                           selected ? "Selected" : "Select",
+                           selected ? "Choisie" : "Choisir",
                            selected ? primaryButton : secondaryButton))
-                SelectMission(mission);
+                ChoisirMission(mission);
         }
 
         private void DrawCampaign()
@@ -454,27 +461,27 @@ namespace CastleStoryArchipelago
             float height = Mathf.Min(730f, Mathf.Max(430f, Screen.height - 30f));
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
-            DrawBackdrop();
+            DrawRetourdrop();
             GUI.Box(panel, "", panelStyle);
-            DrawTopBar(panel, "ARCHIPELAGO  /  CAMPAIGN",
-                       "Your missions",
-                       "This run controls which maps and game modes you can play.");
+            DrawTopBar(panel, "ARCHIPELAGO  /  CAMPAGNE",
+                       "Missions de la seed",
+                       "Cette seed impose les cartes et les modes à jouer.");
             float x = panel.x + 28, inner = panel.width - 56;
             if (GUI.Button(new Rect(panel.xMax - 85, panel.y + 25, 56, 38),
-                           "Back", subtleButton))
+                           "Retour", subtleButton))
             {
                 apMenuOpen = false;
                 // Closing the native screen also dismisses the AP mission picker.
-                CloseNativeNewGame();
+                FermerNativeNewGame();
                 return;
             }
             if (campaign == null || campaign.missions == null)
             {
                 GUI.Box(new Rect(x, panel.y + 167, inner, 118), "", cardStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 33),
-                    "No campaign manifest received", subTitleStyle);
+                    "Aucune campagne reçue", subTitleStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 220, inner - 40, 53),
-                    "Connect with an updated Castle Story APWorld and generate a new seed in ArchiLAN.",
+                    "Utilise le dernier APWorld et génère une nouvelle seed sur ArchiLAN.",
                     mutedStyle);
                 return;
             }
@@ -482,16 +489,16 @@ namespace CastleStoryArchipelago
             {
                 GUI.Box(new Rect(x, panel.y + 167, inner, 150), "", cardStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 28),
-                    "This campaign is not ready", subTitleStyle);
+                    "Cette campagne n'est pas prête", subTitleStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 218, inner - 40, 84),
                     String.IsNullOrEmpty(campaign.warning) ?
-                    "Your seed did not provide a playable map list." : campaign.warning,
+                    "La seed ne contient aucune liste de cartes jouables." : campaign.warning,
                     errorStyle);
                 return;
             }
             GUI.Label(new Rect(x, panel.y + 154, inner, 22),
                 (campaign.mode ?? mode).ToUpperInvariant() +
-                "  /  " + campaign.missions.Length + " MAPS",
+                "  /  " + campaign.missions.Length + " CARTES",
                 eyebrowStyle);
             float listY = panel.y + 189;
             float listHeight = Mathf.Max(100, panel.height - 300f);
@@ -509,16 +516,16 @@ namespace CastleStoryArchipelago
             GUI.DrawTexture(new Rect(x, footerY - 14, inner, 1), borderPixel);
             bool isChosen = !String.IsNullOrEmpty(chosenMission);
             GUI.Label(new Rect(x, footerY, inner * .52f, 30),
-                isChosen ? "Ready to launch selected mission" :
-                    "Select a mission to continue.", mutedStyle);
+                isChosen ? "Mission sélectionnée, prête à lancer" :
+                    "Choisir a mission to continue.", mutedStyle);
             if (GUI.Button(new Rect(panel.xMax - 286, footerY - 3, 258, 46),
-                           "Launch selected mission", primaryButton))
+                           "Lancer cette mission", primaryButton))
             {
-                if (isChosen) LaunchSelectedMission();
-                else statusLine = "Please select an Archipelago mission.";
+                if (isChosen) LaunchChoisieMission();
+                else statusLine = "Choisis d'abord une mission Archipelago.";
             }
             GUI.Label(new Rect(x, panel.yMax - 39, inner, 23),
-                "Mission launch uses Castle Story's native loader. " + statusLine,
+                "Lancement via Castle Story. " + statusLine,
                 miniStyle);
         }
 
