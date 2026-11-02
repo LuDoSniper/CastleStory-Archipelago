@@ -57,7 +57,31 @@ def scan(game_root):
                 "marker_evidence": marker_evidence(markers),
                 "verified_shards": None,
             })
-    return results
+    # The in-game native map asset registry is language-independent and can
+    # include built-in maps packaged without corresponding Info/Maps folders.
+    registry = root / "BepInEx/config/castle_story_archipelago/installed_maps.json"
+    native = read_json(registry)
+    if isinstance(native, dict) and isinstance(native.get("map_ids"), list):
+        seen = {entry["name"].casefold() for entry in results}
+        for key in native["map_ids"]:
+            if not isinstance(key, str) or not key.strip():
+                continue
+            if key.casefold() in seen:
+                for item in results:
+                    if item["name"].casefold() == key.casefold():
+                        item["verified_in_unity"] = True
+                continue
+            seen.add(key.casefold())
+            results.append({
+                "name": key,
+                "source": "Castle Story native Asset_Map registry",
+                "present_files": [],
+                "metadata_keys": [],
+                "marker_evidence": [],
+                "verified_shards": None,
+                "verified_in_unity": True,
+            })
+    return sorted(results, key=lambda e: e["name"].casefold())
 
 def validate_approvals(entries, approvals):
     """Approve counts by exact installed map identity; never silently infer them."""
@@ -68,19 +92,27 @@ def validate_approvals(entries, approvals):
             raise ValueError("Unknown installed map: " + repr(name))
         if type(count) is not int or not 1 <= count <= 30:
             raise ValueError("Shard count must be 1..30 for " + repr(name))
-        if "LuaMarkersCount.json" not in available[name]["present_files"]:
-            raise ValueError("Missing marker file, cannot confirm map: " + repr(name))
+        if ("LuaMarkersCount.json" not in available[name]["present_files"] and
+                not available[name].get("verified_in_unity")):
+            raise ValueError("Missing marker/native map evidence for: " + repr(name))
         catalog[name] = count
     return dict(sorted(catalog.items()))
 
-def yaml_fragment(approved):
-    """YAML object fragment for Castle Story -> conquest_map_capacities."""
-    if not approved:
-        return "  conquest_map_capacities: {}\n"
-    lines = ["  conquest_map_capacities:"]
-    for name,count in sorted(approved.items()):
-        # JSON-quoted strings are valid YAML scalars.
-        lines.append("    %s: %d" % (json.dumps(name, ensure_ascii=False), count))
+def yaml_fragment(approved, invasion_ids=None):
+    """YAML options with stable map IDs, not translated names."""
+    invasion_ids = sorted(set(invasion_ids or []))
+    lines = ["  invasion_map_pool:"]
+    if not invasion_ids:
+        lines = ["  invasion_map_pool: []"]
+    else:
+        lines.extend("    - " + json.dumps(name, ensure_ascii=False)
+                     for name in invasion_ids)
+    if approved:
+        lines.append("  conquest_map_capacities:")
+        for name, count in sorted(approved.items()):
+            lines.append("    %s: %d" % (json.dumps(name, ensure_ascii=False), count))
+    else:
+        lines.append("  conquest_map_capacities: {}")
     return "\n".join(lines) + "\n"
 
 def main():
@@ -89,6 +121,8 @@ def main():
     parser.add_argument("--output", default="castle_story_map_inventory.json")
     parser.add_argument("--approve", action="append", default=[], metavar="MAP=SHARDS",
                         help="Manually verified shard count for an installed map")
+    parser.add_argument("--invasion", action="append", default=[], metavar="MAP_ID",
+                        help="Mark a native/installed map ID as supporting Invasion") 
     parser.add_argument("--yaml-output", default="castle_story_map_options.yaml")
     args = parser.parse_args()
     entries = scan(args.game_root)
@@ -107,18 +141,25 @@ def main():
         approved = validate_approvals(entries, approvals)
     except ValueError as error:
         parser.error(str(error))
+    installed = {entry["name"] for entry in entries}
+    for key in args.invasion:
+        if key not in installed:
+            parser.error("Unknown installed Invasion map ID: " + key)
     for entry in entries:
         if entry["name"] in approved:
             entry["verified_shards"] = approved[entry["name"]]
+        if entry["name"] in args.invasion:
+            entry["invasion_approved"] = True
     report = {"status": "VERIFIED_PARTIAL" if approved else "NEEDS_SHARD_COUNT_VALIDATION",
               "map_count": len(entries), "verified_maps": len(approved),
               "maps": entries,
               "note": "Marker evidence is diagnostic. Counts are only assigned with --approve."}
     Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                  encoding="utf-8")
-    Path(args.yaml_output).write_text(yaml_fragment(approved), encoding="utf-8")
-    print("Scanned %d maps, confirmed %d. Report: %s; YAML: %s" %
-          (len(entries), len(approved), args.output, args.yaml_output))
+    Path(args.yaml_output).write_text(yaml_fragment(approved, args.invasion), encoding="utf-8")
+    print("Scanned %d map IDs, confirmed %d Conquest counts, %d Invasion maps. " 
+          "Report: %s; YAML: %s" %
+          (len(entries), len(approved), len(args.invasion), args.output, args.yaml_output))
 
 if __name__ == "__main__":
     main()
