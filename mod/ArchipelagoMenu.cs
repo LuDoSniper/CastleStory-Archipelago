@@ -714,26 +714,40 @@ namespace CastleStoryArchipelago
 
         private void DrawApMenu()
         {
-            PrepareSkin();
-            ReadLocalBridgeStatus();
             int originalDepth = GUI.depth;
             Color originalColor = GUI.color;
-            GUI.depth = -29000;
-
-            // Always draw the AP icon; it is separate from the optional F8 diagnostic.
-            if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
+            try
             {
-                DrawCampaign();
-                // Native Unity UI events are blocked by NativeInputShield.cs.
-                // Do not call Event.Use() here: IMGUI controls such as
-                // "Fermer" need the complete MouseDown/MouseUp sequence.
-            }
-            else if (apMenuOpen)
-                DrawConnection();
+                PrepareSkin();
+                ReadLocalBridgeStatus();
+                GUI.depth = -29000;
 
-            DrawBrandingButton();
-            GUI.color = originalColor;
-            GUI.depth = originalDepth;
+                // Do not dismiss the popup on a transient heartbeat loss.
+                // Its message (and shielding) must remain visible to the user.
+                if (nativeNewGameVisible || campaignPreviewOpen)
+                    DrawCampaign();
+                else if (apMenuOpen)
+                    DrawConnection();
+
+                DrawBrandingButton();
+                lastUiException = "";
+            }
+            catch (Exception error)
+            {
+                string diagnostic = error.ToString();
+                if (lastUiException != diagnostic)
+                {
+                    lastUiException = diagnostic;
+                    Logger.LogError("[AP UI EXCEPTION] " + diagnostic);
+                    campaignNotice = "Erreur d'interface : " + error.Message;
+                    campaignNoticeIsError = true;
+                }
+            }
+            finally
+            {
+                GUI.color = originalColor;
+                GUI.depth = originalDepth;
+            }
         }
 
         private void CleanupApUi()
