@@ -356,7 +356,11 @@ namespace CastleStoryArchipelago
                 Logger.LogInfo("[AP MISSION] Choisie " + mission.id +
                     ", map " + mission.map + ", mode " + mission.mode);
             }
-            catch (Exception error) { Logger.LogWarning("[AP MISSION] " + error.Message); }
+            catch (Exception error)
+            {
+                SetCampaignNotice("Impossible de sélectionner la mission : " + error.Message, true);
+                Logger.LogWarning("[AP MISSION] " + error.Message);
+            }
         }
 
         private void DrawBrandingButton()
@@ -527,7 +531,8 @@ namespace CastleStoryArchipelago
                            selected ? primaryButton : secondaryButton))
             {
                 if (!waitingForMap) SelectMission(mission);
-                else statusLine = "Ouvre Nouvelle partie et attends le catalogue de cartes.";
+                else SetCampaignNotice(
+                    "Ouvre Nouvelle partie et attends le catalogue de cartes.", true);
             }
         }
 
