@@ -178,6 +178,52 @@ namespace CastleStoryArchipelago
             return false;
         }
 
+        private bool EnsureNativeConnectionTemplate()
+        {
+            if (mainMenuPlayTemplate != null) return true;
+            // On the real title screen Castle Story doesn't expose a UGUI
+            // Button at all. F7 must STILL use the same native-style Canvas,
+            // not silently regress to the old IMGUI popup.
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (buttonType == null || textType == null) return false;
+            GameObject obj = null;
+            try
+            {
+                obj = new GameObject("AP_NativeConnectionButtonTemplate",
+                    typeof(RectTransform));
+                UnityEngine.Object.DontDestroyOnLoad(obj);
+                obj.SetActive(false);
+                RectTransform rect = (RectTransform)obj.transform;
+                rect.sizeDelta = new Vector2(180f, 50f);
+                AddUiImage(obj, new Color(.95f, .79f, .34f, 1f), true);
+                obj.AddComponent(buttonType);
+                GameObject caption = NewNativeUiObject("Caption",
+                    obj.transform, new Vector2(170, 46), Vector2.zero);
+                Component label = caption.AddComponent(textType);
+                Font font = nativeMenuFont != null ? nativeMenuFont :
+                    Resources.GetBuiltinResource<Font>("Arial.ttf");
+                SetUiProperty(label, "font", font);
+                SetUiProperty(label, "text", "Archipelago");
+                SetUiProperty(label, "fontSize", 20);
+                SetUiProperty(label, "alignment", TextAnchor.MiddleCenter);
+                SetUiProperty(label, "color", new Color(.16f, .13f, .08f, 1f));
+                SetUiProperty(label, "raycastTarget", false);
+                mainMenuPlayTemplate = obj;
+                mainMenuOptionsTemplate = obj;
+                Logger.LogInfo("[AP NATIVE UI] Created reusable title-style fallback " +
+                    "for F7 connection. No native Play prefab present in SceneMenu.");
+                return true;
+            }
+            catch (Exception error)
+            {
+                if (obj != null) UnityEngine.Object.Destroy(obj);
+                Logger.LogWarning("[AP NATIVE UI] Native fallback template: " +
+                    error.GetType().Name);
+                return false;
+            }
+        }
+
         private bool ShowNativeConnectionPanel()
         {
             if (nativeConnectionPanel != null)
@@ -189,7 +235,7 @@ namespace CastleStoryArchipelago
                 UpdateNativePanelStatus();
                 return true;
             }
-            if (mainMenuPlayTemplate == null) return false;
+            if (!EnsureNativeConnectionTemplate()) return false;
             if (FindRuntimeType("UnityEngine.UI.InputField") == null ||
                 FindRuntimeType("UnityEngine.UI.Text") == null ||
                 FindRuntimeType("UnityEngine.UI.GraphicRaycaster") == null)
@@ -342,6 +388,13 @@ namespace CastleStoryArchipelago
             if (nativeConnectionPanel != null)
                 UnityEngine.Object.Destroy(nativeConnectionPanel);
             nativeConnectionPanel = null;
+            if (mainMenuPlayTemplate != null &&
+                mainMenuPlayTemplate.name == "AP_NativeConnectionButtonTemplate")
+            {
+                UnityEngine.Object.Destroy(mainMenuPlayTemplate);
+                mainMenuPlayTemplate = null;
+                mainMenuOptionsTemplate = null;
+            }
             serverNativeInput = slotNativeInput = passwordNativeInput = nativeStatusLabel = null;
         }
     }
