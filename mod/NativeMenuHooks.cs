@@ -496,9 +496,15 @@ namespace CastleStoryArchipelago
             // Only an explicit disconnect or absent session restores vanilla
             // starts. Short bridge drops must not bypass seed restrictions.
             if (disconnectPending || String.IsNullOrEmpty(token)) return true;
-            if (menuInstance == null ||
-                !menuInstance.GetType().Name.Contains("SpNewGameStarterMenu"))
-                return true;
+            // This prefix is installed on BaseMapStarterMenu.OnOk and the
+            // single-player override. Validate every native map start, so
+            // a sandbox variant cannot bypass the seed through another
+            // BaseMapStarterMenu subtype or by keyboard navigation.
+            if (menuInstance == null)
+            {
+                Logger.LogWarning("[AP NATIVE UI] Blocked null native map starter.");
+                return false;
+            }
             if (campaign == null || !campaign.ready ||
                 campaign.missions == null || campaign.missions.Length == 0)
             {
