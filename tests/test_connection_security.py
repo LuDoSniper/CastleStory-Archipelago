@@ -1,6 +1,10 @@
 """Secure native in-game login and no stored Archipelago passwords."""
 from pathlib import Path
+import base64
+import io
+import json
 import unittest
+from unittest.mock import patch
 
 from test_bridge import bridge
 
@@ -29,6 +33,17 @@ class InMemoryBridgeCredentials(unittest.TestCase):
         self.assertEqual(control.drain(), ("ws://localhost:2", "New", "new"))
         control.queue.put({"cmd": "disconnect"})
         self.assertIsNone(control.drain())
+
+    def test_framed_utf8_credentials_survive_windows_codepage(self):
+        control = bridge.StdinControl(start_reader=False)
+        payload = {"cmd": "connect", "server": "localhost:38281",
+                   "slot": "Élise", "password": "mot de passe 한글"}
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        line = "APIPC1:" + base64.b64encode(raw).decode("ascii") + "\n"
+        with patch.object(bridge.sys, "stdin", io.StringIO(line)):
+            control._read()
+        self.assertEqual(control.drain(),
+                         ("ws://localhost:38281", "Élise", "mot de passe 한글"))
 
     def test_unity_never_writes_password_to_persistent_json(self):
         menu = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
