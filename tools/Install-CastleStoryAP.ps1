@@ -63,8 +63,27 @@ foreach ($pair in @(@($srcDll, $dstDll), @($srcBridge, $dstBridge), @($srcLogo, 
     Write-Host ("OK : " + (Split-Path $pair[1] -Leaf) + " SHA256=" + $dstHash.Substring(0, 12))
 }
 
-# Remove ONLY stale session/cache. Never delete connection.json, seed progress,
-# checks.json, bonuses, savegames, or the native map inventory.
+# Migrate legacy connection.json (which could contain a PLAINTEXT password)
+# to a preferences file containing ONLY the server and slot. Do NOT back up
+# the old file. The new bridge uses an anonymous stdin pipe for passwords.
+$legacyConnection = Join-Path $config "connection.json"
+$prefsPath = Join-Path $config "connection_preferences.json"
+if (Test-Path -LiteralPath $legacyConnection) {
+    try {
+        $old = Get-Content -LiteralPath $legacyConnection -Raw | ConvertFrom-Json
+        if (-not (Test-Path -LiteralPath $prefsPath) -and $old.server -and $old.slot) {
+            @{ server = [string]$old.server; slot = [string]$old.slot } |
+                ConvertTo-Json -Compress |
+                Set-Content -LiteralPath $prefsPath -Encoding UTF8
+        }
+    } finally {
+        Remove-Item -LiteralPath $legacyConnection -Force -ErrorAction Stop
+        Write-Host "Ancien connection.json supprime (mot de passe non conserve)."
+    }
+}
+
+# Remove ONLY stale session/cache; preserve seed progress, checks.json,
+# bonuses, savegames and native map inventory.
 foreach ($name in @("session.json", "bridge_status.json")) {
     $path = Join-Path $config $name
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
