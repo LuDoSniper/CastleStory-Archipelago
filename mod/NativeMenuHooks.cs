@@ -16,6 +16,8 @@ namespace CastleStoryArchipelago
         private bool unknownMapTypeLogged;
         private bool nativeMapScanComplete;
         private bool savingNativeMapCatalog;
+        private bool nativeMapCatalogDirty;
+        private float nativeMapCatalogSaveAt;
         [Serializable] private sealed class NativeMapCatalog
         {
             public string[] map_ids;
@@ -83,6 +85,7 @@ namespace CastleStoryArchipelago
                         conquest_map_ids = conquest.ToArray(),
                         scan_complete = scanComplete
                     }));
+                nativeMapCatalogDirty = false;
                 Logger.LogInfo("[AP MAPS] Exported " + ids.Count + " IDs; " +
                     invasion.Count + " verified Invasion maps and " +
                     conquest.Count + " Conquest maps.");
@@ -299,8 +302,13 @@ namespace CastleStoryArchipelago
                         " (catalog size=" + mapRegistrationCount + ")");
                 }
                 observedMapAssets[key] = gameMap;
-                if (nativeStarterMenu != null && isNew)
-                    SaveObservedMapIds(nativeMapScanComplete);
+                if (isNew)
+                {
+                    // Never regenerate+write the ENTIRE map catalog for every
+                    // GetAssetLabel call during tile construction (O(n²)).
+                    nativeMapCatalogDirty = true;
+                    nativeMapCatalogSaveAt = Time.realtimeSinceStartup + 1.5f;
+                }
             }
             else if (!unknownMapTypeLogged && gameMap != null)
             {
@@ -339,6 +347,7 @@ namespace CastleStoryArchipelago
                 }
                 nativeMapScanComplete = true;
                 SaveObservedMapIds(true);
+                nativeMapCatalogDirty = false;
                 Logger.LogInfo("[AP MENU] Map discovery after OpenSelf: " +
                     observedMapAssets.Count + " native assets. Stable IDs saved to installed_maps.json.");
             }
@@ -346,6 +355,17 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogWarning("[AP MENU] Map discovery failed: " + error.Message);
             }
+        }
+
+        private void FlushNativeMapCatalogIfIdle()
+        {
+            if (!nativeMapCatalogDirty || savingNativeMapCatalog ||
+                nativeStarterMenu == null ||
+                Time.realtimeSinceStartup < nativeMapCatalogSaveAt)
+                return;
+            // A second generation or a late-added workshop card is
+            // persisted once, after the map list stops changing.
+            SaveObservedMapIds(nativeMapScanComplete);
         }
 
         private static bool LooksLikeMapCollection(string memberName)
