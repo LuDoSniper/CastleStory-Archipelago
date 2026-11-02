@@ -61,6 +61,7 @@ namespace CastleStoryArchipelago
                     Logger.LogWarning("[AP API PROBE] " + name + ": " + error.Message);
                 }
             }
+            ProbeNativeArchipelagoUi();
             Logger.LogInfo("[AP API PROBE] Finished. Future hooks must be validated in game.");
         }
     }
