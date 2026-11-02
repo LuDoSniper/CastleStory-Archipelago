@@ -51,7 +51,14 @@ namespace CastleStoryArchipelago
 
         private static bool IsSandboxLabel(string label)
         {
-            switch (NormalizeNativeLabel(label))
+            string normalized = NormalizeNativeLabel(label);
+            // Includes prefab identifiers such as "SandboxModeButton".
+            if (normalized.Contains("sandbox") ||
+                normalized.Contains("freebuild") ||
+                normalized.Contains("free_build") ||
+                normalized.Contains("construction libre"))
+                return true;
+            switch (normalized)
             {
                 case "sandbox": case "creative": case "creative mode":
                 case "free build": case "freebuild": case "free building":
@@ -66,9 +73,12 @@ namespace CastleStoryArchipelago
         {
             string value = NormalizeNativeLabel(label);
             if (value == "invasion" || value == "mode_invasion" ||
-                value == "invasionmode") return "Invasion";
+                value == "invasionmode" || value.Contains("invasionmode") ||
+                value.Contains("mode_invasion")) return "Invasion";
             if (value == "conquest" || value == "conquête" ||
-                value == "mode_conquest" || value == "conquestmode")
+                value == "mode_conquest" || value == "conquestmode" ||
+                value.Contains("conquestmode") ||
+                value.Contains("mode_conquest"))
                 return "Conquest";
             return null;
         }
@@ -670,7 +680,10 @@ namespace CastleStoryArchipelago
                 nextMainMenuProbeAt = now + (mainMenuProbeCount < 4 ? 1f : 3f);
                 TryInstallNativeArchipelagoButton();
                 if (mainMenuProbeCount == 8 && nativeArchipelagoButton == null)
+                {
                     Logger.LogWarning("[AP NATIVE UI] No native Play button found after bounded probes; F7 remains available.");
+                    ProbeNativeArchipelagoUi();
+                }
             }
             if (pendingFilterPasses > 0 && now >= nextFilterPassAt)
             {
