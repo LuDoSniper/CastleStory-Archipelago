@@ -25,7 +25,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         code = INTEGRATION.read_text(encoding="utf-8")
         self.assertIn("IsSandboxLabel(label)", code)
         self.assertIn('mode != "Hybrid" && namedMode != mode', code)
-        self.assertIn("!AllowedSeedMap(mapId)", code)
+        self.assertIn("!AllowedSeedMap(mapId, selectedNativeMode)", code)
         self.assertIn("nativeMapLabels.TryGetValue", code)
         self.assertIn("private void RestoreNativeEntries()", code)
         self.assertIn("disconnectPending || String.IsNullOrEmpty(token)", code)
