@@ -139,7 +139,10 @@ namespace CastleStoryArchipelago
         {
             // The popup stays open to show an error even when the bridge
             // heartbeat drops. Its pointer shield must remain in sync.
-            return apMenuOpen || nativeNewGameVisible || campaignPreviewOpen;
+            // The separate white Archipelago credit also blocks inputs until
+            // it has finished; the native connection panel uses its own Canvas.
+            return introCreditActive || apMenuOpen ||
+                nativeNewGameVisible || campaignPreviewOpen;
         }
 
         private void UpdateNativeInputShield()
