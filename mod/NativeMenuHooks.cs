@@ -13,6 +13,34 @@ namespace CastleStoryArchipelago
         private object nativeStarterMenu;
         private int mapRegistrationCount;
         private bool unknownMapTypeLogged;
+        [Serializable] private sealed class NativeMapCatalog
+        {
+            public string[] map_ids;
+        }
+
+        private static string MissionMapId(MissionFile mission)
+        {
+            if (mission == null) return null;
+            return !String.IsNullOrEmpty(mission.map_id) ?
+                mission.map_id : mission.map; // Legacy pre-protocol-5 slots.
+        }
+
+        private void SaveObservedMapIds()
+        {
+            try
+            {
+                var ids = new List<string>(observedMapAssets.Keys);
+                ids.Sort(StringComparer.OrdinalIgnoreCase);
+                File.WriteAllText(Path.Combine(directory, "installed_maps.json"),
+                    UnityEngine.JsonUtility.ToJson(new NativeMapCatalog {
+                        map_ids = ids.ToArray()
+                    }));
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP MAPS] Cannot write installed map IDs: " + error.Message);
+            }
+        }
 
         private void InstallNativeMenuGuard()
         {
@@ -125,8 +153,9 @@ namespace CastleStoryArchipelago
                         try { ObserveMapCollection(method.Invoke(menu, new object[0])); }
                         catch (Exception) { }
                 }
+                SaveObservedMapIds();
                 Logger.LogInfo("[AP MENU] Map discovery after OpenSelf: " +
-                    observedMapAssets.Count + " native assets.");
+                    observedMapAssets.Count + " native assets. Stable IDs saved to installed_maps.json.");
             }
             catch (Exception error)
             {
@@ -290,14 +319,23 @@ namespace CastleStoryArchipelago
                 return;
             }
             object asset;
-            if (!observedMapAssets.TryGetValue(mission.map, out asset))
+            string wantedId = MissionMapId(mission);
+            if (String.IsNullOrEmpty(wantedId))
+            {
+                statusLine = "La seed ne fournit pas d'identifiant de carte.";
+                return;
+            }
+            if (!observedMapAssets.TryGetValue(wantedId, out asset))
             {
                 TryDiscoverNativeMaps(nativeStarterMenu);
-                if (!observedMapAssets.TryGetValue(mission.map, out asset))
+                if (!observedMapAssets.TryGetValue(wantedId, out asset))
                 {
-                    statusLine = "Carte manquante dans les assets du jeu : " +
-                        mission.map + " (" + observedMapAssets.Count +
-                        " cartes detectees). Voir F9.";
+                    statusLine = "Identifiant introuvable : " + wantedId +
+                        " (" + observedMapAssets.Count + " cartes vues). " +
+                        "Consulte installed_maps.json et la configuration ArchiLAN.";
+                    Logger.LogWarning("[AP MAPS] Unresolved seed map_id=" + wantedId +
+                        "; native IDs=" + String.Join(",",
+                            new List<string>(observedMapAssets.Keys).ToArray()));
                     return;
                 }
             }
@@ -343,7 +381,7 @@ namespace CastleStoryArchipelago
                 if (selectedMode.CanWrite)
                     selectedMode.SetValue(nativeStarterMenu, gameMode, null);
                 selectedMap.SetValue(nativeStarterMenu, asset, null);
-                Logger.LogInfo("[AP MENU] Auto-selected map " + mission.map +
+                Logger.LogInfo("[AP MENU] Auto-selected map ID " + wantedId +
                     " for " + mission.id);
                 var start = AccessTools.Method(starter, "OnOk", Type.EmptyTypes);
                 if (start == null)
@@ -352,7 +390,7 @@ namespace CastleStoryArchipelago
                     return;
                 }
                 start.Invoke(nativeStarterMenu, new object[0]);
-                statusLine = "Launching " + mission.map + "...";
+                statusLine = "Lancement de " + (mission.map ?? wantedId) + "...";
                 nativeNewGameVisible = false;
             }
             catch (Exception error)
@@ -398,7 +436,8 @@ namespace CastleStoryArchipelago
                 object map = property == null ? null : property.GetValue(menuInstance, null);
                 if (map == null)
                 {
-                    statusLine = "Select " + selected.map + " in Castle Story before starting.";
+                    statusLine = "Choisis la carte ID " + MissionMapId(selected) +
+                        " avant de démarrer.";
                     return false;
                 }
                 // Asset_Map.GetHeightmapPath() is present in the supplied Castle Story
@@ -410,11 +449,14 @@ namespace CastleStoryArchipelago
                     Logger.LogWarning("[AP MENU] Could not resolve Asset_Map.GetHeightmapPath.");
                     return false;
                 }
-                if (!String.Equals(actual, selected.map, StringComparison.OrdinalIgnoreCase))
+                if (!String.Equals(actual, MissionMapId(selected),
+                                   StringComparison.OrdinalIgnoreCase))
                 {
-                    statusLine = "Expected map: " + selected.map + " (selected " + actual + ")";
-                    Logger.LogWarning("[AP MENU] Blocked map " + actual +
-                        " for mission " + selected.id);
+                    statusLine = "ID attendu : " + MissionMapId(selected) +
+                        " (carte choisie : " + actual + ")";
+                    Logger.LogWarning("[AP MENU] Blocked map_id=" + actual +
+                        " for mission " + selected.id +
+                        " expected map_id=" + MissionMapId(selected));
                     return false;
                 }
                 var modeProperty = AccessTools.Property(menuInstance.GetType(), "SelectedGamemode");

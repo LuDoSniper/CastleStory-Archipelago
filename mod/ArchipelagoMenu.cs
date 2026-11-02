@@ -13,6 +13,7 @@ namespace CastleStoryArchipelago
             public string id;
             public string mode;
             public string map;
+            public string map_id;
             public int wave_goal;
             public int shard_start;
             public int shard_count;
@@ -311,7 +312,7 @@ namespace CastleStoryArchipelago
                 File.WriteAllText(Path.Combine(directory, "mission_selection.json"),
                     JsonUtility.ToJson(new MissionSelectionFile {
                         token = token, mission_id = mission.id,
-                        map = mission.map, mode = mission.mode
+                        map = MissionMapId(mission), mode = mission.mode
                     }));
                 Logger.LogInfo("[AP MISSION] Choisie " + mission.id +
                     ", map " + mission.map + ", mode " + mission.mode);
@@ -454,7 +455,7 @@ namespace CastleStoryArchipelago
                 "MISSION " + number + "  /  " + mission.mode.ToUpperInvariant(),
                 eyebrowStyle);
             GUI.Label(new Rect(card.x + 29, card.y + 31, card.width - 160, 28),
-                mission.map ?? "<unknown map>", subTitleStyle);
+                mission.map ?? mission.map_id ?? "<unknown map>", subTitleStyle);
             int goal = mission.mode == "Invasion" ? mission.wave_goal : mission.shard_count;
             GUI.Label(new Rect(card.x + 29, card.y + 62, card.width - 175, 22),
                 mission.mode == "Invasion" ?
