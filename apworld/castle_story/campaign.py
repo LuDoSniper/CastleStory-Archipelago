@@ -99,15 +99,19 @@ def plan_campaign(mode, invasion_goal, shard_goal, conquest_maps, invasion_maps,
     if mode in ("Invasion", "Hybrid"):
         pool = sorted(set(normalize_map_id(x) for x in invasion_maps),
                       key=str.casefold)
-        if not pool:
-            warning.append("No Invasion map IDs configured. Add verified invasion_map_pool entries.")
-        else:
-            picked = seed_rng(seed, "invasion-map-choice").choice(pool)
-            result["missions"].append({
-                "id": "invasion_1", "mode": "Invasion",
-                "map_id": picked, "map": picked, "wave_goal": int(invasion_goal),
-                "shard_start": 0, "shard_count": 0, "required": True,
-            })
+        # An empty pool requests a seed-stable, in-game map choice. The
+        # Castle Story native asset registry supplies the compatible maps;
+        # ArchiLAN cannot directly inspect the player's installed game.
+        picked = (seed_rng(seed, "invasion-map-choice").choice(pool)
+                  if pool else "auto:invasion")
+        result["missions"].append({
+            "id": "invasion_1", "mode": "Invasion",
+            "map_id": picked,
+            "map": picked if pool else "Carte Invasion aleatoire (selection locale)",
+            "map_policy": "fixed" if pool else "local_seeded_invasion",
+            "wave_goal": int(invasion_goal),
+            "shard_start": 0, "shard_count": 0, "required": True,
+        })
     if mode in ("Conquest", "Hybrid"):
         try:
             maps = choose_conquest_maps(conquest_maps, int(shard_goal), seed,
