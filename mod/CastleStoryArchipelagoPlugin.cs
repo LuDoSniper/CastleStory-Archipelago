@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.5")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.6")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -52,6 +52,7 @@ namespace CastleStoryArchipelago
             public int goal_wave;
             public int shard_goal;
             public CampaignFile campaign;
+            public int campaign_mission_count;
             public int protocol_version;
             public string bridge_client_version;
             public double updated_at;
@@ -61,6 +62,24 @@ namespace CastleStoryArchipelago
             public string campaign_status;
             public string campaign_message;
         }
+        // Flat campaign file is intentionally separate from session.json:
+        // Unity 5.6's legacy serializer may not parse deeply nested arrays.
+        [Serializable] private sealed class CampaignViewFile
+        {
+            public string token;
+            public int protocol_version;
+            public string bridge_client_version;
+            public string campaign_status;
+            public string campaign_message;
+            public bool manifest_provided;
+            public bool ready;
+            public string mode;
+            public string warning;
+            public int mission_count;
+            public string[] missing_modes;
+            public MissionFile[] missions;
+        }
+
         [Serializable] private sealed class CheckFile
         {
             public string token;
@@ -88,8 +107,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.5 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.5 initialised.");
+                "Castle Story Archipelago v0.6.6 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.6 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -329,6 +348,72 @@ namespace CastleStoryArchipelago
             return invasion || conquest;
         }
 
+        private int bridgeManifestMissionCount = -1;
+        private string campaignDecodeDiagnostic = "";
+        private string lastCampaignDecodeLog = "";
+
+        private void ReadCampaignView(SessionFile session)
+        {
+            int embeddedCount = session.campaign != null &&
+                session.campaign.missions != null ?
+                session.campaign.missions.Length : -1;
+            bridgeManifestMissionCount = session.campaign_mission_count;
+            string path = Path.Combine(directory, "campaign_view.json");
+            if (!File.Exists(path))
+            {
+                campaignDecodeDiagnostic = "Fichier campaign_view.json absent : " +
+                    "remplace le bridge et reconnecte-toi.";
+                return;
+            }
+            try
+            {
+                var view = JsonUtility.FromJson<CampaignViewFile>(
+                    File.ReadAllText(path));
+                if (view == null || view.token != session.token)
+                {
+                    campaignDecodeDiagnostic =
+                        "Le manifeste ne correspond pas à la session courante.";
+                    return;
+                }
+                if (view.missions == null)
+                {
+                    campaignDecodeDiagnostic =
+                        "Unity n'a pas pu lire missions[] dans campaign_view.json.";
+                    return;
+                }
+                bridgeManifestMissionCount = view.mission_count;
+                if (view.missions.Length != view.mission_count)
+                {
+                    campaignDecodeDiagnostic = "Missions : le bridge annonce " +
+                        view.mission_count + ", Unity en lit " + view.missions.Length +
+                        ". Désérialisation incomplète.";
+                    return;
+                }
+                // Prefer the flat payload even when the nested payload was
+                // present; the fields come from the same Archipelago slot.
+                campaign = new CampaignFile {
+                    ready = view.ready,
+                    warning = view.warning ?? "",
+                    mode = view.mode ?? session.mode,
+                    missing_modes = view.missing_modes,
+                    missions = view.missions,
+                };
+                campaignDecodeDiagnostic = "Campagne reçue : " +
+                    view.mission_count + " mission(s), statut " +
+                    (view.campaign_status ?? "inconnu") +
+                    " (champ imbriqué : " + embeddedCount + ").";
+                if (!String.IsNullOrEmpty(view.campaign_status))
+                    campaignStatus = view.campaign_status;
+                if (!String.IsNullOrEmpty(view.campaign_message))
+                    campaignMessage = view.campaign_message;
+            }
+            catch (Exception error)
+            {
+                campaignDecodeDiagnostic =
+                    "Erreur de lecture du manifeste : " + error.Message;
+            }
+        }
+
         private void ReadBridge()
         {
             try
@@ -434,6 +519,13 @@ namespace CastleStoryArchipelago
                 serverManifestProvided = session.manifest_provided;
                 serverSlotDataFields = session.slot_data_fields;
                 campaign = session.campaign;
+                ReadCampaignView(session);
+                if (campaignDecodeDiagnostic != lastCampaignDecodeLog)
+                {
+                    Logger.LogInfo("[AP MANIFEST] " + campaignDecodeDiagnostic +
+                        " seed=" + (session.seed ?? "") + " token=" + session.token);
+                    lastCampaignDecodeLog = campaignDecodeDiagnostic;
+                }
                 DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0,
                     DateTimeKind.Utc);
                 double nowSeconds = (DateTime.UtcNow - epoch).TotalSeconds;
@@ -450,7 +542,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.5 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.6.6 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -551,7 +643,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.5 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.6 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
