@@ -13,6 +13,8 @@ namespace CastleStoryArchipelago
         private Component serverNativeInput, slotNativeInput, passwordNativeInput;
         private Component nativeStatusLabel;
         private string nativeStatusCache = "";
+        private float lastConnectRequestAt = -100f;
+        private bool nativeConnectPending;
         private string nativePanelDiagnostic = "";
         private GameObject mainMenuPlayTemplate, mainMenuOptionsTemplate;
 
@@ -266,8 +268,13 @@ namespace CastleStoryArchipelago
         {
             if (nativeConnectionPanel == null || !nativeConnectionPanel.activeSelf)
                 return;
+            if (bridgeConnected) nativeConnectPending = false;
             string message = bridgeConnected ?
-                "Connecté — " + mode + " / " + (loginSlot ?? "") : statusLine;
+                "Connecté — " + mode + " / " + (loginSlot ?? "") :
+                nativeConnectPending &&
+                Time.realtimeSinceStartup - lastConnectRequestAt < 12f ?
+                    "Connexion en cours… le bridge réessaie automatiquement." :
+                    statusLine;
             if (message != nativeStatusCache)
             {
                 nativeStatusCache = message;
@@ -277,16 +284,33 @@ namespace CastleStoryArchipelago
 
         private void NativeConnectAction()
         {
+            if (nativeConnectPending && !bridgeConnected &&
+                Time.realtimeSinceStartup - lastConnectRequestAt < 12f)
+            {
+                Logger.LogInfo("[AP LOGIN] Already connecting; duplicate click ignored.");
+                return;
+            }
             ReadNativeInput();
+            if (String.IsNullOrEmpty(loginServer.Trim()) ||
+                String.IsNullOrEmpty(loginSlot.Trim()))
+            {
+                statusLine = "Renseigne le serveur et le slot.";
+                UpdateNativePanelStatus();
+                return;
+            }
             WriteConnection(true);
+            nativeConnectPending = true;
+            lastConnectRequestAt = Time.realtimeSinceStartup;
             SetUiProperty(passwordNativeInput, "text", "");
             loginPassword = "";
-            if (!String.IsNullOrEmpty(statusLine))
-                Logger.LogInfo("[AP NATIVE UI] Connect requested (credentials omitted).");
+            nativeStatusCache = "";
+            UpdateNativePanelStatus();
+            Logger.LogInfo("[AP LOGIN] Login handed to bridge once; retry handled by bridge.");
         }
 
         private void NativeDisconnectAction()
         {
+            nativeConnectPending = false;
             WriteConnection(false);
             SetUiProperty(passwordNativeInput, "text", "");
             loginPassword = "";
