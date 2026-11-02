@@ -77,6 +77,7 @@ jobs:
           New-Item -Force -ItemType Directory package/client | Out-Null
           Copy-Item client/bridge.py,client/requirements.txt package/client/
           Copy-Item tools/Start-Bridge.ps1 package/Start-Bridge.ps1
+          Copy-Item tools/Install-CastleStoryAP.ps1 package/Install-CastleStoryAP.ps1
           Copy-Item tools/inspect_maps.py package/inspect_maps.py
           New-Item -Force -ItemType Directory package/tools | Out-Null
           Copy-Item tools/inspect_maps.py package/tools/inspect_maps.py
