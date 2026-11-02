@@ -370,6 +370,24 @@ namespace CastleStoryArchipelago
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), overlayPixel);
         }
 
+        private void BlockImGuiClicksOutsidePanel(Rect panel)
+        {
+            // The native Unity UI shield protects underlying Canvas buttons.
+            // These four invisible IMGUI controls protect any legacy IMGUI
+            // elements OUTSIDE the modal without stealing its own button clicks.
+            Rect[] outside = {
+                new Rect(0, 0, Screen.width, Mathf.Max(0, panel.y)),
+                new Rect(0, panel.y, Mathf.Max(0, panel.x), panel.height),
+                new Rect(panel.xMax, panel.y,
+                    Mathf.Max(0, Screen.width - panel.xMax), panel.height),
+                new Rect(0, panel.yMax, Screen.width,
+                    Mathf.Max(0, Screen.height - panel.yMax))
+            };
+            foreach (Rect area in outside)
+                if (area.width > 0 && area.height > 0)
+                    GUI.Button(area, "", GUIStyle.none);
+        }
+
         private void DrawTopBar(Rect panel, string kicker, string heading, string subtitle)
         {
             GUI.Label(new Rect(panel.x + 28, panel.y + 22, panel.width - 104, 20),
@@ -389,6 +407,7 @@ namespace CastleStoryArchipelago
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
             DrawBackdrop();
+            BlockImGuiClicksOutsidePanel(panel);
             GUI.Box(panel, "", panelStyle);
             DrawTopBar(panel, "MULTIWORLD  /  CONNEXION",
                        "Archipelago", "Connecte-toi pour accéder aux missions de ta seed.");
@@ -507,6 +526,7 @@ namespace CastleStoryArchipelago
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
             DrawBackdrop();
+            BlockImGuiClicksOutsidePanel(panel);
             GUI.Box(panel, "", panelStyle);
             DrawTopBar(panel, "ARCHIPELAGO  /  CAMPAGNE",
                        "Missions de la seed",
