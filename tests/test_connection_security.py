@@ -53,7 +53,7 @@ class InMemoryBridgeCredentials(unittest.TestCase):
         self.assertIn("if (File.Exists(oldFile)) File.Delete(oldFile);", menu)
         self.assertIn("info.RedirectStandardInput = true;", menu)
         self.assertIn("--stdin-control --bridge-dir", menu)
-        self.assertIn("localBridge.StandardInput.WriteLine(payload)", menu)
+        self.assertIn('localBridge.StandardInput.WriteLine("APIPC1:" + wire)', menu)
         self.assertNotIn('File.WriteAllText(Path.Combine(directory, "connection.json")', menu)
         self.assertNotIn("public string password;\n        }\n\n        private void LoadRememberedConnection", menu)
         self.assertIn("loginPassword = \"\";", menu)
