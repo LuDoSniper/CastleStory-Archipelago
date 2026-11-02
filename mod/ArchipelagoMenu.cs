@@ -105,7 +105,9 @@ namespace CastleStoryArchipelago
 
         private static string Quote(string value)
         {
-            return "\\"" + value.Replace("\\"", "\\\\"") + "\\"";
+            string quotationMark = ((char)34).ToString();
+            string slash = ((char)92).ToString();
+            return quotationMark + value.Replace(quotationMark, slash + quotationMark) + quotationMark;
         }
 
         private void ReadLocalBridgeStatus()
