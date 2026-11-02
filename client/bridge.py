@@ -5,6 +5,9 @@ import asyncio
 import copy
 import hashlib
 import json
+import queue
+import sys
+import threading
 import logging
 import os
 import time
@@ -24,7 +27,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.7.0"
+BRIDGE_CLIENT_VERSION = "0.7.1"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -534,10 +537,12 @@ class Bridge:
     async def poll_game(self, ws):
         while True:
             await asyncio.sleep(0.5)
+            control = getattr(self, "stdin_control", None)
+            latest = control.drain() if control is not None else (
+                effective_connection_request(
+                    self.directory, getattr(self, "fallback_request", None)))
             if (getattr(self, "request_snapshot", None) is not None and
-                    effective_connection_request(
-                        self.directory, getattr(self, "fallback_request", None)
-                    ) != self.request_snapshot):
+                    latest != self.request_snapshot):
                 raise ConnectionChanged()
             self.refresh_dynamic_campaign()
             # Heartbeat: Unity must not mistake yesterday's persisted
@@ -566,6 +571,51 @@ async def run_once(url, bridge):
     finally:
         bridge.connected = False
         bridge.persist_session()
+
+class StdinControl:
+    """In-memory IPC: passwords never enter connection.json or log files.
+
+    Unity writes one JSON command per line to the child's anonymous stdin
+    pipe. Only the server and slot are remembered by the Unity plugin.
+    """
+    def __init__(self, start_reader=True):
+        self.queue = queue.Queue()
+        self.request = None
+        if start_reader:
+            self.reader = threading.Thread(target=self._read, daemon=True)
+            self.reader.start()
+
+    def _read(self):
+        for line in sys.stdin:
+            try:
+                value = json.loads(line)
+                if isinstance(value, dict):
+                    self.queue.put(value)
+            except (ValueError, TypeError):
+                LOG.warning("Invalid stdin control message (credentials redacted)")
+
+    def apply(self, command):
+        action = command.get("cmd")
+        if action == "disconnect":
+            self.request = None
+        elif action == "connect":
+            address = str(command.get("server") or "").strip()
+            slot = str(command.get("slot") or "").strip()
+            password = str(command.get("password") or "")
+            if not address or not slot:
+                LOG.warning("Ignored incomplete connection request")
+                return
+            self.request = (normalize_url(address), slot, password)
+        else:
+            LOG.warning("Unsupported bridge control command")
+
+    def drain(self):
+        while True:
+            try:
+                self.apply(self.queue.get_nowait())
+            except queue.Empty:
+                return self.request
+
 
 class ConnectionChanged(Exception):
     """User edited in-game AP connection settings; reconnect cleanly."""
@@ -608,8 +658,10 @@ async def main(args):
     active = None
     delay = 1
     static = (normalize_url(args.server), args.slot, args.password) if args.server and args.slot else None
+    control = StdinControl() if getattr(args, "stdin_control", False) else None
     while True:
-        requested = effective_connection_request(directory, static)
+        requested = control.drain() if control is not None else (
+            effective_connection_request(directory, static))
         if requested is None:
             if bridge is not None:
                 bridge.connected = False
@@ -627,6 +679,7 @@ async def main(args):
             bridge = Bridge(directory, requested[1], requested[2])
             bridge.request_snapshot = requested
             bridge.fallback_request = static
+            bridge.stdin_control = control
             delay = 1
         try:
             write_status(directory, "connecting", "Connecting to Archipelago...")
@@ -649,6 +702,8 @@ if __name__ == "__main__":
     p.add_argument("--server", default="", help="Optional initial AP server. Omit to use the in-game AP login.")
     p.add_argument("--slot", default="", help="Optional AP slot name, paired with --server")
     p.add_argument("--password", default="")
+    p.add_argument("--stdin-control", action="store_true",
+                   help="Secure per-run in-memory credentials via anonymous stdin pipe")
     p.add_argument("--bridge-dir", required=True,
                    help="Castle Story/BepInEx/config/castle_story_archipelago")
     logging.basicConfig(level=logging.INFO)
