@@ -44,7 +44,9 @@ namespace CastleStoryArchipelago
         {
             string normalized = NormalizeNativeLabel(label);
             return normalized == "play" || normalized == "jouer" ||
-                   normalized == "spielen" || normalized == "jugar";
+                   normalized == "spielen" || normalized == "jugar" ||
+                   normalized == "button_play" || normalized == "btnplay" ||
+                   normalized == "playbutton" || normalized == "mainmenuplay";
         }
 
         private static bool IsSandboxLabel(string label)
@@ -62,12 +64,13 @@ namespace CastleStoryArchipelago
 
         private static string NativeModeFromLabel(string label)
         {
-            switch (NormalizeNativeLabel(label))
-            {
-                case "invasion": return "Invasion";
-                case "conquest": case "conquête": return "Conquest";
-                default: return null;
-            }
+            string value = NormalizeNativeLabel(label);
+            if (value == "invasion" || value == "mode_invasion" ||
+                value == "invasionmode") return "Invasion";
+            if (value == "conquest" || value == "conquête" ||
+                value == "mode_conquest" || value == "conquestmode")
+                return "Conquest";
+            return null;
         }
 
         private static PropertyInfo RuntimeTextProperty(Type type)
@@ -98,6 +101,8 @@ namespace CastleStoryArchipelago
                     catch (Exception) { }
                 }
             }
+            // Some prefab buttons expose only a native object name.
+            if (!String.IsNullOrEmpty(obj.name)) labels.Add(obj.name);
             return labels;
         }
 
@@ -445,7 +450,8 @@ namespace CastleStoryArchipelago
                 lastNativeFilterKey = filterKey;
             }
 
-            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Selectable");
+            // Supports native Toggle-derived mode controls as well as Buttons.
             if (buttonType == null) return;
             int hidden = 0;
             var playGroups = new Dictionary<Transform, bool>();
@@ -576,7 +582,7 @@ namespace CastleStoryArchipelago
         {
             // Three short checks cover asynchronous native card creation.
             // No continuous polling and no re-enabling cards on each pass.
-            pendingFilterPasses = 3;
+            pendingFilterPasses = 6;
             nextFilterPassAt = Time.realtimeSinceStartup;
             Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
         }
