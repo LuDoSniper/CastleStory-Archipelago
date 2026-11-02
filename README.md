@@ -1,6 +1,45 @@
-# Castle Story × Archipelago — v0.6.8 (stabilisation de la popup)
+# Castle Story × Archipelago — v0.6.9 (checks Invasion automatiques et résilients)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.6.9 — Vérification des checks Invasion après cinq vagues
+
+Les logs d'un essai réel confirment : lancement validé de la mission
+`invasion_1` sur `official:Zuma`, et événements `InvasionWave` de 0 à 5.
+Pourtant, F8 affichait `checks=0` et `connected=False`. **Cause de
+l'absence de checks identifiée dans le code :** `EnableWaveChecks`
+était `false` par défaut ; les coupures intermittentes de connexion
+constituaient une seconde condition de blocage.
+
+**Correctifs :**
+
+- Après validation de la carte et du mode par le menu natif, les checks
+  Invasion de la campagne Archipelago sont actifs **automatiquement**,
+  même si un ancien `EnableWaveChecks=false` est conservé dans la config.
+  Le flag historique reste réservé aux seeds sans manifeste.
+- Les callbacks répétés de la même vague ne créent pas de doublons.
+- Les checks de la mission effectivement lancée sont stockés dans
+  `checks.json` avec le token de la seed, **même pendant une brève perte
+  de connexion** ; le bridge les transmet à ArchiLAN lors du retour.
+  L'écriture Windows utilise un remplacement atomique, avec retry en cas
+  d'échec temporaire.
+- Le mod ignore les vagues des parties libres et des missions
+  simplement sélectionnées (mais pas réellement lancées).
+- `[AP MISSION START]`, `[AP CHECK]`, `[AP CHECK FILE]` et F8
+  rendent l'enregistrement et la transmission vérifiables.
+
+La panne réseau intermittente observée ne peut pas être attribuée à une
+cause précise à partir des seuls logs BepInEx. Cette version neutralise
+son effet sur l'enregistrement des checks sans prétendre résoudre
+l'origine du réseau.
+
+**Test conseillé :** installer le kit v0.6.9, garder la même seed
+ArchiLAN, démarrer une *nouvelle* partie Invasion sur la mission choisie,
+et progresser sur les vagues. F8 doit montrer `activeMission=invasion_1`,
+`autoChecks=True` et un nombre de checks non nul. Les checks d'une
+ancienne partie v0.6.8 qui n'ont jamais été enregistrés dans
+`checks.json` ne peuvent pas être reconstitués automatiquement depuis
+le serveur.
 
 ## v0.6.8 — La mission apparaît, mais l'interface masque les erreurs
 
