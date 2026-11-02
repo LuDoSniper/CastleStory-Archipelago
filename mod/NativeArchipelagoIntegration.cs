@@ -33,6 +33,9 @@ namespace CastleStoryArchipelago
         private bool introCreditShown;
         private bool introCreditActive;
         private float introCreditStart = -1f;
+        private float titleSceneReadyAt = -1f;
+        private bool titleSceneSeen;
+        private bool titleSceneEvidenceLogged;
         private GUIStyle introCreditStyle;
 
         private static string NormalizeNativeLabel(string text)
@@ -285,7 +288,8 @@ namespace CastleStoryArchipelago
         {
             // Start only AFTER Play+Options are present, which marks the end
             // of the studio splash sequence. Never overlay a studio logo.
-            if (introCreditShown) return;
+            if (introCreditShown || !titleSceneSeen || nativeStarterMenu != null)
+                return;
             introCreditShown = true;
             introCreditActive = true;
             introCreditStart = Time.realtimeSinceStartup;
@@ -295,6 +299,11 @@ namespace CastleStoryArchipelago
         private void TryInstallNativeArchipelagoButton()
         {
             if (nativeArchipelagoButton != null) return;
+            // Never clone the Play control from map selection. Runtime logs
+            // prove the previous injection happened only after entering
+            // SpNewGameStarterMenu, which created an entry in the wrong menu.
+            if (!titleSceneSeen || nativeStarterMenu != null ||
+                observedMapAssets.Count > 0) return;
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
             try
@@ -315,7 +324,6 @@ namespace CastleStoryArchipelago
                     bool optionsFound = HasNativeOptionsSibling(source);
                     if (!optionsFound)
                         Logger.LogInfo("[AP NATIVE UI] Play located without same-group Options; trying native insertion.");
-                    BeginOwnIntroCredit();
                     mainMenuPlayTemplate = source;
                     Type buttonClass = FindRuntimeType("UnityEngine.UI.Button");
                     if (source.transform.parent != null)
@@ -690,6 +698,17 @@ namespace CastleStoryArchipelago
         {
             string name = current.name ?? "";
             Logger.LogInfo("[AP NATIVE SCREEN] Scene changed: " + name);
+            if (String.Equals(name, "SceneMenu", StringComparison.OrdinalIgnoreCase))
+            {
+                titleSceneSeen = true;
+                titleSceneReadyAt = Time.realtimeSinceStartup;
+                titleSceneEvidenceLogged = false;
+                Logger.LogInfo("[AP CREDITS] SceneMenu loaded; startup credit is scheduled before the player opens New Game.");
+            }
+            else
+            {
+                titleSceneSeen = false;
+            }
             // Reset bounded title discovery only when switching scenes.
             // This catches titles that load after a long studio intro
             // without performing expensive continuous UI polling.
@@ -701,6 +720,15 @@ namespace CastleStoryArchipelago
         private void UpdateNativeArchipelagoIntegration()
         {
             float now = Time.realtimeSinceStartup;
+            // Castle Story's first Play/Options screen is not represented by
+            // UnityEngine.UI.Button; only the later map screen uses that type.
+            // Start the independent credit from the title scene, never from
+            // a later New Game button. A grace interval lets the game's
+            // initial studio splashes finish before the white extra panel.
+            if (titleSceneSeen && !introCreditShown &&
+                titleSceneReadyAt >= 0f && now - titleSceneReadyAt >= 4.0f &&
+                nativeStarterMenu == null && observedMapAssets.Count == 0)
+                BeginOwnIntroCredit();
             if (introCreditActive && now - introCreditStart >= 3.5f)
             {
                 introCreditActive = false;
