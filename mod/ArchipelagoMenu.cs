@@ -197,9 +197,9 @@ namespace CastleStoryArchipelago
             closeButton = new GUIStyle(secondaryButton);
             closeButton.fontSize = 18;
             logoButton = new GUIStyle(GUI.skin.button);
-            logoButton.normal.background = Texture2D.whiteTexture;
-            logoButton.hover.background = Texture2D.whiteTexture;
-            logoButton.active.background = Texture2D.whiteTexture;
+            logoButton.normal.background = null;
+            logoButton.hover.background = null;
+            logoButton.active.background = null;
             logoButton.normal.textColor = Color.clear;
             logoButton.hover.textColor = Color.clear;
             titleStyle = StyledText(29, TextPrimary, FontStyle.Bold);
@@ -464,7 +464,7 @@ namespace CastleStoryArchipelago
                            "Back", subtleButton))
             {
                 apMenuOpen = false;
-                // Closing only the overlay would leave vanilla New Game behind it.
+                // Closing the native screen also dismisses the AP mission picker.
                 CloseNativeNewGame();
                 return;
             }

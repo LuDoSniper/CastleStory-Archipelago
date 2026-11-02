@@ -81,6 +81,11 @@ jobs:
           Copy-Item README.md package/README.md
           New-Item -Force -ItemType Directory package/BepInEx/plugins | Out-Null
           Copy-Item package/CastleStoryArchipelago.dll package/BepInEx/plugins/CastleStoryArchipelago.dll
+          $logoUrl = "https://raw.githubusercontent.com/ArchipelagoMW/Archipelago/main/data/icon.png"
+          $logoTarget = "package/BepInEx/plugins/castle_story_ap/archipelago-logo.png"
+          Invoke-WebRequest -Uri $logoUrl -OutFile $logoTarget
+          if ((Get-Item $logoTarget).Length -lt 1000) { throw "Archipelago logo download failed" }
+          Write-Host "Packaged the official Archipelago logo: $((Get-Item $logoTarget).Length) bytes"
       - uses: actions/upload-artifact@v4
         with:
           name: castle-story-archipelago-test-kit

@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.5.0")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.5.1")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -30,6 +30,7 @@ namespace CastleStoryArchipelago
         private int conquestWinEvents;
         private bool conquestVictory;
         private float nextRead;
+        private bool debugOverlayVisible;
         private Harmony harmony;
         private ConfigEntry<bool> waveChecks;
         private ConfigEntry<bool> captureChecks;
@@ -79,8 +80,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.5.0 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.5.0 initialised.");
+                "Castle Story Archipelago v0.5.1 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.5.1 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -342,6 +343,12 @@ namespace CastleStoryArchipelago
                     goalWave = Math.Max(1, Math.Min(10, session.goal_wave));
                     shardGoal = Math.Max(1, Math.Min(30, session.shard_goal == 0 ? 3 : session.shard_goal));
                     campaign = session.campaign;
+                    Logger.LogInfo("[AP CAMPAIGN] ready=" +
+                        (campaign != null && campaign.ready) +
+                        " maps=" + (campaign == null || campaign.missions == null ?
+                            0 : campaign.missions.Length) +
+                        " reason=" + (campaign == null ? "No campaign manifest" :
+                            (campaign.warning ?? "")));
                     checkedIds.Clear();
                     capturedObjects.Clear();
                     capturedKeys.Clear();
@@ -453,30 +460,42 @@ namespace CastleStoryArchipelago
                 DumpBonusRewardQueue();
             ProcessPendingNativeBonus();
             if (Input.GetKeyDown(KeyCode.F8))
+            {
+                debugOverlayVisible = !debugOverlayVisible;
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +
                     " wave=" + lastObservedWave + " captures=" + conquestCaptured +
                     " victories=" + conquestWinEvents + " checks=" + checkedIds.Count);
+            }
+            // Unity IMGUI uses top-left coordinates, Input.mousePosition uses bottom-left.
+            Vector2 mouse = new Vector2(Input.mousePosition.x,
+                Screen.height - Input.mousePosition.y);
+            float targetScale = new Rect(15, 12, 67, 68).Contains(mouse) ? 1.14f : 1f;
+            logoScale = Mathf.Lerp(logoScale, targetScale,
+                1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
         }
 
         private void OnGUI()
         {
             DrawApMenu();
-            if (showOverlay == null || !showOverlay.Value) return;
+            if (showOverlay == null || !showOverlay.Value || !debugOverlayVisible ||
+                apMenuOpen || (bridgeConnected && nativeNewGameVisible)) return;
             int oldDepth = GUI.depth;
             GUI.depth = -10000;
-            GUI.Box(new Rect(8, 8, 680, 180), "");
-            GUI.Label(new Rect(18, 16, 650, 22), "Castle Story AP v0.5.0 [EXPERIMENTAL]");
-            GUI.Label(new Rect(18, 40, 650, 22),
+            float diagnosticX = Mathf.Max(6, Screen.width - 690);
+            float diagnosticY = Mathf.Max(6, Screen.height - 190);
+            GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.5.1 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
                 " | Mode: " + (mode == "" ? "not configured" : mode) +
                 " | Checks: " + checkedIds.Count);
-            GUI.Label(new Rect(18, 64, 650, 22),
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 56, 650, 22),
                 "Invasion wave=" + lastObservedWave +
                 " | Conquest candidate captures=" + conquestCaptured +
                 " | Win events=" + conquestWinEvents);
-            GUI.Label(new Rect(18, 88, 650, 22),
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 80, 650, 22),
                 "Invasion sending=" + (waveChecks.Value ? "ON" : "OFF") +
                 " | Conquest captures=" + (captureChecks.Value ? "ON" : "OFF") +
                 " | Victory=" + (victoryChecks.Value ? "ON" : "OFF"));
@@ -490,9 +509,9 @@ namespace CastleStoryArchipelago
                 if (inventory.TryGetValue(ItemBase + i, out amount))
                     itemText += names[i - 1] + " x" + amount + "  ";
             }
-            GUI.Label(new Rect(18, 115, 650, 45),
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 107, 650, 45),
                 "AP received inventory (display only): " + (itemText == "" ? "none" : itemText));
-            GUI.Label(new Rect(18, 155, 650, 20),
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 147, 650, 20),
                 "F8 = write status to BepInEx log; do not test with an existing save.");
             GUI.depth = oldDepth;
         }
@@ -509,6 +528,7 @@ namespace CastleStoryArchipelago
                 localBridge.Dispose();
                 localBridge = null;
             }
+            CleanupApUi();
             if (Instance == this) Instance = null;
         }
     }
