@@ -16,6 +16,8 @@ namespace CastleStoryArchipelago
         [Serializable] private sealed class NativeMapCatalog
         {
             public string[] map_ids;
+            public string[] invasion_map_ids;
+            public string[] conquest_map_ids;
         }
 
         private static string MissionMapId(MissionFile mission)
@@ -31,10 +33,50 @@ namespace CastleStoryArchipelago
             {
                 var ids = new List<string>(observedMapAssets.Keys);
                 ids.Sort(StringComparer.OrdinalIgnoreCase);
+                var invasion = new List<string>();
+                var conquest = new List<string>();
+                if (nativeStarterMenu != null)
+                {
+                    var getModes = AccessTools.Method(nativeStarterMenu.GetType(),
+                        "GetGamemodes");
+                    if (getModes != null && getModes.GetParameters().Length == 1)
+                    {
+                        foreach (string mapId in ids)
+                        {
+                            try
+                            {
+                                var modes = getModes.Invoke(nativeStarterMenu,
+                                    new object[] { observedMapAssets[mapId] })
+                                    as System.Collections.IEnumerable;
+                                if (modes == null) continue;
+                                foreach (object candidate in modes)
+                                {
+                                    string code = ModeIdentity(candidate);
+                                    if (code == "Invasion" && !invasion.Contains(mapId))
+                                        invasion.Add(mapId);
+                                    else if (code == "Conquest" && !conquest.Contains(mapId))
+                                        conquest.Add(mapId);
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                Logger.LogWarning("[AP MAPS] Cannot inspect modes for " +
+                                    mapId + ": " + e.GetType().Name);
+                            }
+                        }
+                    }
+                }
+                invasion.Sort(StringComparer.OrdinalIgnoreCase);
+                conquest.Sort(StringComparer.OrdinalIgnoreCase);
                 File.WriteAllText(Path.Combine(directory, "installed_maps.json"),
                     UnityEngine.JsonUtility.ToJson(new NativeMapCatalog {
-                        map_ids = ids.ToArray()
+                        map_ids = ids.ToArray(),
+                        invasion_map_ids = invasion.ToArray(),
+                        conquest_map_ids = conquest.ToArray()
                     }));
+                Logger.LogInfo("[AP MAPS] Exported " + ids.Count + " IDs; " +
+                    invasion.Count + " verified Invasion maps and " +
+                    conquest.Count + " Conquest maps.");
             }
             catch (Exception error)
             {
@@ -117,6 +159,8 @@ namespace CastleStoryArchipelago
                         " (catalog size=" + mapRegistrationCount + ")");
                 }
                 observedMapAssets[key] = gameMap;
+                if (nativeStarterMenu != null)
+                    SaveObservedMapIds();
             }
             else if (!unknownMapTypeLogged && gameMap != null)
             {
@@ -280,6 +324,7 @@ namespace CastleStoryArchipelago
                 string path = method == null ? null : method.Invoke(map, null) as string;
                 if (String.IsNullOrEmpty(path)) return null;
                 string normalized = path.Replace('\\', '/');
+                if (!normalized.StartsWith("/")) normalized = "/" + normalized;
                 // Stable internal map folders; NEVER use localized Asset_Map labels.
                 string[] needles = { "/Info/UGC/Maps/", "/Info/Maps/", "/Maps/" };
                 string[] prefixes = { "workshop:", "official:", "official:" };
