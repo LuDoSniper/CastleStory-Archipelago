@@ -411,6 +411,8 @@ namespace CastleStoryArchipelago
             return quotationMark + value.Replace(quotationMark, slash + quotationMark) + quotationMark;
         }
 
+        private string lastBridgeStatusState = "";
+
         private void ReadLocalBridgeStatus()
         {
             if (Time.realtimeSinceStartup < nextBridgeStatusRead) return;
@@ -420,6 +422,14 @@ namespace CastleStoryArchipelago
                 string path = Path.Combine(directory, "bridge_status.json");
                 if (!File.Exists(path)) return;
                 var state = JsonUtility.FromJson<BridgeStatusFile>(File.ReadAllText(path));
+                if (state != null && !String.IsNullOrEmpty(state.state) &&
+                    lastBridgeStatusState != state.state)
+                {
+                    lastBridgeStatusState = state.state;
+                    Logger.LogInfo("[AP LOGIN STATE] Bridge state=" + state.state +
+                        "; waitingForUser=" + (state.state == "idle") +
+                        "; inSession=" + bridgeConnected);
+                }
                 // Do not hide an obsolete-client error behind a stale bridge status.
                 // Never clobber an action error with the heartbeat every second.
                 if (state != null && !String.IsNullOrEmpty(state.state) &&
