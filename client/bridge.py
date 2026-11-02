@@ -1,5 +1,6 @@
 """Archipelago websocket client for the Castle Story BepInEx file bridge."""
 import argparse
+import base64
 import asyncio
 import copy
 import hashlib
@@ -23,7 +24,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.6.6"
+BRIDGE_CLIENT_VERSION = "0.6.7"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -172,6 +173,58 @@ def save_json(path, data):
     temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(temp, path)
 
+def wire_text(value):
+    """Encode free-form UTF-8 without introducing newlines/tabs to wire rows."""
+    return base64.b64encode(str(value if value is not None else "").encode("utf-8")).decode("ascii")
+
+
+def campaign_wire_lines(token, protocol, status, message, campaign, default_mode):
+    """Versioned, non-JSON snapshot for old Unity JsonUtility runtimes.
+
+    Each fixed column is either ASCII numeric or base64(UTF-8). Missions are
+    exactly seven tab-separated columns. Never serialize connection secrets.
+    """
+    missions = campaign.get("missions", []) if isinstance(campaign, dict) else []
+    if not isinstance(missions, list):
+        missions = []
+    missing = campaign.get("missing_modes") or []
+    if not isinstance(missing, list):
+        missing = []
+    lines = [
+        "CASTLE_STORY_AP_CAMPAIGN_V1",
+        str(token),
+        str(int(protocol)),
+        wire_text(status),
+        wire_text(message),
+        "1" if campaign.get("ready") is True else "0",
+        wire_text(campaign.get("mode") or default_mode),
+        wire_text(campaign.get("warning") or ""),
+        wire_text(",".join(m for m in missing if m in ("Invasion", "Conquest"))),
+        str(len(missions)),
+    ]
+    for mission in missions:
+        if not isinstance(mission, dict):
+            raise ValueError("Invalid campaign mission in wire snapshot")
+        lines.append("\t".join([
+            wire_text(mission.get("id")),
+            wire_text(mission.get("mode")),
+            wire_text(mission.get("map_id")),
+            wire_text(mission.get("map")),
+            str(int(mission.get("wave_goal") or 0)),
+            str(int(mission.get("shard_start") or 0)),
+            str(int(mission.get("shard_count") or 0)),
+        ]))
+    return "\n".join(lines) + "\n"
+
+
+def save_campaign_wire(path, content):
+    """Atomic replacement avoids Unity ever observing a partial manifest."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(content, encoding="ascii")
+    os.replace(temp, path)
+
+
 def token_for(seed, slot, player, team=0):
     return hashlib.sha256(f"{seed}/{team}/{slot}/{player}".encode()).hexdigest()[:24]
 
@@ -259,6 +312,16 @@ class Bridge:
                 "mission_count": len(missions),
                 "missions": missions,
             })
+            # Keep the versioned text snapshot adjacent to the JSON one. It is
+            # deliberately simple to parse on Unity 5.6 / .NET 3.5.
+            # Publish all manifests before session.json (our heartbeat marker).
+            save_campaign_wire(
+                self.directory / "campaign_wire.txt",
+                campaign_wire_lines(
+                    self.token, self.protocol_version, self.campaign_status,
+                    self.campaign_message, campaign, self.mode,
+                ),
+            )
             save_json(self.directory / "session.json", self.session_data())
 
     def persist_items(self):
