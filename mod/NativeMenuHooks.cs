@@ -13,6 +13,7 @@ namespace CastleStoryArchipelago
         private object nativeStarterMenu;
         private int mapRegistrationCount;
         private bool unknownMapTypeLogged;
+        private bool nativeMapScanComplete;
         [Serializable] private sealed class NativeMapCatalog
         {
             public string[] map_ids;
@@ -162,7 +163,7 @@ namespace CastleStoryArchipelago
                 }
                 observedMapAssets[key] = gameMap;
                 if (nativeStarterMenu != null)
-                    SaveObservedMapIds(false);
+                    SaveObservedMapIds(nativeMapScanComplete);
             }
             else if (!unknownMapTypeLogged && gameMap != null)
             {
@@ -199,6 +200,7 @@ namespace CastleStoryArchipelago
                         try { ObserveMapCollection(method.Invoke(menu, new object[0])); }
                         catch (Exception) { }
                 }
+                nativeMapScanComplete = true;
                 SaveObservedMapIds(true);
                 Logger.LogInfo("[AP MENU] Map discovery after OpenSelf: " +
                     observedMapAssets.Count + " native assets. Stable IDs saved to installed_maps.json.");
@@ -271,6 +273,7 @@ namespace CastleStoryArchipelago
             if (Instance != null)
             {
                 Instance.nativeStarterMenu = __instance;
+                Instance.nativeMapScanComplete = false;
                 Instance.TryDiscoverNativeMaps(__instance);
                 Instance.nativeNewGameVisible = Instance.bridgeConnected;
                 Instance.apMenuOpen = false;
