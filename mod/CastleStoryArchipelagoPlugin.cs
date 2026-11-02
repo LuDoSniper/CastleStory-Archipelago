@@ -201,33 +201,54 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP CONQUEST CAPTURE] candidate id=" + objectId +
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
-            if (campaign != null && campaign.ready)
+            MissionFile selected = null;
+            if (campaign != null && campaign.ready && campaign.missions != null)
             {
-                if (!IsSelectedMissionType("Conquest"))
+                foreach (MissionFile m in campaign.missions)
+                    if (m != null && m.id == chosenMission && m.mode == "Conquest")
+                        selected = m;
+                if (selected == null)
                 {
-                    Logger.LogWarning("[AP MISSION] Capture ignored: select a Conquest mission.");
+                    Logger.LogWarning("[AP MISSION] Capture ignored: no Conquest mission selected.");
                     return;
                 }
                 string key = CaptureKey(captured);
+                int completedOnThisMap = capturedKeys.Count(x =>
+                    x.StartsWith(chosenMission + "|", StringComparison.Ordinal));
+                if (completedOnThisMap >= selected.shard_count)
+                {
+                    Logger.LogInfo("[AP MISSION] All configured shards already checked on " +
+                        selected.id + "; ignoring extra capture.");
+                    return;
+                }
                 if (!capturedKeys.Add(key))
                 {
                     Logger.LogInfo("[AP MISSION] Duplicate capture skipped: " + key);
                     return;
                 }
-            }
-            conquestCaptured++;
-            if ((mode != "Conquest" && mode != "Hybrid") || !captureChecks.Value || !bridgeConnected)
-            {
-                Logger.LogInfo("[AP CONQUEST] Local capture counted for diagnostics only; " +
-                    "selected AP mode=" + (mode == "" ? "<none>" : mode) +
-                    ", check sending=" + (captureChecks.Value ? "enabled" : "disabled") +
-                    ", bridge connected=" + bridgeConnected + ".");
+                int ordinal = selected.shard_start + completedOnThisMap;
+                conquestCaptured = capturedKeys.Count;
+                if ((mode != "Conquest" && mode != "Hybrid") ||
+                    !captureChecks.Value || !bridgeConnected) return;
+                int checkId = ConquestBase + ordinal;
+                if (ordinal <= shardGoal && checkedIds.Add(checkId))
+                {
+                    WriteChecks();
+                    Logger.LogInfo("[AP CHECK] Conquest mission=" + selected.id +
+                        " local shard=" + (completedOnThisMap + 1) +
+                        " global shard=" + ordinal + " check=" + checkId);
+                }
                 return;
             }
-            if (conquestCaptured <= shardGoal && checkedIds.Add(ConquestBase + conquestCaptured))
+            // Old slots without a campaign manifest keep the legacy 1-3 checks.
+            conquestCaptured++;
+            if ((mode != "Conquest" && mode != "Hybrid") ||
+                !captureChecks.Value || !bridgeConnected) return;
+            if (conquestCaptured <= shardGoal &&
+                checkedIds.Add(ConquestBase + conquestCaptured))
             {
                 WriteChecks();
-                Logger.LogInfo("[AP CHECK] Conquest candidate capture #" + conquestCaptured);
+                Logger.LogInfo("[AP CHECK] Legacy Conquest capture #" + conquestCaptured);
             }
         }
 

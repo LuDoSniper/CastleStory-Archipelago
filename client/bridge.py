@@ -29,6 +29,34 @@ ITEM_NAMES = {
     ITEM_BASE + 11: "Equipped Alchemist", ITEM_BASE + 12: "Wisp Supply",
 }
 
+def detect_installed_maps(directory):
+    """Read local map names only; the seed supplies verified shard counts."""
+    root = Path(directory).resolve().parents[2]
+    found = set()
+    sources = 0
+    for suffix in ("Info/Maps", "Info/UGC/Maps"):
+        parent = root / suffix
+        if parent.is_dir():
+            sources += 1
+            found.update(child.name for child in parent.iterdir() if child.is_dir())
+    return found if sources else None
+
+def reconcile_local_maps(directory, campaign):
+    """Report unavailable seed-selected maps without inventing replacements."""
+    installed = detect_installed_maps(directory)
+    if installed is None:
+        return campaign
+    selected = [m.get("map") for m in campaign.get("missions", [])
+                if isinstance(m, dict)]
+    missing = sorted(x for x in selected if isinstance(x, str) and x not in installed)
+    if missing:
+        updated = dict(campaign)
+        updated["ready"] = False
+        updated["warning"] = ("Missing maps on this PC: " + ", ".join(missing))
+        LOG.warning("Campaign maps missing locally: %s", ", ".join(missing))
+        return updated
+    return campaign
+
 def load_json(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -114,7 +142,7 @@ class Bridge:
             if mode not in IDS:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
             self.mode = mode
-            self.campaign = slot_data.get("campaign") or {}
+            self.campaign = reconcile_local_maps(self.directory, slot_data.get("campaign") or {})
             self.goal_wave = int(slot_data.get("goal_wave", 10))
             self.shard_goal = int(slot_data.get("conquest_capture_goal", 3))
             ids = slot_data.get("location_ids")
