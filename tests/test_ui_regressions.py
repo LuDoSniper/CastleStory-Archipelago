@@ -50,6 +50,16 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('ScheduleNativeUiFilter("native starter OpenSelf")', hooks)
         self.assertIn('ScheduleNativeUiFilter("native library OpenSelf")', hooks)
 
+    def test_map_catalog_is_not_rewritten_for_each_card(self):
+        native = NATIVE.read_text(encoding="utf-8")
+        plugin = PLUGIN.read_text(encoding="utf-8")
+        section = native.split("private void RegisterAvailableMap(", 1)[1]
+        section = section.split("private void TryDiscoverNativeMaps(", 1)[0]
+        self.assertNotIn("SaveObservedMapIds(", section)
+        self.assertIn("nativeMapCatalogSaveAt = Time.realtimeSinceStartup + 1.5f;", section)
+        self.assertIn("private void FlushNativeMapCatalogIfIdle()", native)
+        self.assertIn("FlushNativeMapCatalogIfIdle();", plugin)
+
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
         native = NATIVE.read_text(encoding="utf-8")
