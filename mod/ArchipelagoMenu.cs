@@ -191,9 +191,10 @@ namespace CastleStoryArchipelago
                 }
             }
             GUI.Label(new Rect(24, 486, 620, 70),
-                "Choose a mission here, then start that exact map in the native NEW GAME menu. " +
-                "Other maps are blocked while a ready AP campaign is active. " +
-                "Automatic native map launch is still experimental.");
+                "AP bonus Bricktrons pending: " + PendingBonusCount() +
+                " (not spawned). F10 = journal diagnostics. " +
+                "Choose a mission, then start the same map in New Game. " +
+                "Other maps are blocked in a connected, ready AP campaign.");
             GUI.depth = oldDepth;
         }
     }

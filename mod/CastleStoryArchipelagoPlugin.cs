@@ -326,6 +326,7 @@ namespace CastleStoryArchipelago
                     conqueredMissions.Clear();
                     chosenMission = "";
                     inventory.Clear();
+                    ResetBonusRewards(token);
                     conquestCaptured = 0;
                     conquestVictory = false;
                     lastWave = 0;
@@ -384,8 +385,9 @@ namespace CastleStoryArchipelago
                 {
                     inventory.Clear();
                     foreach (var pair in totals) inventory[pair.Key] = pair.Value;
+                    ReconcileBonusRewards(items.items);
                     Logger.LogInfo("[AP INVENTORY] Synced " + items.items.Length +
-                        " received items. Display only; game effects not yet implemented.");
+                        " received items. Bonus unit deliveries tracked separately.");
                 }
             }
             catch (Exception e)
@@ -425,6 +427,8 @@ namespace CastleStoryArchipelago
             }
             if (Input.GetKeyDown(KeyCode.F9))
                 ProbeGameApis();
+            if (Input.GetKeyDown(KeyCode.F10))
+                DumpBonusRewardQueue();
             if (Input.GetKeyDown(KeyCode.F8))
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +
