@@ -37,5 +37,26 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn("Champs du serveur :", code)
         self.assertIn("slotProtocolVersion", code)
 
+
+    def test_mission_launch_errors_remain_visible_and_logged(self):
+        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
+        native = (ROOT / "mod/NativeMenuHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("private void SetCampaignNotice(", ui)
+        self.assertIn("!bridgeConnected && String.IsNullOrEmpty(campaignNotice)", ui)
+        self.assertIn("!String.IsNullOrEmpty(campaignNotice) ? campaignNotice", ui)
+        self.assertIn("Pour jouer : ferme cette fenêtre, ouvre Nouvelle partie", ui)
+        self.assertIn("[AP LAUNCH] Blocked: native New Game menu", native)
+        self.assertIn("SetCampaignNotice(", native)
+
+    def test_popup_survives_short_heartbeat_loss_and_logs_gui_exceptions(self):
+        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
+        blocker = (ROOT / "mod/NativeInputShield.cs").read_text(encoding="utf-8")
+        mod = (ROOT / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8")
+        self.assertIn("if (nativeNewGameVisible || campaignPreviewOpen)", ui)
+        self.assertIn("return apMenuOpen || nativeNewGameVisible || campaignPreviewOpen;", blocker)
+        self.assertIn('[AP UI EXCEPTION]', ui)
+        self.assertIn("finally { GUI.EndScrollView(); }", ui)
+        self.assertIn('Logger.LogInfo("[AP SESSION] Connection "', mod)
+
 if __name__ == "__main__":
     unittest.main()
