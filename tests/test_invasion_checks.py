@@ -76,7 +76,7 @@ class InvasionCheckDeliveryTests(unittest.IsolatedAsyncioTestCase):
         native = (root / "mod/NativeMenuHooks.cs").read_text(encoding="utf-8")
         self.assertIn("private bool IsActiveInvasionMission()", mod)
         self.assertIn('String.Equals(startedMission, chosenMission', mod)
-        self.assertIn('startedMission = selected.id;', native)
+        self.assertIn('startedMission = matching.id;', native)
         self.assertIn("[AP MISSION START]", native)
         self.assertIn("if (!activeSeedMission && (!waveChecks.Value || !bridgeConnected))", mod)
         self.assertIn("(!bridgeConnected && !IsActiveInvasionMission())", mod)
