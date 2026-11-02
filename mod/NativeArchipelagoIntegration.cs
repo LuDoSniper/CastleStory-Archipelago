@@ -36,6 +36,8 @@ namespace CastleStoryArchipelago
         private float titleSceneReadyAt = -1f;
         private bool titleSceneSeen;
         private bool titleSceneEvidenceLogged;
+        private readonly Dictionary<GameObject, List<string>> cachedNativeLabels =
+            new Dictionary<GameObject, List<string>>();
         private GUIStyle introCreditStyle;
 
         private static string NormalizeNativeLabel(string text)
@@ -119,6 +121,16 @@ namespace CastleStoryArchipelago
             // Some prefab buttons expose only a native object name.
             if (!String.IsNullOrEmpty(obj.name)) labels.Add(obj.name);
             return labels;
+        }
+
+        private List<string> CachedNativeUiLabels(GameObject obj)
+        {
+            List<string> result;
+            if (obj != null && cachedNativeLabels.TryGetValue(obj, out result))
+                return result;
+            result = NativeUiLabels(obj);
+            if (obj != null) cachedNativeLabels[obj] = result;
+            return result;
         }
 
         private static string NativeUiLabel(GameObject obj)
@@ -632,7 +644,7 @@ namespace CastleStoryArchipelago
                 if (item == null || item.gameObject == null ||
                     hiddenNativeEntries.ContainsKey(item.gameObject)) continue;
                 controls.Add(item);
-                labels[item.gameObject] = NativeUiLabels(item.gameObject);
+                labels[item.gameObject] = CachedNativeUiLabels(item.gameObject);
             }
             Transform playRoot = FindPlayMenuRoot(controls, labels);
             int hidden = 0;
@@ -762,8 +774,9 @@ namespace CastleStoryArchipelago
         {
             // Three short checks cover asynchronous native card creation.
             // No continuous polling and no re-enabling cards on each pass.
-            pendingFilterPasses = 6;
-            nextFilterPassAt = Time.realtimeSinceStartup;
+            cachedNativeLabels.Clear();
+            pendingFilterPasses = 3;
+            nextFilterPassAt = Time.realtimeSinceStartup + .03f;
             Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
         }
 
@@ -823,6 +836,13 @@ namespace CastleStoryArchipelago
                     ProbeNativeArchipelagoUi();
                 }
             }
+            // Main Play, mode choice and Back may use custom game controls,
+            // not Brix.OpenSelf. A click schedules finite filtering once,
+            // unlike the old unconditional 500 ms scanner.
+            if (titleSceneSeen && !introCreditActive && bridgeConnected &&
+                (nativeConnectionPanel == null || !nativeConnectionPanel.activeSelf) &&
+                (Input.GetMouseButtonUp(0) || Input.GetKeyDown(KeyCode.Return)))
+                ScheduleNativeUiFilter("title/menu interaction");
             if (pendingFilterPasses > 0 && now >= nextFilterPassAt)
             {
                 pendingFilterPasses--;
