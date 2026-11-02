@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.4.0")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.5.0")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -79,8 +79,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.4.0 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.4.0 initialised.");
+                "Castle Story Archipelago v0.5.0 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.5.0 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -466,7 +466,7 @@ namespace CastleStoryArchipelago
             int oldDepth = GUI.depth;
             GUI.depth = -10000;
             GUI.Box(new Rect(8, 8, 680, 180), "");
-            GUI.Label(new Rect(18, 16, 650, 22), "Castle Story AP v0.4.0 [EXPERIMENTAL]");
+            GUI.Label(new Rect(18, 16, 650, 22), "Castle Story AP v0.5.0 [EXPERIMENTAL]");
             GUI.Label(new Rect(18, 40, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +

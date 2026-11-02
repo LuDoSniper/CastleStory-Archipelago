@@ -1,76 +1,49 @@
-# Castle Story Archipelago — Campagne v0.4.0 (travaux en cours)
+# Campaign integration — development status v0.5.0
 
-## Contrat de campagne
+## Implemented and CI-tested
 
-Un slot Archipelago choisit `invasion`, `conquest` ou `hybrid`.
+- APWorld modes `invasion`, `conquest`, `hybrid`, goals and deterministic
+  map subset selection from explicitly supplied shard capacities.
+- Stable location/item IDs and Hybrid mode-check filtering.
+- Bridge handshake, item receipt, session file and map-availability check.
+- PyInstaller self-contained Windows client added to the GitHub Actions bundle.
+- Native Unity main-menu connection overlay and AP mission list.
+- Harmony new-game OnOk guard; code path to auto-select cached native
+  `Asset_Map` from the new-game library, query available `Asset_Gamemode`,
+  and invoke Castle Story's own native start method.
+- Distinct per-mission captured shard offsets and victory bookkeeping.
+- Per-seed, per-item-index native bonus delivery journal and opt-in spawn
+  adapter using the validated UNetProjectCmd SpawnUnit parameter signature.
+- Map inspector and explicit confirmation of observed shard counts.
 
-Le `.apworld` produit un `slot_data.campaign` pour le client; celui-ci le
-synchronise dans `BepInEx/config/castle_story_archipelago/session.json`.
-Un manifeste contient : `ready`, `warning`, `mode`, `missions[]`;
-une mission indique `id`, `mode`, `map`, `wave_goal`,
-`shard_start`, `shard_count`, `required`.
+## Must validate in Castle Story itself
 
-- Invasion : au moins une mission, avec objectif de vagues configurable (1–10).
-- Conquête : la seed choisit un ensemble de cartes dont le total de shards
-  vérifiés couvre le seuil de 1–30, en minimisant d'abord l'excédent puis le
-  nombre de cartes. Le dernier candidat est arbitrés avec le seed.
-- Hybride : contient les deux familles; le serveur ne reçoit le GOAL que
-  si la vague cible, la victoire Conquête et le dernier check de shard sont vus.
+1. Native menu hook called for starting a solo new game, map identity from
+   `Asset_Map.GetHeightmapPath()`, gamemode identity from
+   `Asset_Gamemode.GetIntroImagePath()`, and actual launcher call.
+   These names and signatures were inspected in the supplied Assembly DLL,
+   but the precise live object lifetime remains unverified.
+2. Shard capture matching to per-mission identity survives scene reload
+   and revisiting the same crystal without duplicating checks.
+3. The locally owned `UNetProjectCmd.SpawnUnit` reflection callback
+   returns the expected `GameObject`; occupation enum names and equipment
+   support; extra units' interactions with crystal cap.
+4. Capturing/destroying multiple Home Crystals produces the intended
+   `GameWon` event for Conquest and Hybrid. The previous in-game test
+   only validated a shard capture and its AP check.
+5. ArchiLAN preflight of the *new* APWorld and seed options; prior live
+   ArchiLAN test covered an earlier Conquest version, not v0.5.0.
 
-Les identifiants préexistants des checks restent stables. Les récompenses
-`Equipped Worker/Archer/Knight/Alchemist` ont des ID réservés.
+## Data safety / follow-up architecture
 
-## Ce qui est déjà codé
-
-- Options YAML et plan de campagne déterministe avec tests.
-- Filtrage des IDs par `slot_data.location_ids`, respect du mode Hybride et
-  de ses conditions de fin dans le client.
-- Connexion pilotée depuis l'overlay AP via un fichier local
-  `connection.json`. Un client Python démarré sans `--server` se charge de
-  la connexion; il sait détecter une demande de déconnexion ou de reconnexion.
-- Liste des missions dans l'overlay Unity, avec sélection persistée localement
-  via `mission_selection.json`. La sélection **n'entraîne pas encore le
-  lancement automatique** d'une carte.
-- F9 : inspection en lecture seule des signatures de menus, cartes,
-  cristaux et créations d'unités dans le `LogOutput.log`.
-- HUD d'inventaire reçu; aucun effet physique d'objet nouveau ne doit être
-  considéré validé sur cette version.
-
-## Bloqueurs techniques à résoudre avant de revendiquer une campagne jouable
-
-1. **Catalogue réel des cartes** : les shards ne sont pas stockés dans le
-   .apworld. Le script `tools/inspect_maps.py` collecte un inventaire
-   non sensible et donne un rapport à valider. Aucune valeur de capacité
-   n'est inventée. Un catalogue vide rend `campaign.ready=false`.
-2. **Menu natif** : il faut identifier précisément le processus de création
-   et de chargement de partie puis remplacer la sélection libre uniquement
-   pendant une session AP. L'overlay actuel est une interface provisoire.
-3. **Progression par carte / sauvegarde** : vérifier la carte réellement
-   lancée, lier chaque partie à sa seed, aux objectifs propres à la carte,
-   stocker les captures distinctes durablement et gérer les reloads.
-4. **Bricktrons hors plafond du cristal** : valider `SpawnUnit`,
-   `bricktronCap`, l'appartenance de faction, l'équipement et le respawn.
-   Ne jamais contourner un compteur avant d'avoir déterminé s'il s'agit du
-   quota du cristal, d'une limite de simulation ou des deux.
-5. **Récompenses physiques** : traiter les objets une seule fois, après
-   confirmation de l'action par le jeu; garder une file de livraison
-   persistante en cas de crash, et empêcher le duplication au rechargement.
-6. **Réconciliation réseau** : les checks confirmés par le serveur doivent
-   être rechargés après reconnexion, pas uniquement déduits du fichier local.
-7. **Vraie génération ArchiLAN** : une CI Python/C# verte ne remplace pas
-   le test d'introspection/préflight de la dernière .apworld dans ArchiLAN.
-
-## Connexion depuis le jeu (prototype)
-
-1. Installer le DLL du bundle dans `BepInEx/plugins`.
-2. Démarrer `Start-Bridge.ps1` **sans** `-Server` ni `-Slot`
-   (mais avec `-GameDirectory` si installation non standard).
-3. Lancer Castle Story, cliquer sur le bouton `AP` en haut à gauche,
-   saisir l'URL WSS ArchiLAN, le nom du slot et éventuellement le mot de passe.
-4. Cliquer sur Connect. L'overlay affiche le mode et les cartes de la seed.
-
-Le bouton `AP` est **un substitut provisoire au logo officiel**, pas un
-asset officiel. Le mot de passe est conservé localement dans
-`BepInEx/config/castle_story_archipelago/connection.json` pour le pont Python;
-ne pas partager ce fichier. Le jeu original reste accessible; sa sélection
-de cartes n'est **pas encore bloquée**.
+- Default native bonus spawn **OFF** and no global cap modification.
+- Never reset a bonus ticket in `spawning` or `review` automatically.
+- Need a save GUID to bind mission progress and bonus ownership; the
+  current seed token is not a per-save identity.
+- Need event-driven per-mission starts to ignore detections from the
+  previous scene; current selected mission is an explicit manual step.
+- Need a verified quota accounting hook before claiming bonus units
+  are invisible to Home Crystal population limits.
+- Need a usable, non-blocking UI integrated with the *real* main menu
+  instead of permanent overlay. Current AP button is a placeholder,
+  not the official Archipelago logo graphic.
