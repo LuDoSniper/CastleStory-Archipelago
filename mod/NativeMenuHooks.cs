@@ -98,6 +98,72 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private void TryDiscoverNativeMaps(object menu)
+        {
+            if (menu == null) return;
+            try
+            {
+                Type type = menu.GetType();
+                var flags = BindingFlags.Instance | BindingFlags.Public |
+                    BindingFlags.NonPublic;
+                foreach (FieldInfo field in type.GetFields(flags))
+                    if (LooksLikeMapCollection(field.Name))
+                        ObserveMapCollection(field.GetValue(menu));
+                foreach (PropertyInfo property in type.GetProperties(flags))
+                    if (LooksLikeMapCollection(property.Name) &&
+                        property.GetIndexParameters().Length == 0 && property.CanRead)
+                    {
+                        try { ObserveMapCollection(property.GetValue(menu, null)); }
+                        catch (Exception) { /* Some properties are scene-specific. */ }
+                    }
+                // Prefer known explicit map-list methods to searching game-wide globals.
+                foreach (string name in new [] { "GetMaps", "GetMapAssets",
+                                                  "GetAvailableMaps", "GetAllMaps" })
+                {
+                    var method = AccessTools.Method(type, name, Type.EmptyTypes);
+                    if (method != null)
+                        try { ObserveMapCollection(method.Invoke(menu, new object[0])); }
+                        catch (Exception) { }
+                }
+                Logger.LogInfo("[AP MENU] Map discovery after OpenSelf: " +
+                    observedMapAssets.Count + " native assets.");
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP MENU] Map discovery failed: " + error.Message);
+            }
+        }
+
+        private static bool LooksLikeMapCollection(string memberName)
+        {
+            if (String.IsNullOrEmpty(memberName)) return false;
+            string name = memberName.ToLowerInvariant();
+            return name.Contains("map") || name.Contains("asset") ||
+                name.Contains("library");
+        }
+
+        private void ObserveMapCollection(object collection)
+        {
+            if (collection == null || collection is string) return;
+            var values = collection as System.Collections.IEnumerable;
+            if (values == null) return;
+            int inspected = 0;
+            foreach (object value in values)
+            {
+                if (inspected++ >= 200) break;
+                if (value == null) continue;
+                RegisterAvailableMap(value);
+                foreach (string property in new [] { "Map", "Asset", "Value" })
+                {
+                    var info = AccessTools.Property(value.GetType(), property);
+                    if (info == null || !info.CanRead || info.GetIndexParameters().Length != 0)
+                        continue;
+                    try { RegisterAvailableMap(info.GetValue(value, null)); }
+                    catch (Exception) { }
+                }
+            }
+        }
+
         private string ModeIdentity(object modeObject)
         {
             if (modeObject == null) return null;
@@ -109,6 +175,11 @@ namespace CastleStoryArchipelago
                     string path = getter == null ? null : getter.Invoke(modeObject, null) as string;
                     if (!String.IsNullOrEmpty(path))
                     {
+                        string normalized = path.Replace('\\', '/');
+                        if (normalized.IndexOf("conquest", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return "Conquest";
+                        if (normalized.IndexOf("invasion", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return "Invasion";
                         string folder = Path.GetFileName(Path.GetDirectoryName(
                             path.Replace('/', Path.DirectorySeparatorChar)
                                 .Replace('\\', Path.DirectorySeparatorChar)));
@@ -125,6 +196,7 @@ namespace CastleStoryArchipelago
             if (Instance != null)
             {
                 Instance.nativeStarterMenu = __instance;
+                Instance.TryDiscoverNativeMaps(__instance);
                 Instance.nativeNewGameVisible = Instance.bridgeConnected;
                 Instance.apMenuOpen = false;
                 Instance.Logger.LogInfo("[AP MENU] New Game opened; Archipelago mission UI=" +
@@ -220,9 +292,14 @@ namespace CastleStoryArchipelago
             object asset;
             if (!observedMapAssets.TryGetValue(mission.map, out asset))
             {
-                statusLine = "Map not yet loaded by the game: " + mission.map +
-                    ". Open the game's map browser.";
-                return;
+                TryDiscoverNativeMaps(nativeStarterMenu);
+                if (!observedMapAssets.TryGetValue(mission.map, out asset))
+                {
+                    statusLine = "Carte manquante dans les assets du jeu : " +
+                        mission.map + " (" + observedMapAssets.Count +
+                        " cartes detectees). Voir F9.";
+                    return;
+                }
             }
             try
             {
