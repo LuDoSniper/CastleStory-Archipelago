@@ -1,0 +1,14 @@
+# EXAMPLE ONLY — NOT GENERATABLE until you provide real Conquest map
+# IDs and verified capturable-shard counts. Never guess these values.
+name: CastleStoryPlayer
+game: Castle Story
+Castle Story:
+  game_mode: hybrid
+  invasion_goal: 5
+  conquest_shards: 3
+  invasion_map_pool: []
+  conquest_map_capacities: {}
+  # After verifying counts, replace the empty {} with for example:
+  # conquest_map_capacities:
+  #   "official:ACTUAL_MAP_ID": VERIFIED_SHARD_COUNT
+  # Do not copy the placeholder ID or count into a real ArchiLAN run.

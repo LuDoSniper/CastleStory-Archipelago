@@ -81,6 +81,7 @@ jobs:
           New-Item -Force -ItemType Directory package/tools | Out-Null
           Copy-Item tools/inspect_maps.py package/tools/inspect_maps.py
           Copy-Item examples/CastleStoryPlayer.yaml package/CastleStoryPlayer.yaml
+          Copy-Item examples/CastleStoryHybrid.template.yaml package/CastleStoryHybrid.template.yaml
           Copy-Item README.md package/README.md
           New-Item -Force -ItemType Directory package/BepInEx/plugins | Out-Null
           Copy-Item package/CastleStoryArchipelago.dll package/BepInEx/plugins/CastleStoryArchipelago.dll

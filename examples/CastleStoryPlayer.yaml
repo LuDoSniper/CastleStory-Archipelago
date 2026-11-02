@@ -1,12 +1,11 @@
-# TEMPLATE ONLY. Copy REAL internal IDs (folder names) from inspect_maps.py.
-# Neither Pioneer Pass nor its French translation is a reliable map ID.
+# Castle Story AP — example that GENERATES successfully without a map catalog.
+# Invasion chooses a compatible installed map from the game's native asset IDs.
+# For a Hybrid campaign you MUST supply verified Conquest shard counts.
 name: CastleStoryPlayer
 game: Castle Story
 Castle Story:
-  game_mode: hybrid
+  game_mode: invasion
   invasion_goal: 5
-  conquest_shards: 8
-  invasion_map_pool:
-    - "official:REPLACE_WITH_INSTALLED_INVASION_FOLDER"
-  conquest_map_capacities:
-    "official:REPLACE_WITH_INSTALLED_CONQUEST_FOLDER": 8
+  conquest_shards: 3
+  invasion_map_pool: []
+  conquest_map_capacities: {}
