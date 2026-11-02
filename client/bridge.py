@@ -29,11 +29,21 @@ ITEM_NAMES = {
     ITEM_BASE + 11: "Equipped Alchemist", ITEM_BASE + 12: "Wisp Supply",
 }
 
+def canonical_map_id(name):
+    """Map technical identity is an asset folder name, never a localized title."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return name.strip().replace("\\", "/").rstrip("/").split("/")[-1].casefold()
+
+
 def detect_installed_maps(directory):
-    """Read local map names only; the seed supplies verified shard counts."""
+    """Advisory local map-folder scan, not an authoritative installed-map list.
+
+    Castle Story may package built-in maps in assets; localized titles and
+    physical folder names differ. A missing folder is NOT proof that the game
+    does not own the map. The Unity Asset_Map loader is authoritative.
+    """
     location = Path(directory).resolve()
-    # Only probe inside the canonical Castle Story/BepInEx/config location.
-    # Tests and custom bridge directories must not be mistaken for game installs.
     if (location.name != "castle_story_archipelago" or
             location.parent.name != "config" or
             location.parent.parent.name != "BepInEx"):
@@ -45,24 +55,64 @@ def detect_installed_maps(directory):
         parent = root / suffix
         if parent.is_dir():
             sources += 1
-            found.update(child.name for child in parent.iterdir() if child.is_dir())
+            found.update(canonical_map_id(child.name) for child in parent.iterdir()
+                         if child.is_dir())
     return found if sources else None
 
+
+def validate_campaign_manifest(campaign, mode):
+    if not isinstance(campaign, dict):
+        return "Le serveur n'a pas transmis de manifeste valide."
+    missions = campaign.get("missions")
+    if not isinstance(missions, list):
+        return "Le manifeste n'a pas de liste de missions."
+    ids = set()
+    available_modes = set()
+    for mission in missions:
+        if not isinstance(mission, dict):
+            return "Une mission du manifeste est invalide."
+        kind = mission.get("mode")
+        if kind not in ("Invasion", "Conquest"):
+            return "Une mission utilise un mode inconnu."
+        map_id = mission.get("map_id")
+        if not isinstance(map_id, str) or not map_id.strip():
+            return ("Cette seed utilise des noms de carte plutôt que des IDs "
+                    "techniques. Importe le nouvel APWorld et régénère la seed.")
+        if not isinstance(mission.get("id"), str):
+            return "Une mission ne possède pas d'identifiant."
+        if mission["id"] in ids:
+            return "Le manifeste contient une mission en double."
+        ids.add(mission["id"])
+        available_modes.add(kind)
+    expected = {"Invasion", "Conquest"} if mode == "Hybrid" else {mode}
+    if not expected.issubset(available_modes):
+        return ("Une campagne %s doit contenir des missions %s ; "
+                "vérifie les catalogues de cartes du YAML." %
+                (mode, " ET ".join(sorted(expected))))
+    if not campaign.get("ready", False):
+        return str(campaign.get("warning") or "La génération de la campagne a échoué.")
+    return None
+
+
 def reconcile_local_maps(directory, campaign):
-    """Report unavailable seed-selected maps without inventing replacements."""
+    """Annotate local folder evidence, without false-negative rejection."""
     installed = detect_installed_maps(directory)
+    updated = dict(campaign)
     if installed is None:
-        return campaign
-    selected = [m.get("map") for m in campaign.get("missions", [])
-                if isinstance(m, dict)]
-    missing = sorted(x for x in selected if isinstance(x, str) and x not in installed)
-    if missing:
-        updated = dict(campaign)
-        updated["ready"] = False
-        updated["warning"] = ("Missing maps on this PC: " + ", ".join(missing))
-        LOG.warning("Campaign maps missing locally: %s", ", ".join(missing))
+        updated["local_map_scan"] = "unavailable"
+        updated["local_map_scan_missing"] = []
         return updated
-    return campaign
+    selected = [m.get("map_id") or m.get("map") for m in
+                campaign.get("missions", []) if isinstance(m, dict)]
+    missing = sorted(x for x in selected
+                     if isinstance(x, str) and canonical_map_id(x) not in installed)
+    updated["local_map_scan"] = ("folders_found" if not missing
+                                  else "requires_unity_asset_validation")
+    updated["local_map_scan_missing"] = missing
+    if missing:
+        LOG.info("AP map folder scan cannot confirm %s. "
+                 "Not blocking: the Unity asset registry is authoritative.", missing)
+    return updated
 
 def load_json(path):
     try:
@@ -175,10 +225,12 @@ class Bridge:
                 )
             else:
                 self.campaign = reconcile_local_maps(self.directory, received_campaign)
-                if not self.campaign.get("ready", False):
+                problem = validate_campaign_manifest(self.campaign, mode)
+                if problem:
                     self.campaign_status = "unready"
-                    self.campaign_message = str(self.campaign.get("warning") or
-                        "La seed ne contient pas assez de cartes valides.")
+                    self.campaign_message = problem
+                    self.campaign["ready"] = False
+                    self.campaign["warning"] = problem
                 else:
                     self.campaign_status = "ready"
                     self.campaign_message = ""
