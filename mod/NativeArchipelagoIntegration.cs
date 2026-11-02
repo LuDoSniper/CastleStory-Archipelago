@@ -294,6 +294,10 @@ namespace CastleStoryArchipelago
 
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
+            // Native tabs can change without closing New Game (Hybrid). A
+            // previously forbidden map may become allowed on another tab.
+            // Restore our own changes, then reapply the current restrictions.
+            if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
             int hidden = 0;
             string selectedNativeMode = SelectedNativeGamemode();
             foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
