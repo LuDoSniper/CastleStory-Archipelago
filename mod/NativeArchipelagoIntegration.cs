@@ -157,13 +157,21 @@ namespace CastleStoryArchipelago
 
         private void OpenArchipelagoFromNativeMenu()
         {
-            apMenuOpen = true;
-            campaignPreviewOpen = false;
-            // Native game screens remain intact and can be used afterwards.
-            Logger.LogInfo("[AP NATIVE UI] Opened Archipelago account panel.");
+            if (ShowNativeConnectionPanel())
+            {
+                apMenuOpen = false;
+                Logger.LogInfo("[AP NATIVE UI] Opened native Archipelago connection panel.");
+            }
+            else
+            {
+                apMenuOpen = true;
+                Logger.LogWarning("[AP NATIVE UI] Using legacy login fallback: " +
+                    nativePanelDiagnostic);
+            }
         }
 
-        private bool InstallNativeButtonListener(Component clonedButton, Type buttonType)
+        private bool InstallNativeButtonListener(Component clonedButton, Type buttonType,
+                                                 string methodName)
         {
             try
             {
@@ -174,7 +182,7 @@ namespace CastleStoryArchipelago
                 Type actionType = FindRuntimeType("UnityEngine.Events.UnityAction");
                 if (actionType == null) return false;
                 MethodInfo handler = GetType().GetMethod(
-                    "OpenArchipelagoFromNativeMenu",
+                    methodName,
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 Delegate listener = Delegate.CreateDelegate(actionType, this, handler);
                 var addListener = eventType.GetMethod("AddListener",
@@ -254,6 +262,13 @@ namespace CastleStoryArchipelago
                         continue;
                     GameObject source = button.gameObject;
                     BeginOwnIntroCredit();
+                    mainMenuPlayTemplate = source;
+                    Type buttonClass = FindRuntimeType("UnityEngine.UI.Button");
+                    foreach (Component sibling in source.transform.parent.GetComponentsInChildren(buttonClass, true))
+                        foreach (string label in NativeUiLabels(sibling.gameObject))
+                            if (NormalizeNativeLabel(label) == "options" ||
+                                NormalizeNativeLabel(label) == "paramètres")
+                                mainMenuOptionsTemplate = sibling.gameObject;
                     GameObject copy = UnityEngine.Object.Instantiate(source)
                         as GameObject;
                     if (copy == null) return;
@@ -262,7 +277,8 @@ namespace CastleStoryArchipelago
                     copy.transform.SetParent(source.transform.parent, false);
                     Component cloneButton = copy.GetComponent(buttonType);
                     if (cloneButton == null ||
-                        !InstallNativeButtonListener(cloneButton, buttonType) ||
+                        !InstallNativeButtonListener(cloneButton, buttonType,
+                            "OpenArchipelagoFromNativeMenu") ||
                         !SetNativeUiLabel(copy, "Archipelago"))
                     {
                         UnityEngine.Object.Destroy(copy);
