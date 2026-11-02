@@ -1,6 +1,68 @@
-# Castle Story × Archipelago — v0.7.0 (navigation Archipelago native)
+# Castle Story × Archipelago — v0.7.1 (menus stables, connexion privée, crédit dédié)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.1 — Menu natif, splash autonome et identifiants privés
+
+Cette version suit le parcours vérifié par le joueur :
+1. **Accueil** : Jouer, Archipelago (bouton cloné de Jouer en style primaire), Options.
+   Il faut détecter Jouer ET Options dans la même branche du menu, pour
+   éviter de cloner un bouton d'un sous-menu.
+2. **Jouer** : Nouvelle partie, Charger, Multijoueur et Retour. Les autres
+   entrées d'un groupe de menu reconnu sont masquées lorsque la seed est active.
+3. **Nouvelle partie** : pas de Construction libre ; seulement Invasion,
+   Conquête, ou les deux pour Hybride.
+4. **Mode** : le catalogue des cartes visibles est limité aux cartes autorisées
+   par la seed et le mode actuellement choisi ; les identifiants de cartes sont
+   validés également dans le hook natif de lancement.
+
+**Stabilité du filtrage :** les cartes masquées ne sont plus réactivées toutes
+les 500 ms (ce qui déclenchait leurs OnEnable et pouvait dupliquer les tuiles).
+Le filtrage est appliqué à l'ouverture native du menu et incrémental pour les
+nouvelles cartes. Les cartes déjà masquées restent masquées lors de Retour, puis
+réouverture du mode. Pour Hybride, elles sont recalculées seulement lors d'un
+véritable changement de mode.
+
+**Connexion :** le panneau principal utilise désormais un Canvas Unity UI,
+les boutons natifs clonés de Jouer/Options et de vrais InputField Unity.
+Le raccourci F7 ouvre ce même panneau ; l'ancien IMGUI n'apparaît qu'en
+dernier recours si des types Unity UI sont absents. Le panneau propose
+Connexion, Déconnexion et Fermer.
+
+- `connection_preferences.json` conserve **uniquement** l'adresse et le nom
+  du slot, réutilisés au lancement suivant.
+- Le mot de passe n'est **pas** conservé sur disque par le nouveau flux :
+  il est envoyé du jeu à l'exécutable bridge par un tuyau stdin local en
+  mémoire, puis effacé des champs. Il doit être ressaisi à la prochaine
+  connexion. L'installateur migre un éventuel ancien `connection.json`
+  contenant un mot de passe en clair, garde seulement adresse/slot et
+  supprime le fichier. Les backups/disques historiques ne peuvent pas être
+  nettoyés à distance.
+- Checks, progression, seed et cartes installées ne sont pas supprimés par
+  la mise à jour.
+
+**Crédits de démarrage :** une séquence blanche autonome de 3,5 secondes
+apparaît **après** l'apparition de l'écran Jouer / Options, puis disparaît
+avant de donner le contrôle. Le logo Archipelago est centré, le nom est noir
+pour rester lisible sur fond blanc, l'ensemble apparaît/disparaît en fondu.
+Cette réalisation n'édite pas les séquences propriétaires de Sauropod.
+Une imitation exacte de leur chronologie interne nécessiterait leurs
+objets/scripts de crédits, non fournis dans le dépôt.
+
+**Points à valider dans le vrai jeu :** disposition exacte des boutons,
+détection des vrais libellés de certains sous-menus, présentation du Canvas
+de connexion et instant où le menu devient visible après les logos. La CI
+compile le code et vérifie les contrats, mais ne peut pas faire tourner
+le moteur Unity 5.6 et ses menus. F9 affiche les libellés des boutons
+(`[AP NATIVE UI PROBE]`) utiles à l'adaptation.
+
+**Test :** fermer Castle Story, installer le kit 0.7.1, relancer ;
+observer le crédit dédié après les logos, puis le bouton Archipelago
+entre Jouer et Options. Se connecter et vérifier que seul le couple
+serveur/slot se remplit à la reconnexion (mot de passe vide).
+Parcourir Jouer / Nouvelle partie / Invasion / Retour / Invasion,
+surveiller l'absence de doublons et de saccades, puis vérifier qu'un
+check continue à remonter à ArchiLAN.
 
 ## v0.7.0 — Navigation Archipelago dans les menus natifs (pré-validation)
 
