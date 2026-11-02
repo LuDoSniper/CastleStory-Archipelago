@@ -1,4 +1,4 @@
-# Castle Story × Archipelago — v0.5.1 interface preview
+# Castle Story × Archipelago — v0.5.2 interface and session fixes
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
 
@@ -38,6 +38,40 @@ L'image \`archipelago-logo.png\` du paquet est récupérée depuis
 pendant la CI. Pour l'installer, copie **tout le dossier**
 \`BepInEx/plugins\` du kit et garde le sous-dossier
 \`castle_story_ap\`, sinon le logo et le pont réseau manqueront.
+
+## Correctifs v0.5.2
+
+- L'icône Archipelago n'a plus de cadre sombre : le logo est affiché directement
+  sur fond transparent, avec agrandissement progressif au survol.
+- Le bouton **Déconnexion** est accessible depuis la fenêtre de connexion
+  **et** depuis l'écran des missions. Le bouton Retour revient correctement
+  à la connexion quand on a seulement ouvert un aperçu de la campagne.
+- La déconnexion depuis le jeu prévaut même si le bridge avait été démarré
+  avec `--server` et `--slot`. Le bridge coupe la connexion et publie
+  l'état de session `connected=false`.
+- Une connexion ArchiLAN réussie ne garantit pas que le slot possède un
+  `slot_data.campaign`. Le client affiche désormais le protocole et le statut
+  (`ready`, `unready`, `missing`, `invalid`), au lieu d'un message générique.
+
+### Pourquoi « Aucune campagne reçue » malgré « Connecté » ?
+
+C'est possible lorsqu'un serveur ArchiLAN héberge encore une **seed générée
+avec une ancienne version de l'APWorld**. Le protocole Archipelago accepte
+alors la connexion (le slot existe), mais `slot_data` ne contient aucune
+liste de missions. Ce n'est pas une panne du WebSocket.
+
+Pour obtenir les missions automatiques, **importe le dernier
+`castle_story.apworld` dans ArchiLAN puis génère une nouvelle seed**
+avec les options `game_mode`, `invasion_goal`,
+`conquest_shards` et, pour Conquête/Hybride, un catalogue de maps aux
+capacités vérifiées. **Mettre seulement à jour la DLL n'ajoute pas une
+campagne à un ancien fichier .archipelago généré.**
+
+Si le problème persiste avec une nouvelle seed, les fichiers de diagnostic
+`session.json` et `bridge_status.json` du dossier
+`BepInEx/config/castle_story_archipelago` indiquent `campaign_status`
+et `campaign_message`. Ne transmets pas `connection.json` : il contient
+potentiellement ton mot de passe.
 
 ## Three campaign modes
 
