@@ -194,6 +194,8 @@ namespace CastleStoryArchipelago
                  : captured.GetHashCode());
             if (objectId == 0) return;
             bool isNew = capturedObjects.Add(objectId);
+            if (campaign != null && campaign.ready && IsSelectedMissionType("Conquest"))
+                isNew = !capturedKeys.Contains(CaptureKey(captured));
             Logger.LogInfo("[AP CONQUEST CAPTURE] candidate id=" + objectId +
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
