@@ -696,7 +696,10 @@ namespace CastleStoryArchipelago
 
         private void WriteChecks()
         {
-            if (!bridgeConnected || String.IsNullOrEmpty(token)) return;
+            // Do not lose a valid seed check when ArchiLAN temporarily
+            // disconnects. The bridge will replay the token-scoped ledger.
+            if (String.IsNullOrEmpty(token) || disconnectPending ||
+                (!bridgeConnected && !IsActiveInvasionMission())) return;
             var path = Path.Combine(directory, "checks.json");
             var temp = path + ".tmp";
             bool allShards = checkedIds.Contains(ConquestBase + shardGoal);
@@ -705,15 +708,26 @@ namespace CastleStoryArchipelago
             bool won = mode == "Invasion" ? invasionFinished :
                 mode == "Conquest" ? conquestFinished :
                 (invasionFinished && conquestFinished);
-            File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
-                token = token, mode = mode,
-                location_ids = checkedIds.OrderBy(x => x).ToArray(),
-                captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
-                completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
-                goal = won
-            }));
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(temp, path);
+            try
+            {
+                File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
+                    token = token, mode = mode,
+                    location_ids = checkedIds.OrderBy(x => x).ToArray(),
+                    captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
+                    completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
+                    goal = won
+                }));
+                // Atomic replacement on NTFS avoids readers observing the
+                // deletion gap of the old File.Delete + File.Move sequence.
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
+                Logger.LogInfo("[AP CHECK FILE] persisted=" + checkedIds.Count +
+                    " goal=" + won + " online=" + bridgeConnected);
+            }
+            catch (Exception error)
+            {
+                Logger.LogError("[AP CHECK FILE] Could not persist checks: " + error);
+            }
         }
 
         private void Update()
