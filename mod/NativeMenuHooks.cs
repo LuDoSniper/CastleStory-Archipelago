@@ -326,8 +326,10 @@ namespace CastleStoryArchipelago
             Instance.nativeNewGameVisible = false;
             Instance.nativeStarterMenu = null;
             Instance.apPopupDismissedOnNativeScreen = false;
-            Instance.RestoreNativeEntries();
-            Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed.");
+            // Keep already-filtered cards disabled on menu return. Re-enabling
+            // them during CloseSelf triggers the game's native card rebuilding
+            // and was causing duplicates upon opening Invasion again.
+            Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed; seed filter retained.");
         }
 
         private void CloseNativeNewGame()
