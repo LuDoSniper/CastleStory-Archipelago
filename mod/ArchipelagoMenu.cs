@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Diagnostics;
 using BepInEx;
 using UnityEngine;
 
@@ -48,7 +49,9 @@ namespace CastleStoryArchipelago
         private string loginSlot = "";
         private string loginPassword = "";
         private string chosenMission = "";
-        private string statusLine = "Start the Python bridge to connect.";
+        private string statusLine = "Ready to connect to Archipelago.";
+        private Process localBridge;
+        private float nextBridgeStatusRead;
 
         private void WriteConnection(bool enable)
         {
@@ -65,16 +68,66 @@ namespace CastleStoryArchipelago
                         slot = enable ? loginSlot.Trim() : "",
                         password = enable ? loginPassword : ""
                     }));
-                statusLine = enable ? "Connection requested. Bridge must be running." : "Disconnect requested.";
+                statusLine = enable ? "Connection requested." : "Disconnect requested.";
+                if (enable) StartLocalBridge();
                 if (!enable) loginPassword = "";
             }
             catch (Exception error) { statusLine = "Cannot save connection request: " + error.Message; }
         }
 
+        private void StartLocalBridge()
+        {
+            // Standalone bridge packaged in the test kit; no Python installation required.
+            // A user can still start client/bridge.py manually if this executable is absent.
+            try
+            {
+                if (localBridge != null && !localBridge.HasExited) return;
+                string exe = Path.Combine(Paths.PluginPath, "castle_story_ap", "castle-story-ap-bridge.exe");
+                if (!File.Exists(exe))
+                {
+                    statusLine = "Bridge executable not installed; use Start-Bridge.ps1.";
+                    return;
+                }
+                var info = new ProcessStartInfo(exe);
+                info.Arguments = "--bridge-dir " + Quote(directory);
+                info.UseShellExecute = false;
+                info.CreateNoWindow = true;
+                info.WorkingDirectory = Path.GetDirectoryName(exe);
+                localBridge = Process.Start(info);
+                statusLine = "Local bridge started; connecting...";
+            }
+            catch (Exception error)
+            {
+                statusLine = "Cannot launch bridge: " + error.Message;
+                Logger.LogWarning("[AP BRIDGE] " + error);
+            }
+        }
+
+        private static string Quote(string value)
+        {
+            return "\\\"" + value.Replace("\\\"", "\\\\\\\"") + "\\\"";
+        }
+
+        private void ReadLocalBridgeStatus()
+        {
+            if (Time.realtimeSinceStartup < nextBridgeStatusRead) return;
+            nextBridgeStatusRead = Time.realtimeSinceStartup + 1f;
+            try
+            {
+                string path = Path.Combine(directory, "bridge_status.json");
+                if (!File.Exists(path)) return;
+                var state = JsonUtility.FromJson<BridgeStatusFile>(File.ReadAllText(path));
+                if (state != null && !String.IsNullOrEmpty(state.state))
+                    statusLine = state.state + ": " + (state.message ?? "");
+            }
+            catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
+        }
+
         private void DrawApMenu()
         {
-            // Do not destroy or patch the vanilla main menu without verified hooks.
-            // This overlay is a working connection/manifest prototype.
+            // The native new-game menu's OnOk is guarded by NativeMenuHooks.
+            // The AP overlay lists only seed-selected missions.
+            ReadLocalBridgeStatus();
             int oldDepth = GUI.depth;
             GUI.depth = -20000;
             if (GUI.Button(new Rect(8, 8, 52, 34), "AP"))
@@ -136,9 +189,9 @@ namespace CastleStoryArchipelago
                 }
             }
             GUI.Label(new Rect(24, 486, 620, 70),
-                "Map launch and replacement of the vanilla menu are NOT implemented yet. " +
-                "For now launch the selected map manually. Equipped Bricktrons are catalogued " +
-                "but do not yet spawn outside the crystal limit.");
+                "Choose a mission here, then start that exact map in the native NEW GAME menu. " +
+                "Other maps are blocked while a ready AP campaign is active. " +
+                "Automatic native map launch is still experimental.");
             GUI.depth = oldDepth;
         }
     }

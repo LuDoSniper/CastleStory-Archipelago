@@ -94,6 +94,7 @@ namespace CastleStoryArchipelago
                 new [] { typeof(int) });
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
+            InstallNativeMenuGuard();
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
         }
 
@@ -472,6 +473,15 @@ namespace CastleStoryArchipelago
         private void OnDestroy()
         {
             if (harmony != null) harmony.UnpatchSelf();
+            // The standalone bridge is a child process only when launched by this plugin.
+            // Do not kill a bridge started by the user from PowerShell.
+            if (localBridge != null)
+            {
+                try { if (!localBridge.HasExited) localBridge.Kill(); }
+                catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
+                localBridge.Dispose();
+                localBridge = null;
+            }
             if (Instance == this) Instance = null;
         }
     }
