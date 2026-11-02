@@ -538,7 +538,7 @@ namespace CastleStoryArchipelago
                 if (Event.current.type == EventType.MouseDown ||
                     Event.current.type == EventType.MouseUp ||
                     Event.current.type == EventType.ScrollWheel)
-                    if (!Event.current.isUsed) Event.current.Use();
+                    Event.current.Use();
             }
             else if (apMenuOpen)
                 DrawConnection();
