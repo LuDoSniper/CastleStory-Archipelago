@@ -130,6 +130,8 @@ namespace CastleStoryArchipelago
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged +=
+                OnArchipelagoSceneChanged;
             InstallBonusSpawnHooks();
             Logger.LogInfo("[AP NATIVE UI] Native main menu integration enabled; F7 fallback.");
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
@@ -831,6 +833,8 @@ namespace CastleStoryArchipelago
 
         private void OnDestroy()
         {
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged -=
+                OnArchipelagoSceneChanged;
             if (harmony != null) harmony.UnpatchSelf();
             // The standalone bridge is a child process only when launched by this plugin.
             // Do not kill a bridge started by the user from PowerShell.
