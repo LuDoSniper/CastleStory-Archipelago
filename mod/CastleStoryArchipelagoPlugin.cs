@@ -31,6 +31,7 @@ namespace CastleStoryArchipelago
         private int waveEventCount;
         private int lastLoggedWave = -1;
         private int lastRejectedWave = -1;
+        private bool checksDirty;
         private int conquestCaptured;
         private int conquestWinEvents;
         private bool conquestVictory;
@@ -552,6 +553,7 @@ namespace CastleStoryArchipelago
                     chosenMission = "";
                     startedMission = "";
                     lastRejectedWave = -1;
+                    checksDirty = false;
                     inventory.Clear();
                     ResetBonusRewards(token);
                     conquestCaptured = 0;
@@ -721,11 +723,13 @@ namespace CastleStoryArchipelago
                 // deletion gap of the old File.Delete + File.Move sequence.
                 if (File.Exists(path)) File.Replace(temp, path, null);
                 else File.Move(temp, path);
+                checksDirty = false;
                 Logger.LogInfo("[AP CHECK FILE] persisted=" + checkedIds.Count +
                     " goal=" + won + " online=" + bridgeConnected);
             }
             catch (Exception error)
             {
+                checksDirty = true;
                 Logger.LogError("[AP CHECK FILE] Could not persist checks: " + error);
             }
         }
@@ -736,6 +740,10 @@ namespace CastleStoryArchipelago
             {
                 nextRead = Time.realtimeSinceStartup + 0.7f;
                 ReadBridge();
+                // Retry a temporarily locked ledger without depending on
+                // further InvasionWave callbacks.
+                if (checksDirty && (bridgeConnected || IsActiveInvasionMission()))
+                    WriteChecks();
             }
             if (Input.GetKeyDown(KeyCode.F9))
                 ProbeGameApis();
