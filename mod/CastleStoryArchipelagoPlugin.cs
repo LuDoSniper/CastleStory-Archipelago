@@ -335,6 +335,8 @@ namespace CastleStoryArchipelago
                 nextRead = Time.realtimeSinceStartup + 0.7f;
                 ReadBridge();
             }
+            if (Input.GetKeyDown(KeyCode.F9))
+                ProbeGameApis();
             if (Input.GetKeyDown(KeyCode.F8))
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +
