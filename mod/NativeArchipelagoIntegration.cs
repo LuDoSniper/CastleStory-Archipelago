@@ -684,6 +684,20 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
         }
 
+        private void OnArchipelagoSceneChanged(
+            UnityEngine.SceneManagement.Scene previous,
+            UnityEngine.SceneManagement.Scene current)
+        {
+            string name = current.name ?? "";
+            Logger.LogInfo("[AP NATIVE SCREEN] Scene changed: " + name);
+            // Reset bounded title discovery only when switching scenes.
+            // This catches titles that load after a long studio intro
+            // without performing expensive continuous UI polling.
+            mainMenuProbeCount = 0;
+            nextMainMenuProbeAt = Time.realtimeSinceStartup + .35f;
+            ScheduleNativeUiFilter("scene " + name);
+        }
+
         private void UpdateNativeArchipelagoIntegration()
         {
             float now = Time.realtimeSinceStartup;
