@@ -30,10 +30,15 @@ ITEM_NAMES = {
 }
 
 def canonical_map_id(name):
-    """Map technical identity is an asset folder name, never a localized title."""
-    if not isinstance(name, str) or not name.strip():
+    """Canonical technical ID, never a translated name or an English label."""
+    if not isinstance(name, str):
         return None
-    return name.strip().replace("\\", "/").rstrip("/").split("/")[-1].casefold()
+    prefix, sep, folder = name.partition(":")
+    if (sep != ":" or prefix not in ("official", "workshop") or
+            not folder or "/" in folder or "\\" in folder or
+            folder != folder.strip() or folder in (".", "..")):
+        return None
+    return (prefix + ":" + folder).casefold()
 
 
 def detect_installed_maps(directory):
@@ -51,12 +56,13 @@ def detect_installed_maps(directory):
     root = location.parents[2]
     found = set()
     sources = 0
-    for suffix in ("Info/Maps", "Info/UGC/Maps"):
+    for suffix, prefix in (("Info/Maps", "official"),
+                           ("Info/UGC/Maps", "workshop")):
         parent = root / suffix
         if parent.is_dir():
             sources += 1
-            found.update(canonical_map_id(child.name) for child in parent.iterdir()
-                         if child.is_dir())
+            found.update(canonical_map_id(prefix + ":" + child.name)
+                         for child in parent.iterdir() if child.is_dir())
     return found if sources else None
 
 
@@ -75,9 +81,10 @@ def validate_campaign_manifest(campaign, mode):
         if kind not in ("Invasion", "Conquest"):
             return "Une mission utilise un mode inconnu."
         map_id = mission.get("map_id")
-        if not isinstance(map_id, str) or not map_id.strip():
-            return ("Cette seed utilise des noms de carte plutôt que des IDs "
-                    "techniques. Importe le nouvel APWorld et régénère la seed.")
+        if canonical_map_id(map_id) is None:
+            return ("Cette seed utilise un nom de carte plutôt qu'un ID "
+                    "interne (official:<dossier> ou workshop:<dossier>). "
+                    "Importe le nouvel APWorld et régénère la seed.")
         if not isinstance(mission.get("id"), str):
             return "Une mission ne possède pas d'identifiant."
         if mission["id"] in ids:
