@@ -255,7 +255,7 @@ namespace CastleStoryArchipelago
         {
             // Do not change vanilla UI when there is no valid AP campaign.
             if (!bridgeConnected || campaign == null || !campaign.ready ||
-                campaign.missions == null || nativeStarterMenu == null)
+                campaign.missions == null)
             {
                 if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
                 return;
