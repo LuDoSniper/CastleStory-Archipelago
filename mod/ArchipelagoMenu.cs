@@ -290,7 +290,7 @@ namespace CastleStoryArchipelago
             catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
         }
 
-        private void ChoisirMission(MissionFile mission)
+        private void SelectMission(MissionFile mission)
         {
             if (mission == null || String.IsNullOrEmpty(token)) return;
             chosenMission = mission.id;
@@ -339,7 +339,7 @@ namespace CastleStoryArchipelago
                 GUI.Label(new Rect(89, 30, 188, 30), "Archipelago", eyebrowStyle);
         }
 
-        private void DrawRetourdrop()
+        private void DrawBackdrop()
         {
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), overlayPixel);
         }
@@ -362,7 +362,7 @@ namespace CastleStoryArchipelago
             float height = Mathf.Min(580f, Mathf.Max(380f, Screen.height - 30f));
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
-            DrawRetourdrop();
+            DrawBackdrop();
             GUI.Box(panel, "", panelStyle);
             DrawTopBar(panel, "MULTIWORLD  /  CONNEXION",
                        "Archipelago", "Connecte-toi pour accéder aux missions de ta seed.");
@@ -452,7 +452,7 @@ namespace CastleStoryArchipelago
             if (GUI.Button(new Rect(card.xMax - 129, card.y + 29, 113, 39),
                            selected ? "Choisie" : "Choisir",
                            selected ? primaryButton : secondaryButton))
-                ChoisirMission(mission);
+                SelectMission(mission);
         }
 
         private void DrawCampaign()
@@ -461,7 +461,7 @@ namespace CastleStoryArchipelago
             float height = Mathf.Min(730f, Mathf.Max(430f, Screen.height - 30f));
             Rect panel = new Rect((Screen.width - width) / 2f,
                                   (Screen.height - height) / 2f, width, height);
-            DrawRetourdrop();
+            DrawBackdrop();
             GUI.Box(panel, "", panelStyle);
             DrawTopBar(panel, "ARCHIPELAGO  /  CAMPAGNE",
                        "Missions de la seed",
@@ -472,7 +472,7 @@ namespace CastleStoryArchipelago
             {
                 apMenuOpen = false;
                 // Closing the native screen also dismisses the AP mission picker.
-                FermerNativeNewGame();
+                CloseNativeNewGame();
                 return;
             }
             if (campaign == null || campaign.missions == null)
@@ -521,7 +521,7 @@ namespace CastleStoryArchipelago
             if (GUI.Button(new Rect(panel.xMax - 286, footerY - 3, 258, 46),
                            "Lancer cette mission", primaryButton))
             {
-                if (isChosen) LaunchChoisieMission();
+                if (isChosen) LaunchSelectedMission();
                 else statusLine = "Choisis d'abord une mission Archipelago.";
             }
             GUI.Label(new Rect(x, panel.yMax - 39, inner, 23),
