@@ -11,6 +11,8 @@ namespace CastleStoryArchipelago
         private readonly Dictionary<string, object> observedMapAssets =
             new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         private object nativeStarterMenu;
+        private int mapRegistrationCount;
+        private bool unknownMapTypeLogged;
 
         private void InstallNativeMenuGuard()
         {
@@ -26,6 +28,15 @@ namespace CastleStoryArchipelago
                 var before = AccessTools.Method(typeof(CastleStoryArchipelagoPlugin), "BeforeNativeNewGame");
                 harmony.Patch(target, prefix: new HarmonyMethod(before));
                 Logger.LogInfo("[AP MENU] Native map launch guard attached.");
+                Type soloType = AccessTools.TypeByName(
+                    "Brix.UI.Builder.Menu.SpNewGameStarterMenu");
+                var soloOnOk = soloType == null ? null :
+                    AccessTools.Method(soloType, "OnOk", Type.EmptyTypes);
+                if (soloOnOk != null && soloOnOk != target)
+                {
+                    harmony.Patch(soloOnOk, prefix: new HarmonyMethod(before));
+                    Logger.LogInfo("[AP MENU] Hooked concrete single-player start as well.");
+                }
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.BaseNewGameLibraryMenu",
                     "GetAssetLabel", "ObserveMapListed");
@@ -70,7 +81,21 @@ namespace CastleStoryArchipelago
         {
             string key = MapIdentity(gameMap);
             if (!String.IsNullOrEmpty(key))
+            {
+                if (!observedMapAssets.ContainsKey(key))
+                {
+                    mapRegistrationCount++;
+                    Logger.LogInfo("[AP MENU] Registered native map " + key +
+                        " (catalog size=" + mapRegistrationCount + ")");
+                }
                 observedMapAssets[key] = gameMap;
+            }
+            else if (!unknownMapTypeLogged && gameMap != null)
+            {
+                unknownMapTypeLogged = true;
+                Logger.LogInfo("[AP MENU] GetAssetLabel candidate type=" +
+                    gameMap.GetType().FullName + "; map identity unresolved.");
+            }
         }
 
         private string ModeIdentity(object modeObject)
@@ -152,6 +177,14 @@ namespace CastleStoryArchipelago
                 var method = AccessTools.Method(map.GetType(), "GetHeightmapPath", Type.EmptyTypes);
                 string heightmap = method == null ? null : method.Invoke(map, null) as string;
                 if (String.IsNullOrEmpty(heightmap)) return null;
+                string canonical = heightmap.Replace('\\', '/');
+                int marker = canonical.IndexOf("/Maps/", StringComparison.OrdinalIgnoreCase);
+                if (marker >= 0)
+                {
+                    string rest = canonical.Substring(marker + 6);
+                    int slash = rest.IndexOf('/');
+                    if (slash > 0) return rest.Substring(0, slash);
+                }
                 return Path.GetFileName(Path.GetDirectoryName(
                     heightmap.Replace('/', Path.DirectorySeparatorChar)
                              .Replace('\\', Path.DirectorySeparatorChar)));
