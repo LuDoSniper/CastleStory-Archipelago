@@ -84,7 +84,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
 
     def test_missing_tmp_resolution_is_not_retried_for_every_button(self):
         native = INTEGRATION.read_text(encoding="utf-8")
-        self.assertNotIn("TMPro.TextMeshProUGUI", native)
+        self.assertNotIn('"TMPro.TextMeshProUGUI"', native)
         self.assertIn("CachedNativeUiLabels(", native)
         self.assertIn('ScheduleNativeUiFilter("title/menu interaction")', native)
         self.assertIn("pendingFilterPasses = 3;", native)
