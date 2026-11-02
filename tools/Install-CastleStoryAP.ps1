@@ -73,4 +73,4 @@ foreach ($name in @("session.json", "bridge_status.json")) {
 Write-Host ""
 Write-Host "Mise a jour terminee. Sauvegarde : $backup"
 Write-Host "Relance Castle Story, ouvre le bouton Archipelago, puis reconnecte-toi."
-Write-Host "Le jeu doit afficher un bridge 0.6.7 et une session fraiche."
+Write-Host "Le jeu doit afficher un bridge 0.6.8 et une session fraiche."
