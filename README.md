@@ -1,6 +1,57 @@
-# Castle Story × Archipelago — v0.7.1 (menus stables, connexion privée, crédit dédié)
+# Castle Story × Archipelago — v0.7.2 (menus pilotés par événements, diagnostics natifs)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.2 — Correctifs ciblés après un essai réel décevant
+
+Le test de la v0.7.1 a révélé que **seule la duplication des cartes
+avait disparu**. Le lag, l'absence du bouton Archipelago dans le menu
+initial, l'absence du crédit et la présence des options non désirées
+subsistaient. Les tests CI C# ne valident **pas** le rendu runtime Unity.
+
+**Cause concrète du lag dans le code :** la précédente implémentation
+parcourait tous les `UnityEngine.UI.Button` actifs et le texte de leurs
+descendants toutes les 500 ms, même sans changement de menu.
+
+Changements de cette passe :
+
+- Le scan permanent est supprimé. Les méthodes `OpenSelf` des menus
+  `Brix.UI.Builder.Menu.BaseMenu` sont interceptées ; après chaque
+  ouverture, quelques passes courtes et limitées découvrent les cartes
+  ajoutées par le moteur, puis le filtrage cesse complètement jusqu'au
+  prochain changement d'écran. La nouvelle métrique `[AP UI PERF]`
+  signale les passes dépassant 30 ms.
+- Le menu Jouer est détecté à partir des ancêtres communs des boutons
+  Nouvelle partie / Charger / Multijoueur, même si leurs parents Unity
+  immédiats diffèrent. Le filtrage inclut maintenant les contrôles
+  `Selectable` tels que les `Toggle`, et non seulement les `Button`.
+- L'insertion du bouton Archipelago ne dépend plus strictement du fait
+  que Jouer et Options soient frères directs. Un libellé traduit ou
+  un nom de prefab `Button_Play` peut également servir de repère.
+- Le crédit Archipelago est déclenché indépendamment du résultat de
+  l'insertion du bouton, lorsque l'ouverture du menu titre est reconnue
+  dans Brix ou par le contrôleur de menu principal. Il s'agit d'une
+  séquence séparée après le chargement des menus, **pas d'une
+  modification prouvée de la chronologie originale des studios**.
+- Les classes de menus ouverts sont désormais consignées via
+  `[AP NATIVE SCREEN]`, sans devoir appuyer manuellement sur F9.
+  Si l'entrée native reste introuvable, le mod capture automatiquement
+  une fois les boutons détectés via `[AP NATIVE UI PROBE]`.
+
+**Limite importante :** sans le code de l'interface et des crédits du
+jeu, nous ne pouvons pas démontrer que tous les menus natifs seront
+masqués ni que le crédit démarrera à l'instant exact voulu. Cette passe
+corrige les problèmes identifiables statiquement et fournit des
+informations de runtime pour terminer l'intégration sans continuer
+à deviner les classes du moteur.
+
+**Test conseillé :** installer le kit 0.7.2, observer crédit / bouton
+d'accueil, aller dans Jouer, Nouvelle partie puis Invasion, rester
+sur les cartes pour vérifier l'absence de lag, faire Retour puis
+Invasion. Si des menus sont encore visibles ou manquants, transmettre
+le nouveau `BepInEx/LogOutput.log`. Les nouvelles traces enregistrent
+automatiquement les classes de menu et la durée des filtrages.
+La seed APWorld et les checks existants sont conservés.
 
 ## v0.7.1 — Menu natif, splash autonome et identifiants privés
 
