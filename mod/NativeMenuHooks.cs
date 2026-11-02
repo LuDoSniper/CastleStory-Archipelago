@@ -14,6 +14,7 @@ namespace CastleStoryArchipelago
         private int mapRegistrationCount;
         private bool unknownMapTypeLogged;
         private bool nativeMapScanComplete;
+        private bool savingNativeMapCatalog;
         [Serializable] private sealed class NativeMapCatalog
         {
             public string[] map_ids;
@@ -31,6 +32,10 @@ namespace CastleStoryArchipelago
 
         private void SaveObservedMapIds(bool scanComplete)
         {
+            // GetGamemodes may itself call game menu callbacks intercepted by
+            // RegisterAvailableMap. Prevent recursion and unbounded disk writes.
+            if (savingNativeMapCatalog) return;
+            savingNativeMapCatalog = true;
             try
             {
                 var ids = new List<string>(observedMapAssets.Keys);
@@ -85,6 +90,7 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogWarning("[AP MAPS] Cannot write installed map IDs: " + error.Message);
             }
+            finally { savingNativeMapCatalog = false; }
         }
 
         private void InstallNativeMenuGuard()
@@ -155,14 +161,15 @@ namespace CastleStoryArchipelago
             string key = MapIdentity(gameMap);
             if (!String.IsNullOrEmpty(key))
             {
-                if (!observedMapAssets.ContainsKey(key))
+                bool isNew = !observedMapAssets.ContainsKey(key);
+                if (isNew)
                 {
                     mapRegistrationCount++;
                     Logger.LogInfo("[AP MENU] Registered native map " + key +
                         " (catalog size=" + mapRegistrationCount + ")");
                 }
                 observedMapAssets[key] = gameMap;
-                if (nativeStarterMenu != null)
+                if (nativeStarterMenu != null && isNew)
                     SaveObservedMapIds(nativeMapScanComplete);
             }
             else if (!unknownMapTypeLogged && gameMap != null)
