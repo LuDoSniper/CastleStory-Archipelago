@@ -528,7 +528,7 @@ namespace CastleStoryArchipelago
             if (GUI.Button(new Rect(panel.xMax - 101, panel.y + 25, 72, 38),
                            "Fermer", subtleButton))
             {
-                ExitCampaignToMainMenu();
+                CloseCampaignPopup();
                 return;
             }
             if (campaign == null || campaign.missions == null)
