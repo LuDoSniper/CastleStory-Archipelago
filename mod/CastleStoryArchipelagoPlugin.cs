@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.8")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.9")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -20,12 +20,17 @@ namespace CastleStoryArchipelago
         private string seed = "";
         private string mode = "";
         private bool bridgeConnected;
+        // This is set only after the native Castle Story start guard validates
+        // the exact Archipelago map and game mode.
+        private string startedMission = "";
         private int goalWave = 10;
         private int shardGoal = 3;
         private CampaignFile campaign;
         private int lastWave;
         private int lastObservedWave = -1;
         private int waveEventCount;
+        private int lastLoggedWave = -1;
+        private int lastRejectedWave = -1;
         private int conquestCaptured;
         private int conquestWinEvents;
         private bool conquestVictory;
@@ -107,10 +112,10 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.8 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.8 initialised.");
+                "Castle Story Archipelago v0.6.9 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.9 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
-                "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
+                "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
                 "EXPERIMENTAL: send unique locally owned crystal capture sound events as shard checks. One neutral shard validated; other crystal types not yet proven.");
             victoryChecks = Config.Bind("Conquest", "EnableVictoryCheck", false,
@@ -517,6 +522,8 @@ namespace CastleStoryArchipelago
                     capturedKeys.Clear();
                     conqueredMissions.Clear();
                     chosenMission = "";
+                    startedMission = "";
+                    lastRejectedWave = -1;
                     inventory.Clear();
                     ResetBonusRewards(token);
                     conquestCaptured = 0;
@@ -620,7 +627,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.8 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.6.9 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -701,7 +708,10 @@ namespace CastleStoryArchipelago
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +
                     " wave=" + lastObservedWave + " captures=" + conquestCaptured +
-                    " victories=" + conquestWinEvents + " checks=" + checkedIds.Count);
+                    " victories=" + conquestWinEvents + " checks=" + checkedIds.Count +
+                    " activeMission=" + (startedMission == "" ? "none" : startedMission) +
+                    " autoChecks=" + IsActiveInvasionMission() +
+                    " legacyFlag=" + waveChecks.Value);
             }
             // Unity IMGUI uses top-left coordinates, Input.mousePosition uses bottom-left.
             Vector2 mouse = new Vector2(Input.mousePosition.x,
@@ -721,7 +731,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.8 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.9 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -732,7 +742,8 @@ namespace CastleStoryArchipelago
                 " | Conquest candidate captures=" + conquestCaptured +
                 " | Win events=" + conquestWinEvents);
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 80, 650, 22),
-                "Invasion sending=" + (waveChecks.Value ? "ON" : "OFF") +
+                "Invasion sending=" + (IsActiveInvasionMission() ?
+                    "AUTO (seed)" : waveChecks.Value ? "ON (legacy)" : "OFF") +
                 " | Conquest captures=" + (captureChecks.Value ? "ON" : "OFF") +
                 " | Victory=" + (victoryChecks.Value ? "ON" : "OFF"));
             string itemText = "";
