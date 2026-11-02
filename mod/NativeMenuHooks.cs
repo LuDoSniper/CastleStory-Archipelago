@@ -32,6 +32,15 @@ namespace CastleStoryArchipelago
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.SpNewGameStarterMenu",
                     "OpenSelf", "ObserveStarterOpened");
+                TryPatchNativeObservation(
+                    "Brix.UI.Builder.Menu.SpNewGameStarterMenu",
+                    "CloseSelf", "ObserveStarterClosed");
+                TryPatchNativeObservation(
+                    "Brix.UI.Builder.Menu.SpNewGameStarterMenu",
+                    "OnBack", "ObserveStarterClosed");
+                TryPatchNativeObservation(
+                    "Brix.UI.Builder.Menu.SpNewGameStarterMenu",
+                    "OnCancel", "ObserveStarterClosed");
             }
             catch (Exception e) { Logger.LogError("[AP MENU] Cannot install guard: " + e); }
         }
@@ -91,7 +100,47 @@ namespace CastleStoryArchipelago
             if (Instance != null)
             {
                 Instance.nativeStarterMenu = __instance;
-                Instance.Logger.LogInfo("[AP MENU] Single-player new-game starter opened.");
+                Instance.nativeNewGameVisible = Instance.bridgeConnected;
+                Instance.apMenuOpen = false;
+                Instance.Logger.LogInfo("[AP MENU] New Game opened; Archipelago mission UI=" +
+                    Instance.nativeNewGameVisible + " campaign ready=" +
+                    (Instance.campaign != null && Instance.campaign.ready) +
+                    " missions=" + (Instance.campaign == null ||
+                    Instance.campaign.missions == null ? 0 :
+                    Instance.campaign.missions.Length));
+            }
+        }
+
+        private static void ObserveStarterClosed(object __instance)
+        {
+            if (Instance == null || !Object.ReferenceEquals(Instance.nativeStarterMenu, __instance))
+                return;
+            Instance.nativeNewGameVisible = false;
+            Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed.");
+        }
+
+        private void CloseNativeNewGame()
+        {
+            nativeNewGameVisible = false;
+            if (nativeStarterMenu == null) return;
+            try
+            {
+                var method = AccessTools.Method(nativeStarterMenu.GetType(),
+                    "CloseSelf", Type.EmptyTypes);
+                if (method == null)
+                    method = AccessTools.Method(nativeStarterMenu.GetType(),
+                        "OnBack", Type.EmptyTypes);
+                if (method == null)
+                {
+                    statusLine = "Use Castle Story's Back button to close New Game.";
+                    return;
+                }
+                method.Invoke(nativeStarterMenu, new object[0]);
+                nativeStarterMenu = null;
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP MENU] Could not close native menu: " + error);
             }
         }
 
@@ -194,6 +243,7 @@ namespace CastleStoryArchipelago
                 }
                 start.Invoke(nativeStarterMenu, new object[0]);
                 statusLine = "Launching " + mission.map + "...";
+                nativeNewGameVisible = false;
             }
             catch (Exception error)
             {
@@ -209,11 +259,19 @@ namespace CastleStoryArchipelago
 
         private bool CanStartNativeMap(object menuInstance)
         {
-            // Never intercept unrelated vanilla menus or ordinary saves.
-            if (!bridgeConnected || campaign == null || !campaign.ready ||
-                campaign.missions == null) return true;
-            if (menuInstance == null || menuInstance.GetType().Name != "SpNewGameStarterMenu")
+            // Vanilla mode stays untouched when AP is disconnected.
+            if (!bridgeConnected) return true;
+            if (menuInstance == null ||
+                !menuInstance.GetType().Name.Contains("SpNewGameStarterMenu"))
                 return true;
+            if (campaign == null || !campaign.ready ||
+                campaign.missions == null || campaign.missions.Length == 0)
+            {
+                statusLine = "The connected AP campaign has no playable map list.";
+                Logger.LogWarning("[AP MENU] Native start blocked: missing/unready seed campaign.");
+                nativeNewGameVisible = true;
+                return false;
+            }
             if (!IsSelectedMissionType("Conquest") && !IsSelectedMissionType("Invasion"))
             {
                 statusLine = "Select an AP mission before starting a new game.";
