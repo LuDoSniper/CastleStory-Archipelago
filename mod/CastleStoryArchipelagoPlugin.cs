@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.7")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.8")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -107,8 +107,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.7 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.7 initialised.");
+                "Castle Story Archipelago v0.6.8 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.8 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -601,15 +601,26 @@ namespace CastleStoryArchipelago
                     session.updated_at > 0;
                 bool freshHeartbeat = modernBridge && heartbeatAge >= -5 &&
                     heartbeatAge < 8;
+                bool previouslyConnected = bridgeConnected;
                 bridgeConnected = session.connected && freshHeartbeat &&
                     !disconnectPending;
+                if (previouslyConnected != bridgeConnected)
+                {
+                    Logger.LogInfo("[AP SESSION] Connection " +
+                        (bridgeConnected ? "restored" : "lost") +
+                        "; remoteConnected=" + session.connected +
+                        "; heartbeatAge=" + heartbeatAge.ToString("F1",
+                            System.Globalization.CultureInfo.InvariantCulture) +
+                        "s; campaign=" + campaignStatus +
+                        "; protocol=" + slotProtocolVersion);
+                }
                 if (!freshHeartbeat)
                 {
                     if (session.connected)
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.7 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.6.8 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -710,7 +721,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.7 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.8 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
