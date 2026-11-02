@@ -64,6 +64,28 @@ namespace CastleStoryArchipelago
                 observedMapAssets[key] = gameMap;
         }
 
+        private string ModeIdentity(object modeObject)
+        {
+            if (modeObject == null) return null;
+            foreach (string methodName in new [] { "GetIntroImagePath", "GetVictoryImagePath" })
+            {
+                try
+                {
+                    var getter = AccessTools.Method(modeObject.GetType(), methodName, Type.EmptyTypes);
+                    string path = getter == null ? null : getter.Invoke(modeObject, null) as string;
+                    if (!String.IsNullOrEmpty(path))
+                    {
+                        string folder = Path.GetFileName(Path.GetDirectoryName(
+                            path.Replace('/', Path.DirectorySeparatorChar)
+                                .Replace('\\', Path.DirectorySeparatorChar)));
+                        if (!String.IsNullOrEmpty(folder)) return folder;
+                    }
+                }
+                catch (Exception error) { Logger.LogWarning("[AP MENU] Mode identity: " + error.Message); }
+            }
+            return null;
+        }
+
         private static void ObserveStarterOpened(object __instance)
         {
             if (Instance != null)
@@ -131,30 +153,36 @@ namespace CastleStoryArchipelago
                     statusLine = "Native map/mode selector unavailable on this game version.";
                     return;
                 }
-                object gameMode = selectedMode.GetValue(nativeStarterMenu, null);
-                // If Castle Story has no mode selected, do not start an
-                // accidental Sandbox/other mode on the correct physical map.
+                object gameMode = null;
+                var getModes = AccessTools.Method(starter, "GetGamemodes");
+                if (getModes != null)
+                {
+                    var available = getModes.Invoke(nativeStarterMenu, new [] { asset })
+                        as System.Collections.IEnumerable;
+                    if (available != null)
+                        foreach (object candidate in available)
+                            if (String.Equals(ModeIdentity(candidate), mission.mode,
+                                              StringComparison.OrdinalIgnoreCase))
+                            {
+                                gameMode = candidate;
+                                break;
+                            }
+                }
                 if (gameMode == null)
                 {
-                    statusLine = "Select " + mission.mode +
-                        " as the game mode in Castle Story first.";
+                    object current = selectedMode.GetValue(nativeStarterMenu, null);
+                    if (String.Equals(ModeIdentity(current), mission.mode,
+                                      StringComparison.OrdinalIgnoreCase))
+                        gameMode = current;
+                }
+                if (gameMode == null)
+                {
+                    statusLine = "Cannot find " + mission.mode +
+                        " game mode for this map. Select it manually.";
                     return;
                 }
-                string modeText = gameMode.ToString() ?? "";
-                foreach (string name in new [] { "CodeName", "Codename", "codeName" })
-                {
-                    var property = AccessTools.Property(gameMode.GetType(), name);
-                    if (property == null) continue;
-                    object value = property.GetValue(gameMode, null);
-                    if (value != null) { modeText = value.ToString(); break; }
-                }
-                if (modeText.IndexOf(mission.mode, StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    statusLine = "Select " + mission.mode +
-                        " in the native Game Mode picker before launching (current " +
-                        modeText + ").";
-                    return;
-                }
+                if (selectedMode.CanWrite)
+                    selectedMode.SetValue(nativeStarterMenu, gameMode, null);
                 selectedMap.SetValue(nativeStarterMenu, asset, null);
                 Logger.LogInfo("[AP MENU] Auto-selected map " + mission.map +
                     " for " + mission.id);
@@ -219,6 +247,18 @@ namespace CastleStoryArchipelago
                     statusLine = "Expected map: " + selected.map + " (selected " + actual + ")";
                     Logger.LogWarning("[AP MENU] Blocked map " + actual +
                         " for mission " + selected.id);
+                    return false;
+                }
+                var modeProperty = AccessTools.Property(menuInstance.GetType(), "SelectedGamemode");
+                object actualMode = modeProperty == null ? null :
+                    modeProperty.GetValue(menuInstance, null);
+                string code = ModeIdentity(actualMode);
+                if (code == null ||
+                    !String.Equals(code, selected.mode, StringComparison.OrdinalIgnoreCase))
+                {
+                    statusLine = "Expected game mode: " + selected.mode +
+                        " (selected " + (code ?? "<unknown>") + ")";
+                    Logger.LogWarning("[AP MENU] Blocked wrong game mode.");
                     return false;
                 }
                 Logger.LogInfo("[AP MENU] Allowed game start: " + selected.id +
