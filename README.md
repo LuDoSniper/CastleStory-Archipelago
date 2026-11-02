@@ -1,6 +1,67 @@
-# Castle Story × Archipelago — v0.7.2 (menus pilotés par événements, diagnostics natifs)
+# Castle Story × Archipelago — v0.7.3 (corrections basées sur le test Unity)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.3 — Correctifs depuis la capture et le journal du jeu
+
+Le journal réel v0.7.2 indique que l'option Archipelago et son
+crédit sont créés à l'ouverture de `SpNewGameStarterMenu`, pas sur
+l'accueil `SceneMenu`. Le bouton cloné était donc le `JOUER` du
+choix d'une carte, plutôt que le `Jouer` du menu titre.
+
+- **Crédit :** il est désormais indépendant du bouton et programmé
+  à partir de l'arrivée dans `SceneMenu`, avant le choix d'une carte.
+  La séquence blanche autonome déjà approuvée dure 3,5 secondes.
+  Un délai de quatre secondes après le chargement du menu est utilisé
+  faute de pouvoir modifier la timeline de crédits interne au jeu :
+  l'absence de chevauchement devra être vérifiée manuellement.
+- **Bouton d'accueil :** le clone d'un bouton `JOUER` trouvé après
+  le début du sélecteur de cartes est explicitement interdit.
+  Le mod cherche le `Jouer` de l'accueil et peut créer un bouton
+  primaire dans son groupe `RectTransform` si ce texte est présent,
+  même lorsque le vrai bouton n'utilise pas `UnityEngine.UI.Button`.
+  Sans ancre réelle détectée, le raccourci F7 reste disponible.
+- **Panneau de connexion :** la copie des anciens objets `Text` qui
+  héritaient de leurs positions et alignements est remplacée par de
+  nouveaux textes Unity avec des `RectTransform` propres ; fond
+  jaune/parchemin, textes sombres, valeurs alignées à gauche,
+  légendes et boutons centrés. Les libellés clonés des boutons sont
+  réinsérés dans leur racine pour éviter le texte tronqué.
+  F7 utilise ce Canvas même si aucun bouton native UGUI n'est
+  présent à l'accueil.
+- **Connexion :** les demandes répétées dans les douze premières
+  secondes sont ignorées pendant que le bridge réessaie. Un message
+  d'attente est affiché. `[AP LOGIN STATE]` trace les changements
+  d'état sans journaliser adresse, slot ou mot de passe. Les
+  préférences conservent uniquement adresse et slot.
+- **Performance :** la recherche d'un type TextMeshPro absent a
+  produit des dizaines de warnings dans le log et contribuait aux
+  passes de filtrage de 86 à 228 ms. Elle est supprimée ; les textes
+  natifs sont mis en cache par écran et les passes ne surviennent
+  qu'à l'ouverture ou à une action de navigation.
+- **Menus :** les labels des contrôles natifs continuent d'être
+  filtrés quand ils sont identifiables, avec vérification stricte
+  de l'identifiant de carte/mode avant le démarrage d'une mission.
+  `[AP TITLE PROBE]` capture une fois les noms et composants du
+  menu d'accueil, avant l'ouverture de Nouvelle partie ; cela doit
+  nous permettre d'identifier les contrôles qui n'étaient pas
+  détectés jusque-là.
+
+**Limite honnête :** le journal prouve que `playGroup=not-found`
+dans les écrans testés et que le titre ne comporte pas de boutons
+`UnityEngine.UI.Button` actifs. Nous avons amélioré le parcours
+et la détection, mais ne pouvons pas encore certifier la disparition
+des entrées de Jouer ou Construction libre/Conquête sur l'interface
+réelle sans nouveau test. Ne pas considérer cette passe comme une
+validation du comportement visuel complet.
+
+**Test court :** démarrer le jeu et attendre le crédit, examiner
+Jouer / Archipelago / Options, puis ouvrir la connexion (si besoin F7)
+pour vérifier les alignements et la première tentative. Après
+connexion à la même seed, passer par Jouer puis Nouvelle partie ;
+vérifier les modes, cartes et absence de lag. Le nouveau
+`BepInEx/LogOutput.log` suffit pour connaître les classes et
+composants trouvés ; aucune nouvelle seed ni vague requise.
 
 ## v0.7.2 — Correctifs ciblés après un essai réel décevant
 
