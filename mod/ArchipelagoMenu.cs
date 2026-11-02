@@ -637,16 +637,32 @@ namespace CastleStoryArchipelago
                 "  /  " + campaign.missions.Length + " CARTES",
                 eyebrowStyle);
             float listY = panel.y + 189;
-            float listHeight = Mathf.Max(100, panel.height - 300f);
+            // Make room for a persistent, readable message banner.
+            float listHeight = Mathf.Max(80f, panel.height - 350f);
             Rect viewport = new Rect(x, listY, inner, listHeight);
             float rowHeight = 104f;
             Rect content = new Rect(0, 0, inner - 20,
                 Mathf.Max(listHeight - 1, campaign.missions.Length * rowHeight));
             missionScroll = GUI.BeginScrollView(viewport, missionScroll, content);
-            for (int i = 0; i < campaign.missions.Length; i++)
-                DrawMissionCard(new Rect(0, i * rowHeight, content.width, 96),
-                                campaign.missions[i], i + 1);
-            GUI.EndScrollView();
+            try
+            {
+                for (int i = 0; i < campaign.missions.Length; i++)
+                    DrawMissionCard(new Rect(0, i * rowHeight, content.width, 96),
+                                    campaign.missions[i], i + 1);
+            }
+            finally { GUI.EndScrollView(); }
+
+            float noticeY = panel.yMax - 151;
+            GUI.Box(new Rect(x, noticeY, inner, 48), "", cardStyle);
+            string notice = !bridgeConnected ?
+                "Connexion Archipelago interrompue. Vérifie le bridge et reconnecte-toi." :
+                !String.IsNullOrEmpty(campaignNotice) ? campaignNotice :
+                nativeStarterMenu == null ?
+                    "Pour jouer : ferme cette fenêtre, ouvre Nouvelle partie et choisis la mission." :
+                    "Choisis une mission puis clique sur Lancer cette mission.";
+            GUI.Label(new Rect(x + 12, noticeY + 6, inner - 24, 38),
+                notice, !bridgeConnected || campaignNoticeIsError ?
+                    errorStyle : mutedStyle);
 
             float footerY = panel.yMax - 95;
             GUI.DrawTexture(new Rect(x, footerY - 14, inner, 1), borderPixel);
@@ -658,7 +674,8 @@ namespace CastleStoryArchipelago
                            "Lancer cette mission", primaryButton))
             {
                 if (isChosen) LaunchSelectedMission();
-                else statusLine = "Choisis d'abord une mission Archipelago.";
+                else SetCampaignNotice(
+                    "Choisis d'abord une mission Archipelago.", true);
             }
             GUI.Label(new Rect(x, panel.yMax - 39, inner, 23),
                 "Lancement via Castle Story. " +
@@ -672,7 +689,7 @@ namespace CastleStoryArchipelago
             // Mouse events may be consumed by Unity UI before IMGUI sees them.
             // Input.GetMouseButtonDown provides an independent, reliable way
             // to dismiss the campaign dialog.
-            if (!bridgeConnected || !(nativeNewGameVisible || campaignPreviewOpen))
+            if (!(nativeNewGameVisible || campaignPreviewOpen))
                 return;
             if (Input.GetKeyDown(KeyCode.Escape))
             {
