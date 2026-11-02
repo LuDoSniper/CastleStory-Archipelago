@@ -316,7 +316,10 @@ namespace CastleStoryArchipelago
             string command = enable ? "connect" : "disconnect";
             payload = payload.Substring(0, payload.Length - 1) +
                 ",\"cmd\":\"" + command + "\"}";
-            localBridge.StandardInput.WriteLine(payload);
+            // Use ASCII-safe framed base64 to preserve Unicode passwords and
+            // slot names regardless of the Windows console code page.
+            string wire = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
+            localBridge.StandardInput.WriteLine("APIPC1:" + wire);
             localBridge.StandardInput.Flush();
         }
 
