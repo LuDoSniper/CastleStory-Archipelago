@@ -43,7 +43,8 @@ class MapInspectorTests(unittest.TestCase):
             catalog = root / "BepInEx/config/castle_story_archipelago/installed_maps.json"
             catalog.parent.mkdir(parents=True)
             catalog.write_text(json.dumps({
-                "map_ids": ["official:Map123", "workshop:Steam456"]
+                "map_ids": ["official:Map123", "workshop:Steam456"],
+                "invasion_map_ids": ["official:Map123", "workshop:Steam456"]
             }), encoding="utf-8")
             entries = maps.scan(root)
             self.assertEqual({e["name"] for e in entries},

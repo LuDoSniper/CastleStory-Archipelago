@@ -142,13 +142,21 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     installed = {entry["name"] for entry in entries}
-    for key in args.invasion:
+    native_registry = read_json(Path(args.game_root) /
+        "BepInEx/config/castle_story_archipelago/installed_maps.json")
+    detected_invasion = (
+        native_registry.get("invasion_map_ids", [])
+        if isinstance(native_registry, dict) else [])
+    invasion_ids = sorted(set(args.invasion) | {
+        key for key in detected_invasion if isinstance(key, str)
+    })
+    for key in invasion_ids:
         if key not in installed:
             parser.error("Unknown installed Invasion map ID: " + key)
     for entry in entries:
         if entry["name"] in approved:
             entry["verified_shards"] = approved[entry["name"]]
-        if entry["name"] in args.invasion:
+        if entry["name"] in invasion_ids:
             entry["invasion_approved"] = True
     report = {"status": "VERIFIED_PARTIAL" if approved else "NEEDS_SHARD_COUNT_VALIDATION",
               "map_count": len(entries), "verified_maps": len(approved),
@@ -156,10 +164,10 @@ def main():
               "note": "Marker evidence is diagnostic. Counts are only assigned with --approve."}
     Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                  encoding="utf-8")
-    Path(args.yaml_output).write_text(yaml_fragment(approved, args.invasion), encoding="utf-8")
+    Path(args.yaml_output).write_text(yaml_fragment(approved, invasion_ids), encoding="utf-8")
     print("Scanned %d map IDs, confirmed %d Conquest counts, %d Invasion maps. " 
           "Report: %s; YAML: %s" %
-          (len(entries), len(approved), len(args.invasion), args.output, args.yaml_output))
+          (len(entries), len(approved), len(invasion_ids), args.output, args.yaml_output))
 
 if __name__ == "__main__":
     main()
