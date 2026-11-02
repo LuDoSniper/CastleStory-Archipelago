@@ -50,7 +50,7 @@ def scan(game_root):
             meta = read_json(folder / "meta.json")
             markers = read_json(folder / "LuaMarkersCount.json")
             results.append({
-                "name": folder.name,
+                "name": ("official:" if relative == "Info/Maps" else "workshop:") + folder.name,
                 "source": relative,
                 "present_files": [f for f in FILES if (folder / f).is_file()],
                 "metadata_keys": sorted(meta.keys()) if isinstance(meta, dict) else [],
