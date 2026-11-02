@@ -76,6 +76,8 @@ if (Test-Path -LiteralPath $legacyConnection) {
                 ConvertTo-Json -Compress |
                 Set-Content -LiteralPath $prefsPath -Encoding UTF8
         }
+    } catch {
+        Write-Warning "Ancien fichier de connexion illisible. Il sera supprime sans recuperer le mot de passe."
     } finally {
         Remove-Item -LiteralPath $legacyConnection -Force -ErrorAction Stop
         Write-Host "Ancien connection.json supprime (mot de passe non conserve)."
