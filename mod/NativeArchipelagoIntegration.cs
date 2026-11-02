@@ -125,6 +125,8 @@ namespace CastleStoryArchipelago
         private static bool SetNativeUiLabel(GameObject obj, string value)
         {
             if (obj == null) return false;
+            Component fallback = null;
+            PropertyInfo fallbackProperty = null;
             foreach (string typeName in new [] {
                 "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
             {
@@ -137,12 +139,31 @@ namespace CastleStoryArchipelago
                     try
                     {
                         string current = textProp.GetValue(text, null) as string;
-                        if (!IsPlayLabel(current)) continue;
-                        textProp.SetValue(text, value, null);
-                        return true;
+                        if (String.IsNullOrEmpty(current)) continue;
+                        if (IsPlayLabel(current))
+                        {
+                            textProp.SetValue(text, value, null);
+                            return true;
+                        }
+                        if (fallback == null)
+                        {
+                            fallback = text;
+                            fallbackProperty = textProp;
+                        }
                     }
                     catch (Exception) { }
                 }
+            }
+            // A localized Play button may have a native prefab name
+            // "Button_Play" but a translated or dynamically bound caption.
+            if (fallback != null && fallbackProperty != null)
+            {
+                try
+                {
+                    fallbackProperty.SetValue(fallback, value, null);
+                    return true;
+                }
+                catch (Exception) { }
             }
             return false;
         }
