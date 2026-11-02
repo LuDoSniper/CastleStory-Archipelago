@@ -96,8 +96,10 @@ namespace CastleStoryArchipelago
         {
             var labels = new List<string>();
             if (obj == null) return labels;
-            foreach (string typeName in new [] {
-                "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
+            // Castle Story Unity 5.6 uses UnityEngine.UI.Text. Resolving
+            // TMPro.TextMeshProUGUI on every tile emitted hundreds of
+            // warnings and spent 100-200 ms per UI filter pass.
+            foreach (string typeName in new [] { "UnityEngine.UI.Text" })
             {
                 Type textType = FindRuntimeType(typeName);
                 if (textType == null) continue;
@@ -130,8 +132,10 @@ namespace CastleStoryArchipelago
             if (obj == null) return false;
             Component fallback = null;
             PropertyInfo fallbackProperty = null;
-            foreach (string typeName in new [] {
-                "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
+            // Castle Story Unity 5.6 uses UnityEngine.UI.Text. Resolving
+            // TMPro.TextMeshProUGUI on every tile emitted hundreds of
+            // warnings and spent 100-200 ms per UI filter pass.
+            foreach (string typeName in new [] { "UnityEngine.UI.Text" })
             {
                 Type textType = FindRuntimeType(typeName);
                 if (textType == null) continue;
