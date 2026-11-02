@@ -753,12 +753,19 @@ namespace CastleStoryArchipelago
                 DumpBonusRewardQueue();
             ProcessPendingNativeBonus();
             HandleModalRawInput();
-            UpdateNativeInputShield();
             UpdateNativeArchipelagoIntegration();
+            UpdateNativeInputShield();
+            UpdateNativePanelStatus();
             if (Input.GetKeyDown(KeyCode.F7))
             {
-                apMenuOpen = !apMenuOpen;
-                Logger.LogInfo("[AP NATIVE UI] F7 connection panel=" + apMenuOpen);
+                if (nativeConnectionPanel != null &&
+                    nativeConnectionPanel.activeSelf)
+                    HideNativeConnectionPanel();
+                else if (apMenuOpen)
+                    apMenuOpen = false;
+                else
+                    OpenArchipelagoFromNativeMenu();
+                Logger.LogInfo("[AP NATIVE UI] F7 connection panel toggled.");
             }
             if (Input.GetKeyDown(KeyCode.F8))
             {
@@ -836,6 +843,7 @@ namespace CastleStoryArchipelago
             DestroyNativeInputShield();
             RestoreNativeEntries();
             RestoreNativeMenuLayout();
+            DestroyNativeConnectionPanel();
             if (nativeArchipelagoButton != null)
                 UnityEngine.Object.Destroy(nativeArchipelagoButton);
             nativeArchipelagoButton = null;
