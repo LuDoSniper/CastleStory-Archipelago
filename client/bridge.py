@@ -31,7 +31,14 @@ ITEM_NAMES = {
 
 def detect_installed_maps(directory):
     """Read local map names only; the seed supplies verified shard counts."""
-    root = Path(directory).resolve().parents[2]
+    location = Path(directory).resolve()
+    # Only probe inside the canonical Castle Story/BepInEx/config location.
+    # Tests and custom bridge directories must not be mistaken for game installs.
+    if (location.name != "castle_story_archipelago" or
+            location.parent.name != "config" or
+            location.parent.parent.name != "BepInEx"):
+        return None
+    root = location.parents[2]
     found = set()
     sources = 0
     for suffix in ("Info/Maps", "Info/UGC/Maps"):
