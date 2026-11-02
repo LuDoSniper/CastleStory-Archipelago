@@ -14,7 +14,7 @@ class HeartbeatTests(unittest.TestCase):
             instance.connected = True
             instance.persist_session()
             record = bridge.load_json(Path(td) / "session.json")
-            self.assertEqual(record["bridge_client_version"], "0.6.5")
+            self.assertEqual(record["bridge_client_version"], "0.6.6")
             self.assertTrue(record["connected"])
             self.assertLess(abs(time.time() - record["updated_at"]), 3)
 
