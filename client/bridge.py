@@ -98,6 +98,9 @@ class Bridge:
         self.team = 0
         self.mode = ""
         self.campaign = {}
+        self.protocol_version = 0
+        self.campaign_status = "unknown"
+        self.campaign_message = ""
         self.goal_wave = 10
         self.shard_goal = 3
         self.allowed_ids = set()
@@ -117,6 +120,9 @@ class Bridge:
             "goal_wave": self.goal_wave, "shard_goal": self.shard_goal,
             "allowed_location_ids": sorted(self.allowed_ids),
             "campaign": self.campaign,
+            "protocol_version": self.protocol_version,
+            "campaign_status": self.campaign_status,
+            "campaign_message": self.campaign_message,
             "connected": self.connected,
         }
 
@@ -149,7 +155,38 @@ class Bridge:
             if mode not in IDS:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
             self.mode = mode
-            self.campaign = reconcile_local_maps(self.directory, slot_data.get("campaign") or {})
+            self.protocol_version = int(slot_data.get("protocol_version") or 0)
+            received_campaign = slot_data.get("campaign")
+            if "campaign" not in slot_data:
+                self.campaign = {}
+                self.campaign_status = "missing"
+                self.campaign_message = (
+                    "Connecté à ArchiLAN, mais cette seed n'a pas de manifeste "
+                    "de campagne. Installe le dernier APWorld dans ArchiLAN, "
+                    "puis génère une NOUVELLE seed."
+                )
+            elif (not isinstance(received_campaign, dict) or
+                  not isinstance(received_campaign.get("missions"), list)):
+                self.campaign = {}
+                self.campaign_status = "invalid"
+                self.campaign_message = (
+                    "Le serveur a fourni une campagne invalide. "
+                    "Vérifie la version de l'APWorld Castle Story."
+                )
+            else:
+                self.campaign = reconcile_local_maps(self.directory, received_campaign)
+                if not self.campaign.get("ready", False):
+                    self.campaign_status = "unready"
+                    self.campaign_message = str(self.campaign.get("warning") or
+                        "La seed ne contient pas assez de cartes valides.")
+                else:
+                    self.campaign_status = "ready"
+                    self.campaign_message = ""
+            LOG.info("AP slot_data: protocol=%s campaign=%s missions=%s",
+                     self.protocol_version, self.campaign_status,
+                     len(self.campaign.get("missions", [])))
+            if self.campaign_message:
+                LOG.warning("[AP CAMPAIGN] %s", self.campaign_message)
             self.goal_wave = int(slot_data.get("goal_wave", 10))
             self.shard_goal = int(slot_data.get("conquest_capture_goal", 3))
             ids = slot_data.get("location_ids")
@@ -165,8 +202,8 @@ class Bridge:
             self.goal_sent = False
             self.persist_session()
             self.persist_items()
-            LOG.info("Connected: slot=%s mode=%s seed=%s campaign_ready=%s",
-                     self.player, mode, self.seed, self.campaign.get("ready", False))
+            LOG.info("Connected: slot=%s mode=%s seed=%s campaign_status=%s",
+                     self.player, mode, self.seed, self.campaign_status)
             await send(ws, {"cmd": "Sync"})
         elif command == "ConnectionRefused":
             raise RuntimeError(f"Connection refused: {packet.get('errors')}")
@@ -224,7 +261,9 @@ class Bridge:
         while True:
             await asyncio.sleep(0.5)
             if (getattr(self, "request_snapshot", None) is not None and
-                    read_connection_request(self.directory) != self.request_snapshot):
+                    effective_connection_request(
+                        self.directory, getattr(self, "fallback_request", None)
+                    ) != self.request_snapshot):
                 raise ConnectionChanged()
             await self.poll_once(ws)
 
@@ -268,6 +307,18 @@ def read_connection_request(directory):
         address = normalize_url(address)
     return (address, slot, password)
 
+def effective_connection_request(directory, fallback=None):
+    """Game menu takes precedence, even when bridge was started via CLI.
+
+    A disabled connection.json is an explicit disconnect and MUST NOT
+    silently reactivate the previous command-line server.
+    """
+    request_path = Path(directory) / "connection.json"
+    if request_path.exists():
+        return read_connection_request(directory)
+    return fallback
+
+
 def write_status(directory, state, message):
     save_json(Path(directory) / "bridge_status.json", {
         "state": state, "message": message
@@ -280,14 +331,14 @@ async def main(args):
     delay = 1
     static = (normalize_url(args.server), args.slot, args.password) if args.server and args.slot else None
     while True:
-        requested = static if static is not None else read_connection_request(directory)
+        requested = effective_connection_request(directory, static)
         if requested is None:
             if bridge is not None:
                 bridge.connected = False
                 bridge.persist_session()
                 bridge = None
             active = None
-            write_status(directory, "idle", "Open the AP menu in Castle Story to connect.")
+            write_status(directory, "idle", "Déconnecté. Ouvre Archipelago pour te reconnecter.")
             await asyncio.sleep(1)
             continue
         if requested != active:
@@ -296,7 +347,8 @@ async def main(args):
                 bridge.persist_session()
             active = requested
             bridge = Bridge(directory, requested[1], requested[2])
-            bridge.request_snapshot = requested if static is None else None
+            bridge.request_snapshot = requested
+            bridge.fallback_request = static
             delay = 1
         try:
             write_status(directory, "connecting", "Connecting to Archipelago...")
