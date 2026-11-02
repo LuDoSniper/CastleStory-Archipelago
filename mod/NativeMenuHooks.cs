@@ -116,6 +116,7 @@ namespace CastleStoryArchipelago
                     harmony.Patch(soloOnOk, prefix: new HarmonyMethod(before));
                     Logger.LogInfo("[AP MENU] Hooked concrete single-player start as well.");
                 }
+                InstallNativeMenuLifecycleHooks();
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.BaseNewGameLibraryMenu",
                     "GetAssetLabel", "ObserveMapListed");
@@ -141,6 +142,63 @@ namespace CastleStoryArchipelago
             catch (Exception e) { Logger.LogError("[AP MENU] Cannot install guard: " + e); }
         }
 
+        // Castle Story uses its own Brix menu lifecycle. Detect native
+        // screens once on OpenSelf, rather than scanning every button forever.
+        private void InstallNativeMenuLifecycleHooks()
+        {
+            Type baseType = AccessTools.TypeByName("Brix.UI.Builder.Menu.BaseMenu");
+            if (baseType == null)
+            {
+                Logger.LogWarning("[AP NATIVE UI] Brix BaseMenu unavailable.");
+                return;
+            }
+            int installed = 0;
+            try
+            {
+                var callback = AccessTools.Method(
+                    typeof(CastleStoryArchipelagoPlugin), "ObserveAnyMenuOpened");
+                foreach (Type candidate in baseType.Assembly.GetTypes())
+                {
+                    if (candidate == null || !baseType.IsAssignableFrom(candidate) ||
+                        candidate.IsAbstract) continue;
+                    if (candidate.Namespace == null ||
+                        !candidate.Namespace.StartsWith("Brix.UI.Builder.Menu",
+                             StringComparison.Ordinal)) continue;
+                    MethodInfo method = candidate.GetMethod("OpenSelf",
+                        BindingFlags.Instance | BindingFlags.Public |
+                        BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                        null, Type.EmptyTypes, null);
+                    if (method == null || method.IsAbstract) continue;
+                    harmony.Patch(method, postfix: new HarmonyMethod(callback));
+                    installed++;
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP NATIVE UI] Menu lifecycle: " + error.Message);
+            }
+            Logger.LogInfo("[AP NATIVE UI] Hooked " + installed +
+                " real Brix menu OpenSelf methods.");
+        }
+
+        private static void ObserveAnyMenuOpened(object __instance)
+        {
+            if (Instance == null || __instance == null) return;
+            var plugin = Instance;
+            string name = __instance.GetType().FullName;
+            plugin.Logger.LogInfo("[AP NATIVE SCREEN] OpenSelf: " + name);
+            plugin.ScheduleNativeUiFilter(name);
+            string simple = __instance.GetType().Name.ToLowerInvariant();
+            // The extra credit begins after the native title menu is ready,
+            // not over the initial studio splash sequence.
+            if (simple.Contains("title") || simple.Contains("mainmenu"))
+            {
+                plugin.BeginOwnIntroCredit();
+                plugin.mainMenuProbeCount = 0;
+                plugin.nextMainMenuProbeAt = Time.realtimeSinceStartup;
+            }
+        }
+
         private void TryPatchNativeObservation(string name, string method, string callback)
         {
             try
@@ -160,7 +218,7 @@ namespace CastleStoryArchipelago
         private static void ObserveNativeLibraryOpened(object __instance)
         {
             if (Instance == null) return;
-            Instance.nextNativeUiRefresh = 0f;
+            Instance.ScheduleNativeUiFilter("native library OpenSelf");
             Instance.RefreshNativeSeedMenu();
             Instance.Logger.LogInfo("[AP NATIVE UI] Library opened; seed filter applied before first frame.");
         }
@@ -309,6 +367,7 @@ namespace CastleStoryArchipelago
                 // steal mouse events from Castle Story's own map selector.
                 Instance.nativeNewGameVisible = false;
                 Instance.apMenuOpen = false;
+                Instance.ScheduleNativeUiFilter("native starter OpenSelf");
                 Instance.RefreshNativeSeedMenu();
                 Instance.Logger.LogInfo("[AP MENU] Native New Game opened; native seed filtering=" +
                     Instance.bridgeConnected + " campaign ready=" +
