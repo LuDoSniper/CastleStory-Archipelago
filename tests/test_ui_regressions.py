@@ -30,10 +30,25 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("private void RestoreNativeEntries()", code)
         self.assertIn("if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();", code)
         self.assertIn("if (lastNativeFilterKey != filterKey)", code)
-        self.assertIn("IsPlaySubmenuGroup(parent, buttonType)", code)
+        self.assertIn("FindPlayMenuRoot(controls, labels)", code)
         self.assertIn("SelectedNativeGamemode()", code)
         self.assertIn("RestoreNativeMenuLayout()", code)
         self.assertIn("disconnectPending || String.IsNullOrEmpty(token)", code)
+
+    def test_native_ui_filter_is_event_driven_and_bounded(self):
+        code = INTEGRATION.read_text(encoding="utf-8")
+        hooks = NATIVE.read_text(encoding="utf-8")
+        self.assertIn("pendingFilterPasses = 6;", code)
+        self.assertIn("if (pendingFilterPasses > 0 && now >= nextFilterPassAt)", code)
+        update = code.split("private void UpdateNativeArchipelagoIntegration()", 1)[1]
+        update = update.split("private void DrawArchipelagoIntroCredit()", 1)[0]
+        self.assertNotIn("RefreshNativeSeedMenu();\n        }", update)
+        self.assertIn('System.Diagnostics.Stopwatch.StartNew()', code)
+        self.assertIn("[AP UI PERF]", code)
+        self.assertIn('InstallNativeMenuLifecycleHooks();', hooks)
+        self.assertIn('ObserveAnyMenuOpened(object __instance)', hooks)
+        self.assertIn('ScheduleNativeUiFilter("native starter OpenSelf")', hooks)
+        self.assertIn('ScheduleNativeUiFilter("native library OpenSelf")', hooks)
 
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
