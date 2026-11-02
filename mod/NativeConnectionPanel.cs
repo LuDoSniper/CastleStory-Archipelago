@@ -60,28 +60,31 @@ namespace CastleStoryArchipelago
                                           Vector2 offset, int fontSize)
         {
             Type type = FindRuntimeType("UnityEngine.UI.Text");
-            if (type == null) return null;
-            foreach (Component item in source.GetComponentsInChildren(type, true))
-            {
-                GameObject copy = UnityEngine.Object.Instantiate(item.gameObject)
-                    as GameObject;
-                if (copy == null) continue;
-                copy.name = "AP_Text_" + text;
-                copy.transform.SetParent(parent, false);
-                var rect = copy.transform as RectTransform;
-                if (rect != null)
+            if (type == null || source == null) return null;
+            // Never clone the Play button's Text object. It inherits its
+            // native RectTransform, alignment and layout-driving components;
+            // that placed the server/slot texts outside our input fields.
+            object font = nativeMenuFont;
+            if (font == null)
+                foreach (Component existing in source.GetComponentsInChildren(type, true))
                 {
-                    rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
-                    rect.sizeDelta = size;
-                    rect.anchoredPosition = offset;
+                    font = GetUiProperty(existing, "font");
+                    if (font != null) break;
                 }
-                Component label = copy.GetComponent(type);
-                SetUiProperty(label, "text", text);
-                SetUiProperty(label, "fontSize", fontSize);
-                SetUiProperty(label, "raycastTarget", false);
-                return label;
-            }
-            return null;
+            if (font == null)
+                throw new InvalidOperationException("Native title font unavailable.");
+            var labelObject = NewNativeUiObject("AP_Text_" + text, parent,
+                size, offset);
+            Component label = labelObject.AddComponent(type);
+            SetUiProperty(label, "font", font);
+            SetUiProperty(label, "text", text);
+            SetUiProperty(label, "fontSize", fontSize);
+            SetUiProperty(label, "alignment",
+                text == "ARCHIPELAGO" || text == "Archipelago déconnecté" ?
+                TextAnchor.MiddleCenter : TextAnchor.MiddleLeft);
+            SetUiProperty(label, "color", new Color(.16f, .13f, .08f, 1f));
+            SetUiProperty(label, "raycastTarget", false);
+            return label;
         }
 
         private Component AddNativeInput(GameObject source, Transform parent,
@@ -94,12 +97,12 @@ namespace CastleStoryArchipelago
                 new Vector2(490, 25), new Vector2(0, y + 49), 17);
             var entry = NewNativeUiObject("AP_Input_" + title, parent,
                 new Vector2(490, 42), new Vector2(0, y + 8));
-            AddUiImage(entry, new Color(.96f, .97f, .98f, 1f), true);
+            AddUiImage(entry, new Color(1f, .975f, .85f, 1f), true);
             Component text = CloneNativeText(source, entry.transform, "",
                 new Vector2(454, 36), Vector2.zero, 18);
             if (text == null) return null;
             // Native InputField draws its caret, selection and editable text.
-            SetUiProperty(text, "color", new Color(.1f, .13f, .18f, 1f));
+            SetUiProperty(text, "color", new Color(.14f, .11f, .07f, 1f));
             Component field = entry.AddComponent(fieldType);
             SetUiProperty(field, "textComponent", text);
             if (secret)
@@ -149,6 +152,20 @@ namespace CastleStoryArchipelago
             foreach (Component label in obj.GetComponentsInChildren(type, true))
             {
                 SetUiProperty(label, "text", text);
+                SetUiProperty(label, "fontSize", 18);
+                SetUiProperty(label, "alignment", TextAnchor.MiddleCenter);
+                SetUiProperty(label, "raycastTarget", false);
+                // The cloned button previously retained an oversized caption
+                // offset, cropping Connexion/Déconnexion in the screenshot.
+                RectTransform rect = label.transform as RectTransform;
+                if (rect != null)
+                {
+                    rect.anchorMin = Vector2.zero;
+                    rect.anchorMax = Vector2.one;
+                    rect.offsetMin = Vector2.zero;
+                    rect.offsetMax = Vector2.zero;
+                    rect.localScale = Vector3.one;
+                }
                 return true;
             }
             return false;
@@ -188,9 +205,14 @@ namespace CastleStoryArchipelago
                 bg.anchorMax = Vector2.one;
                 bg.offsetMin = bg.offsetMax = Vector2.zero;
                 AddUiImage(background, new Color(0, 0, 0, .87f), true);
+                var frame = NewNativeUiObject("ArchipelagoConnectionFrame",
+                    root.transform, new Vector2(602, 578), Vector2.zero);
+                AddUiImage(frame, new Color(.16f, .13f, .08f, 1f), true);
                 var panel = NewNativeUiObject("ArchipelagoConnection",
                     root.transform, new Vector2(580, 555), Vector2.zero);
-                AddUiImage(panel, new Color(.13f, .17f, .21f, .98f), true);
+                // Castle Story's menus use warm parchment/gold rather than
+                // the unrelated dark developer-panel background.
+                AddUiImage(panel, new Color(.95f, .79f, .34f, 1f), true);
                 CloneNativeText(mainMenuPlayTemplate, panel.transform,
                     "ARCHIPELAGO", new Vector2(520, 64),
                     new Vector2(0, 217), 31);
@@ -204,7 +226,7 @@ namespace CastleStoryArchipelago
                     panel.transform, "Archipelago déconnecté",
                     new Vector2(515, 50), new Vector2(0, -172), 15);
                 var connect = CloneNativeAction(mainMenuPlayTemplate, panel.transform,
-                    "Connexion", "NativeConnectAction", -177, -238);
+                    "Connexion", "NativeConnectAction", -172, -238);
                 var disconnect = CloneNativeAction(
                     mainMenuOptionsTemplate != null ?
                     mainMenuOptionsTemplate : mainMenuPlayTemplate,
@@ -212,7 +234,7 @@ namespace CastleStoryArchipelago
                 var close = CloneNativeAction(
                     mainMenuOptionsTemplate != null ?
                     mainMenuOptionsTemplate : mainMenuPlayTemplate,
-                    panel.transform, "Fermer", "NativeCloseAction", 177, -238);
+                    panel.transform, "Fermer", "NativeCloseAction", 172, -238);
                 if (serverNativeInput == null || slotNativeInput == null ||
                     passwordNativeInput == null || nativeStatusLabel == null ||
                     connect == null || disconnect == null || close == null)
