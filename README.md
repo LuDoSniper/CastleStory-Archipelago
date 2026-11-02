@@ -1,4 +1,4 @@
-# Castle Story × Archipelago — v0.5.0 development build
+# Castle Story × Archipelago — v0.5.1 interface preview
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
 
@@ -6,6 +6,38 @@ The tester verified Invasion wave events, a real Conquest shard capture,
 and checks reaching ArchiLAN. **The new mission launcher, map validation
 and native bonus-unit spawning have compiled, but have not yet been
 validated in a real Castle Story campaign. Use disposable solo saves only.**
+
+## Menu / connexion de la v0.5.1
+
+Le plugin possède maintenant un **vrai bouton avec le logo officiel Archipelago**
+dans le coin supérieur gauche, un léger agrandissement animé au survol,
+et une fenêtre **centrée** et stylisée (couleurs bleu nuit, cartes et boutons
+personnalisés). Le panneau de debug n'empiète plus sur cette icône : **F8**
+active ou masque les informations techniques dans le coin inférieur droit.
+
+Lorsque tu es connecté et que tu ouvres **Nouvelle partie**, le mod présente
+un écran de **missions Archipelago uniquement**, avec les cartes et objectifs
+imposés par la seed. La liste peut défiler et la sélection est conservée
+dans \`mission_selection.json\`. L'écran de campagne recouvre le sélecteur
+classique et empêche les démarrages de carte/mode incompatibles au niveau
+du hook natif. Le lancement utilise ensuite le véritable menu du jeu.
+
+L'interface de sélection s'affiche même si le catalogue de la seed est
+incomplet : dans ce cas, elle précise **pourquoi aucune mission n'est
+disponible**, et ne laisse pas lancer une partie libre pendant la session AP.
+Une génération avec le nouvel APWorld et des capacités de shards vérifiées
+est nécessaire pour les campagnes Conquête/Hybride dont le catalogue est vide.
+
+**À valider dans le jeu :** les événements de fermeture du menu natif,
+la découverte du bon \`Asset_Map\`, le choix du \`Asset_Gamemode\` et
+l'utilisation du lancement automatique. La compilation CI valide les API
+Unity de base, pas encore ce flux d'interface réel.
+
+L'image \`archipelago-logo.png\` du paquet est récupérée depuis
+[les ressources officielles d'Archipelago](https://github.com/ArchipelagoMW/Archipelago/blob/main/data/icon.png)
+pendant la CI. Pour l'installer, copie **tout le dossier**
+\`BepInEx/plugins\` du kit et garde le sous-dossier
+\`castle_story_ap\`, sinon le logo et le pont réseau manqueront.
 
 ## Three campaign modes
 
@@ -53,7 +85,7 @@ The test kit includes:
 - `Start-Bridge.ps1` and Python sources for optional manual diagnostics.
 - An example slot YAML.
 
-In Castle Story, use the **AP** button at the upper left to open/close the
+In Castle Story, use the **Archipelago logo** at the upper left to open/close the
 connection popup. Enter the full `wss://` ArchiLAN URL, the slot name and
 optional password. A connection creates `connection.json` locally; it
 contains the slot password in plaintext. **Do not upload that file or share
