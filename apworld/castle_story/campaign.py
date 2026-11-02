@@ -13,15 +13,23 @@ class CampaignError(ValueError):
     pass
 
 def normalize_map_id(value):
-    """Canonicalize a map folder/asset ID without translating a display label."""
+    """Require an explicit nonlocalized installed folder ID, never a UI label.
+
+    official:<folder> is a game-shipped map; workshop:<folder> is UGC.
+    The folder component is returned unchanged: capitalization matters to the
+    game asset loader, although local lookup is case-insensitive on Windows.
+    """
     if not isinstance(value, str) or not value.strip():
         raise CampaignError("Map IDs must be non-empty strings.")
-    # Forward/backslash are separators: preserve the last component for older
-    # manifest values but never interpret a translated display label as an ID.
-    name = value.strip().replace("\\", "/").rstrip("/").split("/")[-1]
-    if name in (".", "..") or not name:
-        raise CampaignError("Invalid map ID: %r" % value)
-    return name
+    prefix, separator, folder = value.partition(":")
+    if (separator != ":" or prefix not in ("official", "workshop") or
+            not folder or folder != folder.strip() or folder in (".", "..") or
+            "/" in folder or "\\" in folder or "\0" in folder):
+        raise CampaignError(
+            "Map ID %r is not an internal identifier. Use official:<folder> or "
+            "workshop:<folder> from tools/inspect_maps.py, not a displayed "
+            "map name such as Pioneer Pass." % value)
+    return prefix + ":" + folder
 
 def seed_rng(seed, purpose):
     # Python hash() is process-randomized; a stable SHA256 seed works across
@@ -120,6 +128,10 @@ def plan_campaign(mode, invasion_goal, shard_goal, conquest_maps, invasion_maps,
         branch_types = {m["mode"] for m in result["missions"]}
         if branch_types != {"Invasion", "Conquest"}:
             warning.append("Hybrid requires at least one Invasion AND one Conquest mission.")
+    result["missing_modes"] = sorted(
+        ({"Invasion", "Conquest"} if mode == "Hybrid" else {mode}) -
+        {mission["mode"] for mission in result["missions"]}
+    )
     result["mission_count"] = len(result["missions"])
     result["ready"] = not warning
     result["warning"] = " ".join(warning)

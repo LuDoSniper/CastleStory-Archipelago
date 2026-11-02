@@ -42,6 +42,20 @@ class CastleStoryWorld(World):
             names.append("Conquest - Victory")
         return names
 
+    def generate_early(self):
+        self.campaign_plan = plan_campaign(
+            self._mode(), self.options.invasion_goal.value,
+            self.options.conquest_shards.value,
+            dict(self.options.conquest_map_capacities.value),
+            self.options.invasion_map_pool.value, self.multiworld.seed,
+        )
+        if not self.campaign_plan["ready"]:
+            raise ValueError(
+                "Castle Story player %s: cannot generate a %s campaign: %s "
+                "Configure installed technical map IDs and verified Conquest "
+                "shard counts before generating a new seed." % (
+                    self.player, self._mode(), self.campaign_plan["warning"]))
+
     def create_regions(self):
         menu = Region("Menu", self.player, self.multiworld)
         campaign = Region("Campaign", self.player, self.multiworld)
@@ -51,13 +65,8 @@ class CastleStoryWorld(World):
         for name in self.active_names:
             campaign.locations.append(CastleStoryLocation(
                 self.player, name, LOCATION_NAME_TO_ID[name], campaign))
-        self.campaign_plan = plan_campaign(
-            self._mode(), self.options.invasion_goal.value,
-            self.options.conquest_shards.value,
-            dict(self.options.conquest_map_capacities.value),
-            self.options.invasion_map_pool.value,
-            self.multiworld.seed,
-        )
+        if not hasattr(self, "campaign_plan"):
+            self.generate_early()
         # Event kept for compatibility with the existing Archipelago world. In-game
         # victory is exclusively communicated via StatusUpdate from the client.
         event = CastleStoryLocation(self.player, "Victory event", None, campaign)
@@ -108,5 +117,5 @@ class CastleStoryWorld(World):
             "conquest_capture_goal": self.options.conquest_shards.value,
             "location_ids": [LOCATION_NAME_TO_ID[name] for name in self._active_names()],
             "campaign": self.campaign_plan,
-            "protocol_version": 4,
+            "protocol_version": 5,
         }
