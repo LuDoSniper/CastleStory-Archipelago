@@ -190,11 +190,15 @@ namespace CastleStoryArchipelago
                     }
                 }
             }
-            GUI.Label(new Rect(24, 486, 620, 70),
+            if (bridgeConnected && campaign != null && campaign.ready &&
+                !String.IsNullOrEmpty(chosenMission) &&
+                GUI.Button(new Rect(24, 470, 250, 30), "Launch selected AP mission"))
+                LaunchSelectedMission();
+            GUI.Label(new Rect(24, 507, 620, 49),
                 "AP bonus Bricktrons pending: " + PendingBonusCount() +
                 " (not spawned). F10 = journal diagnostics. " +
-                "Choose a mission, then start the same map in New Game. " +
-                "Other maps are blocked in a connected, ready AP campaign.");
+                "Open the native New Game screen for map/mode loading. " +
+                "The Launch action will then select your AP map and use Castle Story's start action.");
             GUI.depth = oldDepth;
         }
     }
