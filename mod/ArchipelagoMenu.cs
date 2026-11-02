@@ -242,6 +242,84 @@ namespace CastleStoryArchipelago
             ApplyNativeTypography();
         }
 
+        [Serializable] private sealed class RememberedConnection
+        {
+            public string server;
+            public string slot;
+        }
+
+        private void LoadRememberedConnection()
+        {
+            string preferences = Path.Combine(directory, "connection_preferences.json");
+            string oldFile = Path.Combine(directory, "connection.json");
+            try
+            {
+                // Migrate plaintext credentials from previous versions without
+                // retaining their password. The old file is removed immediately.
+                if (!File.Exists(preferences) && File.Exists(oldFile))
+                {
+                    var old = JsonUtility.FromJson<ConnectionFile>(
+                        File.ReadAllText(oldFile));
+                    if (old != null)
+                    {
+                        loginServer = old.server ?? "";
+                        loginSlot = old.slot ?? "";
+                        SaveRememberedConnection();
+                    }
+                }
+                if (File.Exists(oldFile)) File.Delete(oldFile);
+                if (File.Exists(preferences))
+                {
+                    var prefs = JsonUtility.FromJson<RememberedConnection>(
+                        File.ReadAllText(preferences));
+                    if (prefs != null)
+                    {
+                        loginServer = prefs.server ?? "";
+                        loginSlot = prefs.slot ?? "";
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP SESSION] Cannot migrate saved server/slot: " +
+                    error.Message);
+                // Do not retain an old connection.json with a plaintext password.
+                try { if (File.Exists(oldFile)) File.Delete(oldFile); }
+                catch (Exception ignored) {
+                    Logger.LogWarning("[AP SESSION] Cannot delete legacy credentials: " +
+                        ignored.GetType().Name);
+                }
+            }
+            loginPassword = "";
+        }
+
+        private void SaveRememberedConnection()
+        {
+            File.WriteAllText(Path.Combine(directory, "connection_preferences.json"),
+                JsonUtility.ToJson(new RememberedConnection {
+                    server = loginServer.Trim(), slot = loginSlot.Trim()
+                }));
+        }
+
+        private void SendBridgeControl(bool enable)
+        {
+            if (localBridge == null || localBridge.HasExited)
+                throw new InvalidOperationException("Client Archipelago absent.");
+            // StandardInput is an anonymous pipe. No password is written to
+            // connection.json, arguments, environment variables or diagnostics.
+            string payload = JsonUtility.ToJson(new ConnectionFile {
+                enabled = enable, server = enable ? loginServer.Trim() : "",
+                slot = enable ? loginSlot.Trim() : "",
+                password = enable ? loginPassword : ""
+            });
+            // Bridge protocol uses cmd=connect/disconnect, not enabled.
+            string command = enable ? "connect" : "disconnect";
+            payload = payload.Substring(0, payload.Length - 1) +
+                ",\"cmd\":\"" + command + "\"}";
+            localBridge.StandardInput.WriteLine(payload);
+            localBridge.StandardInput.Flush();
+        }
+
         private void WriteConnection(bool enable)
         {
             try
@@ -252,24 +330,32 @@ namespace CastleStoryArchipelago
                     statusLine = "L'adresse du serveur et le nom du slot sont obligatoires.";
                     return;
                 }
-                File.WriteAllText(Path.Combine(directory, "connection.json"),
-                    JsonUtility.ToJson(new ConnectionFile {
-                        enabled = enable, server = enable ? loginServer.Trim() : "",
-                        slot = enable ? loginSlot.Trim() : "",
-                        password = enable ? loginPassword : ""
-                    }));
+                if (enable)
+                {
+                    SaveRememberedConnection();
+                    if (!StartLocalBridge()) return;
+                }
+                else if (localBridge == null || localBridge.HasExited)
+                {
+                    // The plugin can safely mark the session disconnected
+                    // even if the child bridge has already exited.
+                    disconnectPending = true;
+                    bridgeConnected = false;
+                    loginPassword = "";
+                    return;
+                }
+                try { SendBridgeControl(enable); }
+                finally { loginPassword = ""; }
                 statusLine = enable ? "Connexion en cours…" : "Déconnexion demandée…";
                 campaignNotice = "";
                 if (enable)
                 {
                     disconnectPending = false;
                     bridgeConnected = false;
-                    StartLocalBridge();
                 }
                 else
                 {
                     disconnectPending = true;
-                    loginPassword = "";
                     nativeNewGameVisible = false;
                     campaignPreviewOpen = false;
                     apMenuOpen = true;
@@ -277,33 +363,41 @@ namespace CastleStoryArchipelago
                     Logger.LogInfo("[AP SESSION] User requested disconnection.");
                 }
             }
-            catch (Exception error) { statusLine = "Cannot save connection: " + error.Message; }
+            catch (Exception error)
+            {
+                loginPassword = "";
+                statusLine = "Connexion au bridge impossible : " + error.Message;
+                Logger.LogWarning("[AP BRIDGE] Control channel: " +
+                    error.GetType().Name);
+            }
         }
 
-        private void StartLocalBridge()
+        private bool StartLocalBridge()
         {
             try
             {
-                if (localBridge != null && !localBridge.HasExited) return;
+                if (localBridge != null && !localBridge.HasExited) return true;
                 string exe = Path.Combine(Path.Combine(Paths.PluginPath,
                     "castle_story_ap"), "castle-story-ap-bridge.exe");
                 if (!File.Exists(exe))
                 {
                     statusLine = "Client manquant : installe tout le dossier BepInEx/plugins.";
-                    return;
+                    return false;
                 }
                 var info = new ProcessStartInfo(exe);
-                info.Arguments = "--bridge-dir " + Quote(directory);
+                info.Arguments = "--stdin-control --bridge-dir " + Quote(directory);
                 info.UseShellExecute = false;
                 info.CreateNoWindow = true;
+                info.RedirectStandardInput = true;
                 info.WorkingDirectory = Path.GetDirectoryName(exe);
                 localBridge = Process.Start(info);
-                statusLine = "Démarrage du client Archipelago...";
+                return localBridge != null;
             }
             catch (Exception error)
             {
-                statusLine = "Bridge startup failed: " + error.Message;
-                Logger.LogWarning("[AP BRIDGE] " + error);
+                statusLine = "Démarrage du bridge impossible : " + error.Message;
+                Logger.LogWarning("[AP BRIDGE] " + error.GetType().Name);
+                return false;
             }
         }
 
