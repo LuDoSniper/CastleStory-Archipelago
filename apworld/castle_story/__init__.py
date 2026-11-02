@@ -117,5 +117,5 @@ class CastleStoryWorld(World):
             "conquest_capture_goal": self.options.conquest_shards.value,
             "location_ids": [LOCATION_NAME_TO_ID[name] for name in self._active_names()],
             "campaign": self.campaign_plan,
-            "protocol_version": 5,
+            "protocol_version": 6,
         }

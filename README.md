@@ -1,4 +1,4 @@
-# Castle Story × Archipelago — v0.6.0 map IDs and Hybrid generation
+# Castle Story × Archipelago — v0.6.1 génération Invasion sans catalogue
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
 
@@ -72,6 +72,45 @@ Si le problème persiste avec une nouvelle seed, les fichiers de diagnostic
 `BepInEx/config/castle_story_archipelago` indiquent `campaign_status`
 et `campaign_message`. Ne transmets pas `connection.json` : il contient
 potentiellement ton mot de passe.
+
+## v0.6.1 — Générer une partie Invasion sans catalogue de cartes
+
+L'erreur ArchiLAN `No Invasion map IDs configured` était due à
+`invasion_map_pool: []`. Elle est corrigée dans le **nouvel APWorld**.
+
+Une seed **Invasion** peut désormais être générée avec les options par
+défaut, sans nom de carte à renseigner. Le serveur émet une mission
+`auto:invasion`, puis le client attend que Castle Story ait ouvert
+**Nouvelle partie** et découvert les véritables IDs et modes des maps
+installées. Il choisit **une carte compatible**, de manière déterministe
+pour la seed et le slot, puis conserve ce choix dans
+`BepInEx/config/castle_story_archipelago/auto_map_selection.json`.
+Si le jeu n'a pas exposé de cartes compatibles, il signale un problème
+au lieu de lancer une carte arbitraire. L'interface marque la carte
+comme **en attente** jusqu'à la découverte native.
+
+On peut toujours configurer `invasion_map_pool` pour que le **serveur**
+choisisse lui-même parmi des IDs de carte connus. Sans catalogue, c'est
+le **jeu** qui choisit, sous l'effet de la seed Archipelago.
+
+**Hybride :** `game_mode: hybrid` exige toujours des capacités de shards
+vérifiées dans `conquest_map_capacities`. L'Invasion peut être automatique,
+pas la quantité de shards Conquête : le jeu ne peut pas deviner un objectif
+multi-cartes correct.
+
+Pour résoudre le message d'erreur rencontré sur ArchiLAN :
+
+1. Télécharger le nouveau paquet de test.
+2. Importer son `castle_story.apworld` dans ArchiLAN (remplacer l'ancien).
+3. **Générer une nouvelle seed**. Avec le mode Invasion par défaut,
+   aucun `invasion_map_pool` n'est nécessaire.
+4. Installer également la nouvelle DLL et le pont réseau du paquet dans
+   Castle Story.
+5. Se connecter, ouvrir **Nouvelle partie** et laisser le jeu charger le
+   catalogue natif. La mission Invasion se résout ensuite automatiquement.
+
+La CI teste le calcul des maps et le transfert local, mais ne remplace
+pas un test réel de `Asset_Map` et `GetGamemodes` sur cette installation.
 
 ## Campagnes avec cartes non localisées (v0.6.0)
 

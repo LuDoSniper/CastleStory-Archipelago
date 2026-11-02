@@ -31,9 +31,11 @@ class ConquestMapCapacities(OptionDict):
     default = {}
 
 class InvasionMapPool(OptionSet):
-    """Stable installed Invasion map asset IDs.
+    """Optional stable Invasion asset IDs.
 
-    The seed chooses from this pool. No fixed Pioneer Pass fallback!
+    If empty, the game chooses a deterministic random compatible Invasion
+    map from the installed native Asset_Map registry when New Game opens.
+    No guessed default map IDs and no localization-dependent names.
     """
     display_name = "Invasion Map IDs"
     default = set()
