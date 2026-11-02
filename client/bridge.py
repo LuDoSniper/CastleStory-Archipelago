@@ -124,6 +124,7 @@ class Bridge:
             self.team = int(packet.get("team", 0))
             self.token = token_for(self.seed, self.slot, self.player, self.team)
             self.connected = True
+            write_status(self.directory, "connected", "Connected to Archipelago as " + self.player)
             self.received = []
             self.seen_checks.clear()
             self.goal_sent = False
@@ -187,6 +188,9 @@ class Bridge:
     async def poll_game(self, ws):
         while True:
             await asyncio.sleep(0.5)
+            if (getattr(self, "request_snapshot", None) is not None and
+                    read_connection_request(self.directory) != self.request_snapshot):
+                raise ConnectionChanged()
             await self.poll_once(ws)
 
 async def run_once(url, bridge):
@@ -210,6 +214,10 @@ async def run_once(url, bridge):
     finally:
         bridge.connected = False
         bridge.persist_session()
+
+class ConnectionChanged(Exception):
+    """User edited in-game AP connection settings; reconnect cleanly."""
+    pass
 
 def read_connection_request(directory):
     """Main-menu frontend writes connection.json; password stays local."""
@@ -253,10 +261,14 @@ async def main(args):
                 bridge.persist_session()
             active = requested
             bridge = Bridge(directory, requested[1], requested[2])
+            bridge.request_snapshot = requested if static is None else None
             delay = 1
         try:
             write_status(directory, "connecting", "Connecting to Archipelago...")
             await run_once(requested[0], bridge)
+            delay = 1
+        except ConnectionChanged:
+            write_status(directory, "reconnecting", "Settings changed in game.")
             delay = 1
         except (OSError, websockets.exceptions.WebSocketException,
                 RuntimeError, ValueError, KeyError) as exc:

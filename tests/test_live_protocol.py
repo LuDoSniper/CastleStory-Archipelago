@@ -31,7 +31,7 @@ class LiveProtocolTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.02)
                 bridge.save_json(directory / "checks.json", {
                     "token": client.token, "mode": "Conquest",
-                    "location_ids": [276812001, 276812100], "goal": True,
+                    "location_ids": [276812001, 276812003, 276812100], "goal": True,
                 })
                 while len(sequence) < 2:
                     for packet in json.loads(await asyncio.wait_for(ws.recv(), timeout=3)):
@@ -44,7 +44,7 @@ class LiveProtocolTests(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual([p["cmd"] for p in sequence],
                              ["LocationChecks", "StatusUpdate"])
-            self.assertEqual(sequence[0]["locations"], [276812001, 276812100])
+            self.assertEqual(sequence[0]["locations"], [276812001, 276812003, 276812100])
             self.assertEqual(sequence[1]["status"], 30)
             self.assertFalse(bridge.load_json(directory / "session.json")["connected"])
             self.assertEqual(bridge.load_json(directory / "items.json")["items"][0]["item"],

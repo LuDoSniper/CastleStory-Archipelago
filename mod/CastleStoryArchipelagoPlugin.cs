@@ -215,15 +215,14 @@ namespace CastleStoryArchipelago
             WriteChecks();
         }
 
-        private static bool ValidCheck(string selectedMode, int id, int goal)
+        private static bool ValidCheck(string selectedMode, int id, int waveLimit, int shardLimit)
         {
-            if (selectedMode == "Invasion")
-                return id > WaveBase && id <= WaveBase + goal;
-            if (selectedMode == "Conquest" || selectedMode == "Hybrid")
-                return (id > ConquestBase && id <= ConquestBase + goal) ||
-                    id == ConquestBase + 100 ||
-                    (selectedMode == "Hybrid" && id > WaveBase && id <= WaveBase + 10);
-            return false;
+            bool invasion = (selectedMode == "Invasion" || selectedMode == "Hybrid") &&
+                id > WaveBase && id <= WaveBase + waveLimit;
+            bool conquest = (selectedMode == "Conquest" || selectedMode == "Hybrid") &&
+                ((id > ConquestBase && id <= ConquestBase + shardLimit) ||
+                 id == ConquestBase + 100);
+            return invasion || conquest;
         }
 
         private void ReadBridge()
@@ -262,7 +261,7 @@ namespace CastleStoryArchipelago
                         if (prior != null && prior.token == token &&
                             prior.mode == mode && prior.location_ids != null)
                             foreach (int id in prior.location_ids)
-                                if (ValidCheck(mode, id, shardGoal)) checkedIds.Add(id);
+                                if (ValidCheck(mode, id, goalWave, shardGoal)) checkedIds.Add(id);
                     }
                     if (mode == "Invasion" || mode == "Hybrid")
                     {

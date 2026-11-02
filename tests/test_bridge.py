@@ -62,11 +62,11 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             ws, b = await self.connect(td, "Conquest")
             bridge.save_json(Path(td)/"checks.json", {
                 "token": b.token, "mode": "Conquest",
-                "location_ids": [276812001, 276812100, 276810001], "goal": True,
+                "location_ids": [276812001, 276812003, 276812100, 276810001], "goal": True,
             })
             await b.poll_once(ws)
             checks = [x for x in ws.messages if x["cmd"] == "LocationChecks"]
-            self.assertEqual(checks[-1]["locations"], [276812001, 276812100])
+            self.assertEqual(checks[-1]["locations"], [276812001, 276812003, 276812100])
             self.assertEqual([x["cmd"] for x in ws.messages].count("StatusUpdate"), 1)
 
     async def test_reject_stale_or_wrong_mode(self):
