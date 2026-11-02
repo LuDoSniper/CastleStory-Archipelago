@@ -118,6 +118,7 @@ namespace CastleStoryArchipelago
                     Logger.LogInfo("[AP MENU] Hooked concrete single-player start as well.");
                 }
                 InstallNativeMenuLifecycleHooks();
+                InstallTitleMenuLifecycleHooks();
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.BaseNewGameLibraryMenu",
                     "GetAssetLabel", "ObserveMapListed");
@@ -145,6 +146,58 @@ namespace CastleStoryArchipelago
 
         // Castle Story uses its own Brix menu lifecycle. Detect native
         // screens once on OpenSelf, rather than scanning every button forever.
+        private void InstallTitleMenuLifecycleHooks()
+        {
+            // Some Castle Story builds host the first Play/Options screen
+            // outside Brix.BaseMenu. Try its controller without assuming a
+            // particular scene name or fixed time since startup.
+            foreach (string typeName in new [] {
+                "MainMenuViewController",
+                "Brix.UI.Builder.Menu.MainMenuViewController",
+                "Brix.UI.Builder.Menu.TitleMenu" })
+            {
+                Type type = AccessTools.TypeByName(typeName);
+                if (type == null) continue;
+                MethodInfo method = null;
+                foreach (string name in new [] { "Show", "ShowSelf", "Open", "OpenSelf",
+                                                 "OnEnable" })
+                {
+                    method = type.GetMethod(name,
+                        BindingFlags.Instance | BindingFlags.Public |
+                        BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                        null, Type.EmptyTypes, null);
+                    if (method != null) break;
+                }
+                if (method == null) continue;
+                try
+                {
+                    var callback = AccessTools.Method(
+                        typeof(CastleStoryArchipelagoPlugin), "ObserveNativeTitleReady");
+                    harmony.Patch(method, postfix: new HarmonyMethod(callback));
+                    Logger.LogInfo("[AP CREDITS] Hooked native title callback " +
+                        method.DeclaringType.FullName + "." + method.Name);
+                    return;
+                }
+                catch (Exception error)
+                {
+                    Logger.LogWarning("[AP CREDITS] Title hook failed: " +
+                        error.GetType().Name);
+                }
+            }
+            Logger.LogInfo("[AP CREDITS] No separate title controller callback found; " +
+                "will rely on Brix menu readiness.");
+        }
+
+        private static void ObserveNativeTitleReady(object __instance)
+        {
+            if (Instance == null) return;
+            Instance.Logger.LogInfo("[AP NATIVE SCREEN] Title ready: " +
+                (__instance == null ? "unknown" : __instance.GetType().FullName));
+            Instance.BeginOwnIntroCredit();
+            Instance.mainMenuProbeCount = 0;
+            Instance.nextMainMenuProbeAt = Time.realtimeSinceStartup;
+        }
+
         private void InstallNativeMenuLifecycleHooks()
         {
             Type baseType = AccessTools.TypeByName("Brix.UI.Builder.Menu.BaseMenu");
