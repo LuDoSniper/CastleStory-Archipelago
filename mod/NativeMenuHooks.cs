@@ -119,6 +119,12 @@ namespace CastleStoryArchipelago
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.BaseNewGameLibraryMenu",
                     "GetAssetLabel", "ObserveMapListed");
+                // Filter at native menu construction, before the first
+                // rendered frame, rather than showing all maps and removing
+                // them visibly after a polling delay.
+                TryPatchNativeObservation(
+                    "Brix.UI.Builder.Menu.BaseNewGameLibraryMenu",
+                    "OpenSelf", "ObserveNativeLibraryOpened");
                 TryPatchNativeObservation(
                     "Brix.UI.Builder.Menu.SpNewGameStarterMenu",
                     "OpenSelf", "ObserveStarterOpened");
@@ -149,6 +155,14 @@ namespace CastleStoryArchipelago
                 }
             }
             catch (Exception e) { Logger.LogWarning("[AP MENU] Observation failed: " + e.Message); }
+        }
+
+        private static void ObserveNativeLibraryOpened(object __instance)
+        {
+            if (Instance == null) return;
+            Instance.nextNativeUiRefresh = 0f;
+            Instance.RefreshNativeSeedMenu();
+            Instance.Logger.LogInfo("[AP NATIVE UI] Library opened; seed filter applied before first frame.");
         }
 
         private static void ObserveMapListed(object __0, object __result)
