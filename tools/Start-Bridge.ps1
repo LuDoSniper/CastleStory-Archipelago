@@ -1,8 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string] $Server,
-    [Parameter(Mandatory = $true)]
-    [string] $Slot,
+    [string] $Server = "",
+    [string] $Slot = "",
     [string] $GameDirectory = "",
     [string] $Password = ""
 )
@@ -24,5 +22,9 @@ $python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } elseif (Get
 & $python -m pip install -r (Join-Path $root "client\requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Python dependencies could not be installed." }
 Write-Host "Starting Castle Story Archipelago bridge (Ctrl+C to stop)"
-& $python (Join-Path $root "client\bridge.py") --server $Server --slot $Slot --bridge-dir $bridgeDir --password $Password
+$argsList = @((Join-Path $root "client\bridge.py"), "--bridge-dir", $bridgeDir)
+if ($Server -and $Slot) { $argsList += @("--server", $Server, "--slot", $Slot) }
+if ($Password) { $argsList += @("--password", $Password) }
+Write-Host "With no -Server or -Slot, connect from the in-game Archipelago menu."
+& $python @argsList
 if ($LASTEXITCODE -ne 0) { throw "Bridge exited with error code $LASTEXITCODE." }

@@ -17,12 +17,16 @@ CONQUEST_BASE = 276812000
 ITEM_BASE = 276811000
 IDS = {
     "Invasion": set(range(WAVE_BASE + 1, WAVE_BASE + 11)),
-    "Conquest": {CONQUEST_BASE + 1, CONQUEST_BASE + 2, CONQUEST_BASE + 3, CONQUEST_BASE + 100},
+    "Conquest": set(range(CONQUEST_BASE + 1, CONQUEST_BASE + 31)) | {CONQUEST_BASE + 100},
 }
+IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
     ITEM_BASE + 5: "Wood Supply", ITEM_BASE + 6: "Stone Supply",
+    ITEM_BASE + 7: "Alchemist Unlock", ITEM_BASE + 8: "Equipped Worker",
+    ITEM_BASE + 9: "Equipped Archer", ITEM_BASE + 10: "Equipped Knight",
+    ITEM_BASE + 11: "Equipped Alchemist", ITEM_BASE + 12: "Wisp Supply",
 }
 
 def load_json(path):
@@ -58,6 +62,12 @@ class Bridge:
         self.slot = None
         self.team = 0
         self.mode = ""
+        self.campaign = {}
+        self.goal_wave = 10
+        self.shard_goal = 3
+        self.allowed_ids = set()
+        self.connection_request_path = self.directory / "connection.json"
+        self.observed_request = None
         self.received = []
         self.seen_checks = set()
         self.goal_sent = False
@@ -69,7 +79,10 @@ class Bridge:
             "token": self.token, "seed": self.seed,
             "slot": self.slot, "team": self.team,
             "slot_name": self.player, "mode": self.mode,
-            "goal_wave": 10, "connected": self.connected,
+            "goal_wave": self.goal_wave, "shard_goal": self.shard_goal,
+            "allowed_location_ids": sorted(self.allowed_ids),
+            "campaign": self.campaign,
+            "connected": self.connected,
         }
 
     def persist_session(self):
@@ -101,6 +114,12 @@ class Bridge:
             if mode not in IDS:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
             self.mode = mode
+            self.campaign = slot_data.get("campaign") or {}
+            self.goal_wave = int(slot_data.get("goal_wave", 10))
+            self.shard_goal = int(slot_data.get("conquest_capture_goal", 3))
+            ids = slot_data.get("location_ids")
+            self.allowed_ids = (set(x for x in ids if type(x) is int) & IDS[mode]
+                                if isinstance(ids, list) else IDS[mode].copy())
             self.slot = int(packet["slot"])
             self.team = int(packet.get("team", 0))
             self.token = token_for(self.seed, self.slot, self.player, self.team)
@@ -110,7 +129,8 @@ class Bridge:
             self.goal_sent = False
             self.persist_session()
             self.persist_items()
-            LOG.info("Connected: slot=%s mode=%s seed=%s", self.player, mode, self.seed)
+            LOG.info("Connected: slot=%s mode=%s seed=%s campaign_ready=%s",
+                     self.player, mode, self.seed, self.campaign.get("ready", False))
             await send(ws, {"cmd": "Sync"})
         elif command == "ConnectionRefused":
             raise RuntimeError(f"Connection refused: {packet.get('errors')}")
@@ -142,9 +162,7 @@ class Bridge:
         checks = msg.get("location_ids", [])
         if not isinstance(checks, list):
             return
-        valid = {
-            x for x in checks if type(x) is int and x in IDS[self.mode]
-        }
+        valid = {x for x in checks if type(x) is int and x in self.allowed_ids}
         unknown = set(x for x in checks if type(x) is int) - valid
         if unknown:
             LOG.warning("Ignored %d invalid/mode-incompatible location IDs", len(unknown))
@@ -153,9 +171,13 @@ class Bridge:
             await send(ws, {"cmd": "LocationChecks", "locations": sorted(pending)})
             self.seen_checks.update(pending)
             LOG.info("Sent %s location checks: %s", self.mode, sorted(pending))
+        invasion_done = WAVE_BASE + self.goal_wave in valid
+        conquest_done = (CONQUEST_BASE + 100 in valid and
+                         CONQUEST_BASE + self.shard_goal in valid)
         goal_ready = (
-            WAVE_BASE + 10 in valid if self.mode == "Invasion"
-            else CONQUEST_BASE + 100 in valid
+            invasion_done if self.mode == "Invasion"
+            else conquest_done if self.mode == "Conquest"
+            else invasion_done and conquest_done
         )
         if msg.get("goal") is True and goal_ready and not self.goal_sent:
             await send(ws, {"cmd": "StatusUpdate", "status": 30})
@@ -189,23 +211,66 @@ async def run_once(url, bridge):
         bridge.connected = False
         bridge.persist_session()
 
+def read_connection_request(directory):
+    """Main-menu frontend writes connection.json; password stays local."""
+    data = load_json(Path(directory) / "connection.json")
+    if not isinstance(data, dict) or data.get("enabled") is not True:
+        return None
+    address = str(data.get("server", "")).strip()
+    slot = str(data.get("slot", "")).strip()
+    password = str(data.get("password", ""))
+    if not address or not slot:
+        return None
+    if not address.startswith(("ws://", "wss://")):
+        address = normalize_url(address)
+    return (address, slot, password)
+
+def write_status(directory, state, message):
+    save_json(Path(directory) / "bridge_status.json", {
+        "state": state, "message": message
+    })
+
 async def main(args):
-    bridge = Bridge(Path(args.bridge_dir).resolve(), args.slot, args.password)
+    directory = Path(args.bridge_dir).resolve()
+    bridge = None
+    active = None
     delay = 1
+    static = (normalize_url(args.server), args.slot, args.password) if args.server and args.slot else None
     while True:
+        requested = static if static is not None else read_connection_request(directory)
+        if requested is None:
+            if bridge is not None:
+                bridge.connected = False
+                bridge.persist_session()
+                bridge = None
+            active = None
+            write_status(directory, "idle", "Open the AP menu in Castle Story to connect.")
+            await asyncio.sleep(1)
+            continue
+        if requested != active:
+            if bridge is not None:
+                bridge.connected = False
+                bridge.persist_session()
+            active = requested
+            bridge = Bridge(directory, requested[1], requested[2])
+            delay = 1
         try:
-            await run_once(normalize_url(args.server), bridge)
+            write_status(directory, "connecting", "Connecting to Archipelago...")
+            await run_once(requested[0], bridge)
             delay = 1
         except (OSError, websockets.exceptions.WebSocketException,
                 RuntimeError, ValueError, KeyError) as exc:
-            LOG.error("Disconnected: %s", exc)
-        await asyncio.sleep(delay)
+            message = str(exc).replace(requested[2], "[redacted]") if requested[2] else str(exc)
+            LOG.error("Disconnected: %s", message)
+            write_status(directory, "disconnected", message[:300])
+        # Poll the menu request even while a server cannot be reached.
+        await asyncio.sleep(min(delay, 2) if static is None else delay)
         delay = min(delay * 2, 30)
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Castle Story Archipelago bridge")
-    p.add_argument("--server", required=True, help="AP server address:port, ws:// or wss://")
-    p.add_argument("--slot", required=True, help="Slot name from your Archipelago YAML")
+    p.add_argument("--server", default="", help="Optional initial AP server. Omit to use the in-game AP login.")
+    p.add_argument("--slot", default="", help="Optional AP slot name, paired with --server")
     p.add_argument("--password", default="")
     p.add_argument("--bridge-dir", required=True,
                    help="Castle Story/BepInEx/config/castle_story_archipelago")
