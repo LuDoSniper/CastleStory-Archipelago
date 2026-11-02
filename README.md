@@ -1,6 +1,59 @@
-# Castle Story × Archipelago — v0.6.9 (checks Invasion automatiques et résilients)
+# Castle Story × Archipelago — v0.7.0 (navigation Archipelago native)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.0 — Navigation Archipelago dans les menus natifs (pré-validation)
+
+Retour utilisateur confirmé : une partie Invasion s'est lancée,
+les cinq checks sont parvenus à ArchiLAN et la run s'est achevée.
+Le parcours passe donc de la popup de sélection à la navigation du jeu.
+
+- Plus de logo flottant en haut à gauche. Le mod cherche le bouton
+  **Jouer / Play** du véritable menu Unity et le clone sous celui-ci
+  pour ajouter un bouton **Archipelago** reprenant son apparence et
+  ses interactions natives, sans réutiliser l'action « Jouer ».
+  **F7** ouvre le panneau de connexion si le bouton natif ne peut pas
+  être identifié sur une version/langue du jeu.
+- Le bouton Archipelago sert à se connecter/se déconnecter. La
+  sélection des modes et cartes se fait maintenant directement via
+  **Jouer > Nouvelle partie**, sans la popup des missions.
+- Quand une seed valide est connectée, le mod masque les contrôles
+  natifs dont le libellé est reconnu comme Construction libre, un
+  mode interdit (Invasion ou Conquête), ou une carte absente de la
+  seed. En Hybride, Invasion et Conquête restent proposées.
+- Les identifiants techniques des cartes sont associés aux libellés
+  du jeu via `GetAssetLabel`. Une carte native ne peut être lancée
+  que si son ID **ET** son mode correspondent exactement à une
+  mission de la seed : le contrôle `OnOk` reste actif même si un
+  contrôle visuel n'a pas pu être masqué.
+- L'action de démarrer dans le menu du jeu associe désormais
+  automatiquement la mission correspondante et conserve la
+  protection contre les faux checks d'une partie libre.
+- Ajout d'un crédit discret **Archipelago** avec son logo officiel
+  pendant les premières secondes du chargement, sans modifier ni
+  remplacer les logos ou cinématiques propriétaires de Sauropod.
+  Son instant d'apparition dépend de la séquence d'introduction du jeu.
+- **F9** liste les contrôles et libellés natifs réellement trouvés
+  (`[AP NATIVE UI PROBE]`) ; `[AP NATIVE UI]` signale
+  l'insertion du bouton et le filtrage appliqué.
+
+**Limite à confirmer en jeu :** la hiérarchie du menu natif et les
+libellés de ses boutons ne sont pas disponibles dans les sources du mod.
+Le filtrage est conservateur, uniquement sur les composants et
+libellés reconnus. La fenêtre de **connexion** conserve temporairement
+son style propre ; l'harmonisation pixel-perfect avec le panneau de
+connexion natif reste à valider avec une capture du menu réel.
+Ce kit ne prétend pas que tous les boutons ou cartes sont déjà
+visuellement masqués sur toutes les versions de Castle Story.
+
+**Test :** installer le kit v0.7.0 ; vérifier le nouveau bouton
+Archipelago sous Jouer, se connecter, puis examiner Nouvelle partie :
+Construction libre doit disparaître, seul le mode de la seed (ou les
+deux modes Hybride) doit rester, puis seulement ses cartes.
+Lancer une mission native, jouer une vague et vérifier qu'un check
+arrive à ArchiLAN. Si un menu reste visible, faire F9 sur cet écran
+et envoyer `BepInEx/LogOutput.log` ; cela permet d'adapter précisément
+le filtre à la structure observée sans modifier la seed.
 
 ## v0.6.9 — Vérification des checks Invasion après cinq vagues
 
