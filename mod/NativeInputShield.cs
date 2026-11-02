@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -14,6 +15,53 @@ namespace CastleStoryArchipelago
         private GameObject nativeInputShield;
         private bool nativeShieldAttempted;
         private bool nativeShieldWarningShown;
+        private readonly List<Behaviour> pausedNativeEventSystems = new List<Behaviour>();
+        private int nativeShieldKeepUntilFrame = -1;
+
+        private void KeepInputShieldUntilMouseReleased()
+        {
+            nativeShieldKeepUntilFrame = Time.frameCount + 2;
+        }
+
+        // A topmost Raycaster is useful, but some Unity 5 game menus process
+        // their own raycasts. Temporarily disabling active EventSystem
+        // components prevents pointer handling by those native UI controls
+        // while our IMGUI popup remains interactive.
+        private void BlockNativeEventSystems()
+        {
+            Type type = FindRuntimeType("UnityEngine.EventSystems.EventSystem");
+            if (type == null) return;
+            try
+            {
+                UnityEngine.Object[] instances = UnityEngine.Object.FindObjectsOfType(type);
+                foreach (UnityEngine.Object instance in instances)
+                {
+                    var behaviour = instance as Behaviour;
+                    if (behaviour == null || !behaviour.enabled) continue;
+                    behaviour.enabled = false;
+                    if (!pausedNativeEventSystems.Contains(behaviour))
+                        pausedNativeEventSystems.Add(behaviour);
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP UI] Could not pause native EventSystem: " + error.Message);
+            }
+        }
+
+        private void RestoreNativeEventSystems()
+        {
+            foreach (Behaviour component in pausedNativeEventSystems)
+            {
+                if (component == null) continue;
+                try { component.enabled = true; }
+                catch (Exception error)
+                {
+                    Logger.LogWarning("[AP UI] Could not restore EventSystem: " + error.Message);
+                }
+            }
+            pausedNativeEventSystems.Clear();
+        }
 
         private static Type FindRuntimeType(string fullname)
         {
@@ -97,7 +145,14 @@ namespace CastleStoryArchipelago
         {
             if (nativeInputShield == null && !nativeShieldAttempted)
                 InitializeNativeInputShield();
-            bool modal = IsApModalVisible();
+            // Do not pass the MouseUp that closes the popup to a native button
+            // in the same frame. Release shielding only after the click ends.
+            bool modal = IsApModalVisible() || Input.GetMouseButton(0) &&
+                pausedNativeEventSystems.Count > 0 ||
+                Time.frameCount <= nativeShieldKeepUntilFrame;
+            if (modal) BlockNativeEventSystems();
+            else if (pausedNativeEventSystems.Count > 0)
+                RestoreNativeEventSystems();
             if (nativeInputShield != null)
             {
                 if (nativeInputShield.activeSelf != modal)
@@ -117,6 +172,7 @@ namespace CastleStoryArchipelago
 
         private void DestroyNativeInputShield()
         {
+            RestoreNativeEventSystems();
             if (nativeInputShield != null)
                 UnityEngine.Object.Destroy(nativeInputShield);
             nativeInputShield = null;

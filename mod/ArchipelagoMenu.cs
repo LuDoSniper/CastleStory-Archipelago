@@ -508,6 +508,7 @@ namespace CastleStoryArchipelago
 
         private void CloseCampaignPopup()
         {
+            KeepInputShieldUntilMouseReleased();
             // Only dismiss OUR overlay. The native Invasion/Conquest map selector
             // stays open so its own Back button continues to work normally.
             if (nativeStarterMenu != null)
@@ -631,6 +632,34 @@ namespace CastleStoryArchipelago
                     (campaignStatus == "waiting_for_game" ?
                         campaignMessage : statusLine),
                 miniStyle);
+        }
+
+        private void HandleModalRawInput()
+        {
+            // Mouse events may be consumed by Unity UI before IMGUI sees them.
+            // Input.GetMouseButtonDown provides an independent, reliable way
+            // to dismiss the campaign dialog.
+            if (!bridgeConnected || !(nativeNewGameVisible || campaignPreviewOpen))
+                return;
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                Logger.LogInfo("[AP UI] Escape: closing campaign dialog via Update.");
+                CloseCampaignPopup();
+                return;
+            }
+            if (!Input.GetMouseButtonDown(0)) return;
+            Vector2 pos = new Vector2(Input.mousePosition.x,
+                                      Screen.height - Input.mousePosition.y);
+            float width = Mathf.Min(900f, Mathf.Max(320f, Screen.width - 26f));
+            float height = Mathf.Min(730f, Mathf.Max(430f, Screen.height - 30f));
+            Rect panel = new Rect((Screen.width - width) * .5f,
+                                  (Screen.height - height) * .5f, width, height);
+            Rect close = new Rect(panel.xMax - 101, panel.y + 25, 72, 38);
+            if (close.Contains(pos))
+            {
+                Logger.LogInfo("[AP UI] MouseDown on Fermer at " + pos);
+                CloseCampaignPopup();
+            }
         }
 
         private void DrawApMenu()
