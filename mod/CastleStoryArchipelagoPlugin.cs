@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.7.2")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.7.3")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -114,8 +114,8 @@ namespace CastleStoryArchipelago
             Directory.CreateDirectory(directory);
             LoadRememberedConnection();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.7.2 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.7.2 initialised.");
+                "Castle Story Archipelago v0.7.3 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.7.3 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -661,7 +661,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.7.2 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.7.3 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -799,7 +799,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.7.2 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.7.3 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
