@@ -36,7 +36,7 @@ namespace CastleStoryArchipelago
             public string state;
             public string message;
         }
-        [Serializable] private sealed class MissionChoisirionFile
+        [Serializable] private sealed class MissionSelectionFile
         {
             public string token;
             public string mission_id;
@@ -46,6 +46,10 @@ namespace CastleStoryArchipelago
 
         private bool apMenuOpen;
         private bool nativeNewGameVisible;
+        private bool campaignPreviewOpen;
+        private bool disconnectPending;
+        private string campaignStatus = "unknown";
+        private string campaignMessage = "";
         private string loginServer = "";
         private string loginSlot = "";
         private string loginPassword = "";
@@ -228,14 +232,22 @@ namespace CastleStoryArchipelago
                         slot = enable ? loginSlot.Trim() : "",
                         password = enable ? loginPassword : ""
                     }));
-                statusLine = enable ? "Connexion demandée." : "Déconnecté.";
-                if (enable) StartLocalBridge();
+                statusLine = enable ? "Connexion en cours…" : "Déconnexion demandée…";
+                if (enable)
+                {
+                    disconnectPending = false;
+                    bridgeConnected = false;
+                    StartLocalBridge();
+                }
                 else
                 {
+                    disconnectPending = true;
                     loginPassword = "";
                     nativeNewGameVisible = false;
-                    apMenuOpen = false;
+                    campaignPreviewOpen = false;
+                    apMenuOpen = true;
                     bridgeConnected = false;
+                    Logger.LogInfo("[AP SESSION] User requested disconnection.");
                 }
             }
             catch (Exception error) { statusLine = "Cannot save connection: " + error.Message; }
@@ -297,7 +309,7 @@ namespace CastleStoryArchipelago
             try
             {
                 File.WriteAllText(Path.Combine(directory, "mission_selection.json"),
-                    JsonUtility.ToJson(new MissionChoisirionFile {
+                    JsonUtility.ToJson(new MissionSelectionFile {
                         token = token, mission_id = mission.id,
                         map = mission.map, mode = mission.mode
                     }));
@@ -317,18 +329,18 @@ namespace CastleStoryArchipelago
                 target.center.x - target.width * scale * .5f,
                 target.center.y - target.height * scale * .5f,
                 target.width * scale, target.height * scale);
-            GUI.Box(new Rect(15, 12, 67, 68), "", cardStyle);
             GUI.color = hovered || apMenuOpen ? Color.white : new Color(1f, 1f, 1f, .87f);
             if (apLogo != null)
                 GUI.DrawTexture(logoRect, apLogo, ScaleMode.ScaleToFit, true);
             else
                 GUI.Label(logoRect, "AP", subTitleStyle);
             GUI.color = Color.white;
-            if (GUI.Button(new Rect(15, 12, 67, 68), "", logoButton))
+            if (GUI.Button(new Rect(15, 12, 67, 68), "", GUIStyle.none))
             {
-                if (bridgeConnected && nativeNewGameVisible)
+                if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
                 {
-                    CloseNativeNewGame();
+                    campaignPreviewOpen = false;
+                    if (nativeNewGameVisible) CloseNativeNewGame();
                     apMenuOpen = true;
                 }
                 else apMenuOpen = !apMenuOpen;
@@ -400,7 +412,7 @@ namespace CastleStoryArchipelago
                 if (bridgeConnected)
                 {
                     apMenuOpen = false;
-                    nativeNewGameVisible = true;
+                    campaignPreviewOpen = true;
                 }
                 else WriteConnection(true);
             }
@@ -467,12 +479,18 @@ namespace CastleStoryArchipelago
                        "Missions de la seed",
                        "Cette seed impose les cartes et les modes à jouer.");
             float x = panel.x + 28, inner = panel.width - 56;
-            if (GUI.Button(new Rect(panel.xMax - 85, panel.y + 25, 56, 38),
+            if (GUI.Button(new Rect(panel.xMax - 245, panel.y + 25, 130, 38),
+                           "Déconnexion", secondaryButton))
+            {
+                WriteConnection(false);
+                return;
+            }
+            if (GUI.Button(new Rect(panel.xMax - 101, panel.y + 25, 72, 38),
                            "Retour", subtleButton))
             {
-                apMenuOpen = false;
-                // Closing the native screen also dismisses the AP mission picker.
-                CloseNativeNewGame();
+                campaignPreviewOpen = false;
+                if (nativeNewGameVisible) CloseNativeNewGame();
+                apMenuOpen = true;
                 return;
             }
             if (campaign == null || campaign.missions == null)
@@ -481,7 +499,11 @@ namespace CastleStoryArchipelago
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 33),
                     "Aucune campagne reçue", subTitleStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 220, inner - 40, 53),
-                    "Utilise le dernier APWorld et génère une nouvelle seed sur ArchiLAN.",
+                    String.IsNullOrEmpty(campaignMessage) ?
+                        (campaignStatus == "missing" ?
+                            "La connexion fonctionne, mais cette seed ne contient pas de liste de missions. Mets à jour l'APWorld sur ArchiLAN, puis génère une nouvelle seed." :
+                            "Le client n'a reçu aucune liste de missions. Vérifie l'APWorld utilisé pour cette seed.") :
+                        campaignMessage,
                     mutedStyle);
                 return;
             }
@@ -517,7 +539,7 @@ namespace CastleStoryArchipelago
             bool isChosen = !String.IsNullOrEmpty(chosenMission);
             GUI.Label(new Rect(x, footerY, inner * .52f, 30),
                 isChosen ? "Mission sélectionnée, prête à lancer" :
-                    "Choisir a mission to continue.", mutedStyle);
+                    "Choisis une mission pour continuer.", mutedStyle);
             if (GUI.Button(new Rect(panel.xMax - 286, footerY - 3, 258, 46),
                            "Lancer cette mission", primaryButton))
             {
@@ -538,7 +560,7 @@ namespace CastleStoryArchipelago
             GUI.depth = -29000;
 
             // Always draw the AP icon; it is separate from the optional F8 diagnostic.
-            if (bridgeConnected && nativeNewGameVisible)
+            if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
             {
                 DrawCampaign();
                 // Block clicks on the original map-selection UI under this modal overlay.
