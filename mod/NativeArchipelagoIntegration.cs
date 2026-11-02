@@ -296,6 +296,76 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP CREDITS] Dedicated Archipelago credit after studio splashes.");
         }
 
+        private bool TryInstallTitleEntryFromText()
+        {
+            // SceneMenu's initial two controls do not expose the UGUI Button
+            // component in the supplied runtime logs. Fall back to the REAL
+            // title Play text/rect, rather than cloning a later map Play.
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            if (textType == null || buttonType == null) return false;
+            foreach (UnityEngine.Object instance in
+                UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = instance as Component;
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string caption = GetUiProperty(label, "text") as string;
+                if (!IsPlayLabel(caption)) continue;
+                RectTransform playRect = label.transform.parent as RectTransform;
+                if (playRect == null || playRect.parent == null) continue;
+                // Do not insert when a map editor/starter is on screen.
+                if (nativeStarterMenu != null || observedMapAssets.Count > 0)
+                    return false;
+                GameObject copy = NewNativeUiObject(
+                    "Archipelago_NativeTitleEntry", playRect.parent,
+                    new Vector2(Mathf.Max(230f, playRect.rect.width),
+                                Mathf.Max(48f, playRect.rect.height)),
+                    playRect.anchoredPosition +
+                        new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f)));
+                AddUiImage(copy, new Color(.94f, .76f, .25f, 1f), true);
+                Component button = copy.AddComponent(buttonType);
+                if (!InstallNativeButtonListener(button, buttonType,
+                        "OpenArchipelagoFromNativeMenu"))
+                {
+                    UnityEngine.Object.Destroy(copy);
+                    return false;
+                }
+                Component text = CloneNativeText(label.gameObject,
+                    copy.transform, "ARCHIPELAGO",
+                    new Vector2(Mathf.Max(210f, playRect.rect.width - 24f), 44),
+                    Vector2.zero, 23);
+                if (text == null)
+                {
+                    UnityEngine.Object.Destroy(copy);
+                    return false;
+                }
+                SetUiProperty(text, "alignment", TextAnchor.MiddleCenter);
+                copy.transform.SetSiblingIndex(playRect.GetSiblingIndex() + 1);
+                // Do not overlay Options in fixed-position title menus.
+                Transform parent = playRect.parent;
+                for (int i = 0; i < parent.childCount; i++)
+                {
+                    var other = parent.GetChild(i) as RectTransform;
+                    if (other == null || other == playRect ||
+                        other == copy.transform || other.GetSiblingIndex() <=
+                        playRect.GetSiblingIndex() + 1) continue;
+                    if (other.anchoredPosition.y < playRect.anchoredPosition.y)
+                    {
+                        shiftedMenuEntries[other] = other.anchoredPosition;
+                        other.anchoredPosition += new Vector2(0, -58f);
+                    }
+                }
+                nativeArchipelagoButton = copy;
+                mainMenuPlayTemplate = copy;
+                nativeMenuFont = GetUiProperty(label, "font") as Font;
+                Logger.LogInfo("[AP TITLE] Inserted primary Archipelago option under " +
+                    "the actual SceneMenu Play label; synthetic UGUI button with native font.");
+                return true;
+            }
+            return false;
+        }
+
         private void TryInstallNativeArchipelagoButton()
         {
             if (nativeArchipelagoButton != null) return;
@@ -304,6 +374,7 @@ namespace CastleStoryArchipelago
             // SpNewGameStarterMenu, which created an entry in the wrong menu.
             if (!titleSceneSeen || nativeStarterMenu != null ||
                 observedMapAssets.Count > 0) return;
+            if (TryInstallTitleEntryFromText()) return;
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
             try
