@@ -1,9 +1,9 @@
-"""Settings exposed in Archipelago and ArchiLAN YAML generators."""
+"""Options for Castle Story Archipelago campaign generation."""
 from dataclasses import dataclass
 from Options import Choice, OptionDict, OptionSet, PerGameCommonOptions, Range
 
 class GameMode(Choice):
-    """Single player campaign: Invasion, Conquest, or both in Hybrid."""
+    """Invasion only, Conquest only, or both modes in a single campaign."""
     display_name = "Campaign Mode"
     option_invasion = 0
     option_conquest = 1
@@ -11,30 +11,32 @@ class GameMode(Choice):
     default = 0
 
 class InvasionGoal(Range):
-    """Completed invasion waves needed per invasion mission (1-10)."""
-    display_name = "Invasion Wave Goal"
+    display_name = "Completed Invasion Waves"
     range_start = 1
     range_end = 10
     default = 10
 
 class ConquestShards(Range):
-    """Total distinct shard captures required across selected conquest maps."""
-    display_name = "Conquest Shards"
+    display_name = "Conquest Shard Captures"
     range_start = 1
     range_end = 30
     default = 3
 
 class ConquestMapCapacities(OptionDict):
-    """Verified installed conquest maps and their shard counts; e.g. {MapName: 4}.
-    Unknown values must NOT be guessed. Empty catalog leaves campaign unready.
+    """Non-localized map asset IDs mapped to VERIFIED capturable shard counts.
+
+    These IDs are map folders/asset keys, not translated UI names.
     """
-    display_name = "Conquest Map Shard Counts"
+    display_name = "Conquest Maps (Map ID: Shard Count)"
     default = {}
 
 class InvasionMapPool(OptionSet):
-    """Names of invasion maps installed locally (one chosen by the seed)."""
-    display_name = "Installed Invasion Maps"
-    default = {"Pioneer Pass"}
+    """Stable installed Invasion map asset IDs.
+
+    The seed chooses from this pool. No fixed Pioneer Pass fallback!
+    """
+    display_name = "Invasion Map IDs"
+    default = set()
 
 @dataclass
 class CastleStoryOptions(PerGameCommonOptions):

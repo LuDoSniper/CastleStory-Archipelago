@@ -1,16 +1,21 @@
-# Castle Story Archipelago campaign settings.
-# To auto-select Conquest maps you MUST enter real verified shard capacities
-# of maps installed in your Castle Story copy. Never invent map counts.
+# Example configuration for the ARCHILAN CASTLE STORY APWorld.
+# Map IDs MUST be the actual non-localized asset/folder ID detected in your game.
+# DO NOT use translated names from the Castle Story user interface.
+#
+# Run tools/inspect_maps.py on the installed game, then confirm game mode
+# support and the number of capturable shards per map.
 name: CastleStoryPlayer
 game: Castle Story
 Castle Story:
   game_mode: hybrid
   invasion_goal: 5
   conquest_shards: 8
-  invasion_map_pool:
-    - Pioneer Pass
+  invasion_map_pool: []
   conquest_map_capacities: {}
-  # Example FORMAT ONLY (not factual counts):
+  # Example SHAPE (not verified map IDs or shard counts):
+  # invasion_map_pool:
+  #   - "stable-map-folder-1"
+  #   - "stable-map-folder-2"
   # conquest_map_capacities:
-  #   "Verified Map A": 3
-  #   "Verified Map B": 6
+  #   "stable-map-folder-3": 4
+  #   "stable-map-folder-4": 6
