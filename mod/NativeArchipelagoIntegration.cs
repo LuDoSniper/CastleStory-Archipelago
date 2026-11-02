@@ -413,6 +413,7 @@ namespace CastleStoryArchipelago
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
             int hidden = 0;
+            var playGroups = new Dictionary<Transform, bool>();
             foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
             {
                 Component button = value as Component;
@@ -420,7 +421,13 @@ namespace CastleStoryArchipelago
                 GameObject go = button.gameObject;
                 if (hiddenNativeEntries.ContainsKey(go)) continue;
                 bool forbidden = false;
-                bool inPlaySubmenu = IsPlaySubmenuGroup(go.transform.parent, buttonType);
+                Transform parent = go.transform.parent;
+                bool inPlaySubmenu;
+                if (parent == null || !playGroups.TryGetValue(parent, out inPlaySubmenu))
+                {
+                    inPlaySubmenu = IsPlaySubmenuGroup(parent, buttonType);
+                    if (parent != null) playGroups[parent] = inPlaySubmenu;
+                }
                 foreach (string label in NativeUiLabels(go))
                 {
                     if (inPlaySubmenu && !IsAllowedPlaySubmenuEntry(label))
