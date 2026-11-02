@@ -307,6 +307,11 @@ namespace CastleStoryArchipelago
         private void SelectMission(MissionFile mission)
         {
             if (mission == null || String.IsNullOrEmpty(token)) return;
+            if (mission.map_id == "auto:invasion")
+            {
+                statusLine = "Ouvre Nouvelle partie pour que le jeu choisisse la carte Invasion.";
+                return;
+            }
             chosenMission = mission.id;
             try
             {
@@ -449,6 +454,7 @@ namespace CastleStoryArchipelago
         {
             if (mission == null) return;
             bool selected = chosenMission == mission.id;
+            bool waitingForMap = mission.map_id == "auto:invasion";
             GUI.Box(card, "", selected ? activeCardStyle : cardStyle);
             GUI.DrawTexture(new Rect(card.x + 14, card.y + 16, 4, card.height - 32),
                 mission.mode == "Conquest" ? greenPixel : accentPixel);
@@ -456,7 +462,8 @@ namespace CastleStoryArchipelago
                 "MISSION " + number + "  /  " + mission.mode.ToUpperInvariant(),
                 eyebrowStyle);
             GUI.Label(new Rect(card.x + 29, card.y + 31, card.width - 160, 28),
-                mission.map ?? mission.map_id ?? "<unknown map>", subTitleStyle);
+                waitingForMap ? "Carte Invasion : sélection en cours…" :
+                    mission.map ?? mission.map_id ?? "<unknown map>", subTitleStyle);
             int goal = mission.mode == "Invasion" ? mission.wave_goal : mission.shard_count;
             GUI.Label(new Rect(card.x + 29, card.y + 62, card.width - 175, 22),
                 mission.mode == "Invasion" ?
@@ -464,9 +471,13 @@ namespace CastleStoryArchipelago
                     ("Capturer " + goal + " shards  /  " + CountMissionChecks(mission) + " terminés"),
                 mutedStyle);
             if (GUI.Button(new Rect(card.xMax - 129, card.y + 29, 113, 39),
-                           selected ? "Choisie" : "Choisir",
+                           waitingForMap ? "Chargement" :
+                               selected ? "Choisie" : "Choisir",
                            selected ? primaryButton : secondaryButton))
-                SelectMission(mission);
+            {
+                if (!waitingForMap) SelectMission(mission);
+                else statusLine = "Ouvre Nouvelle partie et attends le catalogue de cartes.";
+            }
         }
 
         private void DrawCampaign()
@@ -554,7 +565,9 @@ namespace CastleStoryArchipelago
                 else statusLine = "Choisis d'abord une mission Archipelago.";
             }
             GUI.Label(new Rect(x, panel.yMax - 39, inner, 23),
-                "Lancement via Castle Story. " + statusLine,
+                "Lancement via Castle Story. " +
+                    (campaignStatus == "waiting_for_game" ?
+                        campaignMessage : statusLine),
                 miniStyle);
         }
 
