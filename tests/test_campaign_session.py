@@ -35,13 +35,14 @@ class CampaignManifestAndDisconnectTests(unittest.IsolatedAsyncioTestCase):
             folder = Path(tmp)
             seed = {"ready": True, "mode": "Hybrid", "missions": [
                 {"id": "invasion_1", "mode": "Invasion",
-                 "map": "Actual Installed Map", "wave_goal": 5}
+                 "map_id": "official-map-key", "map": "Localized Display Name",
+                 "wave_goal": 5}
             ]}
             _, _, data = await self.create_slot(folder, {
-                "protocol_version": 4, "game_mode": "Hybrid",
+                "protocol_version": 5, "game_mode": "Invasion",
                 "campaign": seed
             })
-            self.assertEqual(data["protocol_version"], 4)
+            self.assertEqual(data["protocol_version"], 5)
             self.assertEqual(data["campaign_status"], "ready")
             self.assertEqual(data["campaign"]["missions"], seed["missions"])
             self.assertEqual(data["campaign_message"], "")

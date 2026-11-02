@@ -44,6 +44,38 @@ class CampaignPlanningTests(unittest.TestCase):
                          missions[0]["shard_start"] + {"official:A": 3, "official:B": 4}[missions[0]["map"]])
         self.assertEqual(sum({"official:A": 3, "official:B": 4}[m["map"]] for m in missions), 7)
 
+    def test_hybrid_without_conquest_pool_is_explicitly_unready(self):
+        result = campaign.plan_campaign(
+            "Hybrid", 5, 8, {}, {"stable-map-a", "stable-map-b"}, 17)
+        self.assertFalse(result["ready"])
+        self.assertEqual(len(result["missions"]), 1)
+        self.assertIn("Conquest", result["warning"])
+        self.assertIn("Hybrid requires", result["warning"])
+
+    def test_empty_invasion_pool_never_forces_pioneer_pass(self):
+        result = campaign.plan_campaign("Invasion", 5, 3, {}, set(), 2)
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["missions"], [])
+        self.assertIn("No Invasion", result["warning"])
+
+    def test_invasion_seed_varies_among_configured_ids(self):
+        pool = {"stable-1", "stable-2", "stable-3", "stable-4"}
+        samples = [campaign.plan_campaign("Invasion", 5, 3, {}, pool, seed)
+                   ["missions"][0]["map_id"] for seed in range(24)]
+        self.assertGreater(len(set(samples)), 1)
+        self.assertTrue(set(samples).issubset(pool))
+        self.assertTrue(all(campaign.plan_campaign(
+            "Invasion", 5, 3, {}, pool, seed)["missions"][0]["map_id"] == samples[seed]
+                             for seed in range(24)))
+
+    def test_french_display_never_replaces_technical_identifier(self):
+        result = campaign.plan_campaign(
+            "Hybrid", 2, 1, {"pioneer_pass_asset": 1},
+            {"pioneer_pass_asset", "other_invasion_asset"}, 42)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["missions"][1]["map_id"], "pioneer_pass_asset")
+        self.assertTrue(all("map_id" in m for m in result["missions"]))
+
     def test_no_unverified_maps_means_unready_not_fabricated(self):
         result = campaign.plan_campaign(
             "Conquest", 5, 7, {}, set(), 14)

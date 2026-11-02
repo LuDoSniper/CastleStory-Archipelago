@@ -21,8 +21,9 @@ class LocalMapChecks(unittest.TestCase):
             campaign = {"ready": True, "missions": [
                 {"map": "Existing"}, {"map": "Unavailable"}]}
             result = bridge.reconcile_local_maps(directory, campaign)
-            self.assertFalse(result["ready"])
-            self.assertIn("Unavailable", result["warning"])
+            self.assertTrue(result["ready"])  # Folder scan must not reject bundled game assets.
+            self.assertEqual(result["local_map_scan"], "requires_unity_asset_validation")
+            self.assertEqual(result["local_map_scan_missing"], ["Unavailable"])
 
 if __name__ == "__main__":
     unittest.main()
