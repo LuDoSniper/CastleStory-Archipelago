@@ -170,32 +170,60 @@ namespace CastleStoryArchipelago
             if (Instance != null) Instance.RecordCapture(__instance, __0);
         }
 
+        private bool IsActiveInvasionMission()
+        {
+            return !String.IsNullOrEmpty(token) && !disconnectPending &&
+                campaign != null && campaign.ready &&
+                !String.IsNullOrEmpty(startedMission) &&
+                String.Equals(startedMission, chosenMission, StringComparison.Ordinal) &&
+                IsSelectedMissionType("Invasion");
+        }
+
         private void RecordWave(int wave)
         {
             lastObservedWave = wave;
             waveEventCount++;
-            Logger.LogInfo("[AP WAVE EVENT] value=" + wave +
-                " at t=" + Time.realtimeSinceStartup.ToString("F1") +
-                "s event #" + waveEventCount);
-            if ((mode != "Invasion" && mode != "Hybrid") || wave < 1 || wave > goalWave) return;
-            if (campaign != null && campaign.ready &&
-                !IsSelectedMissionType("Invasion"))
+            // StatsTracker.InvasionWave fires repeatedly for the same value;
+            // only transitions are useful for check delivery.
+            if (waveEventCount == 1 || wave != lastLoggedWave)
             {
-                Logger.LogWarning("[AP MISSION] Invasion wave ignored; select an Invasion mission.");
+                Logger.LogInfo("[AP WAVE EVENT] value=" + wave +
+                    " at t=" + Time.realtimeSinceStartup.ToString("F1") +
+                    "s event #" + waveEventCount);
+                lastLoggedWave = wave;
+            }
+            if ((mode != "Invasion" && mode != "Hybrid") ||
+                wave < 1 || wave > goalWave) return;
+            bool activeSeedMission = IsActiveInvasionMission();
+            if (campaign != null && campaign.ready && !activeSeedMission)
+            {
+                if (lastRejectedWave != wave)
+                    Logger.LogWarning("[AP CHECK] Wave " + wave +
+                        " ignored: no active seed-launched Invasion mission.");
+                lastRejectedWave = wave;
                 return;
             }
-            if (!waveChecks.Value || !bridgeConnected) return;
+            // A real campaign enables checks automatically, even if an older
+            // installation left EnableWaveChecks=false in its config.
+            // Keep that opt-in for legacy manifests only.
+            if (!activeSeedMission && (!waveChecks.Value || !bridgeConnected))
+                return;
+            // The active seed remains trusted during short websocket outages.
+            // Write to its token-scoped checks.json, then replay on reconnect.
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
             {
                 Logger.LogWarning("[AP CHECK] Wave " + wave +
-                    " ignored; previous wave not checked in this AP session.");
+                    " ignored; prior wave has not been observed in this seed.");
                 return;
             }
             if (checkedIds.Add(WaveBase + wave))
             {
                 lastWave = wave;
                 WriteChecks();
-                Logger.LogInfo("[AP CHECK] Completed Invasion wave " + wave);
+                Logger.LogInfo("[AP CHECK] Invasion wave " + wave +
+                    " queued for Archipelago; network=" +
+                    (bridgeConnected ? "online" : "temporarily offline") +
+                    "; id=" + (WaveBase + wave));
             }
         }
 
