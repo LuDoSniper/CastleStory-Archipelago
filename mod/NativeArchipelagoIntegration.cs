@@ -613,6 +613,67 @@ namespace CastleStoryArchipelago
             return best;
         }
 
+        private GameObject FindNativeChoiceRoot(Component label)
+        {
+            if (label == null) return null;
+            Type selectable = FindRuntimeType("UnityEngine.UI.Selectable");
+            Type image = FindRuntimeType("UnityEngine.UI.Image");
+            Transform current = label.transform;
+            for (int depth = 0; current != null && depth <= 3; depth++,
+                current = current.parent)
+            {
+                if (current.gameObject == nativeConnectionPanel ||
+                    current.gameObject.name.StartsWith("AP_", StringComparison.Ordinal))
+                    return null;
+                if (selectable != null && current.GetComponent(selectable) != null)
+                    return current.gameObject;
+                foreach (Component component in current.GetComponents<Component>())
+                {
+                    if (component == null) continue;
+                    string type = component.GetType().Name.ToLowerInvariant();
+                    if (type.Contains("button") || type.Contains("toggle") ||
+                        type.Contains("menuchoice") || type.Contains("menuitem"))
+                        return current.gameObject;
+                }
+                // A title or description often lacks a clickable wrapper.
+                // Do not deactivate its entire parent menu by guessing.
+                if (depth > 0 && image != null &&
+                    current.GetComponent(image) != null &&
+                    current.GetComponent<RectTransform>() != null)
+                    return current.gameObject;
+            }
+            return null;
+        }
+
+        private int HideNativeNonSelectableChoices(string selectedNativeMode)
+        {
+            // Some early Castle Story menus are not UGUI Button/Toggle.
+            // Target their exact native captions, but hide only a wrapper
+            // identified as interactive; never hide an unknown menu root.
+            Type type = FindRuntimeType("UnityEngine.UI.Text");
+            if (type == null) return 0;
+            int count = 0;
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(type))
+            {
+                Component caption = value as Component;
+                if (caption == null || caption.gameObject == null ||
+                    !caption.gameObject.activeInHierarchy) continue;
+                string text = GetUiProperty(caption, "text") as string;
+                string nativeMode = NativeModeFromLabel(text);
+                bool forbidden = IsSandboxLabel(text) ||
+                    IsForbiddenPlaySubmenuEntry(text) ||
+                    (nativeMode != null && mode != "Hybrid" && nativeMode != mode);
+                if (!forbidden) continue;
+                GameObject target = FindNativeChoiceRoot(caption);
+                if (target == null || hiddenNativeEntries.ContainsKey(target)) continue;
+                HideNativeEntry(target);
+                count++;
+                Logger.LogInfo("[AP NATIVE UI] Hidden native non-Selectable choice: " +
+                    (nativeMode ?? NormalizeNativeLabel(text)));
+            }
+            return count;
+        }
+
         private void RefreshNativeSeedMenu()
         {
             if (disconnectPending || String.IsNullOrEmpty(token) ||
@@ -681,6 +742,7 @@ namespace CastleStoryArchipelago
                 HideNativeEntry(go);
                 hidden++;
             }
+            hidden += HideNativeNonSelectableChoices(selectedNativeMode);
             watch.Stop();
             if (hidden > 0 && nativeRestrictionLogCount++ < 12)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
