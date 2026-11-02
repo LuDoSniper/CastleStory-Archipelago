@@ -1,6 +1,14 @@
-# Castle Story × Archipelago — v0.6.6 (lecture du manifeste de campagne)
+# Castle Story × Archipelago — v0.6.7 (transfert de campagne de secours)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.6.7 — Transfert texte de secours pour Unity 5.6
+
+Le bridge produit désormais `campaign_wire.txt`, un instantané atomique et versionné de la campagne, indépendant de `JsonUtility`. Chaque mission utilise une ligne à sept champs, les chaînes UTF-8 sont encodées en Base64, et Unity recoupe le jeton, le protocole et le nombre de missions avant de remplacer la campagne. Le fichier JSON reste disponible pour les diagnostics. Le fichier `session.json` est publié en dernier. Un manifeste obsolète ou tronqué est ignoré sans autoriser un lancement libre.
+
+Pour tester : installer le kit v0.6.7, fermer puis relancer le jeu, reconnecter le même slot/seed ; **inutile de régénérer la seed**. Dans `BepInEx/LogOutput.log`, chercher `[AP MANIFEST]` : le résultat attendu contient `Transfert texte V1` et le nombre exact de missions. Si l'interface indique une autre erreur, fournir la ligne `[AP MANIFEST]` et les informations de diagnostic affichées (sans `connection.json`).
+
+La CI ne simule pas le moteur Unity ; le démarrage réel d'une mission doit encore être testé dans Castle Story.
 
 ## v0.6.6 — Le manifeste arrive dans le bridge, mais pas dans Unity
 
