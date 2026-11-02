@@ -1,6 +1,7 @@
 """Archipelago websocket client for the Castle Story BepInEx file bridge."""
 import argparse
 import base64
+import binascii
 import asyncio
 import copy
 import hashlib
@@ -596,7 +597,7 @@ class StdinControl:
                     value = json.loads(line)
                 if isinstance(value, dict):
                     self.queue.put(value)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, binascii.Error):
                 LOG.warning("Invalid stdin control message (credentials redacted)")
 
     def apply(self, command):
