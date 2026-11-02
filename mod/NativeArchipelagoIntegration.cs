@@ -21,6 +21,12 @@ namespace CastleStoryArchipelago
         private float nextNativeUiRefresh;
         private bool nativeButtonMissingLogged;
         private int nativeRestrictionLogCount;
+        private string lastNativeFilterKey;
+        private string lastFilterMode;
+        private object lastFilterMenu;
+        private bool introCreditShown;
+        private bool introCreditActive;
+        private float introCreditStart = -1f;
         private GUIStyle introCreditStyle;
 
         private static string NormalizeNativeLabel(string text)
@@ -294,6 +300,9 @@ namespace CastleStoryArchipelago
             foreach (var entry in hiddenNativeEntries)
                 if (entry.Key != null) entry.Key.SetActive(entry.Value);
             hiddenNativeEntries.Clear();
+            lastNativeFilterKey = null;
+            lastFilterMenu = null;
+            lastFilterMode = null;
         }
 
         private void HideNativeEntry(GameObject button)
@@ -343,9 +352,9 @@ namespace CastleStoryArchipelago
 
         private void RefreshNativeSeedMenu()
         {
-            // Do not change vanilla UI when there is no valid AP campaign.
-            // A short heartbeat drop must not flash forbidden native modes
-            // back into view while the player is in a seeded session.
+            // This method NEVER toggles a hidden native card every half-second.
+            // Re-enabling cards invokes Unity OnEnable and can rebuild/duplicate
+            // their child cards in Castle Story.
             if (disconnectPending || String.IsNullOrEmpty(token) ||
                 campaign == null || !campaign.ready ||
                 campaign.missions == null)
@@ -354,19 +363,27 @@ namespace CastleStoryArchipelago
                 return;
             }
 
+            string selectedNativeMode = SelectedNativeGamemode();
+            string filterKey = token + "|" + selectedNativeMode +
+                "|" + (nativeStarterMenu == null ? "root" :
+                    nativeStarterMenu.GetType().FullName);
+            if (lastNativeFilterKey != filterKey)
+            {
+                // Only restore when switching mode, seed or native menu.
+                // Once is safe; refreshing twice per second is not.
+                if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
+                lastNativeFilterKey = filterKey;
+            }
+
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
-            // Native tabs can change without closing New Game (Hybrid). A
-            // previously forbidden map may become allowed on another tab.
-            // Restore our own changes, then reapply the current restrictions.
-            if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
             int hidden = 0;
-            string selectedNativeMode = SelectedNativeGamemode();
             foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
             {
                 Component button = value as Component;
                 if (button == null || button.gameObject == null) continue;
                 GameObject go = button.gameObject;
+                if (hiddenNativeEntries.ContainsKey(go)) continue;
                 bool forbidden = false;
                 foreach (string label in NativeUiLabels(go))
                 {
@@ -375,25 +392,37 @@ namespace CastleStoryArchipelago
                     if (IsSandboxLabel(label) ||
                         (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
                         (nativeMapLabels.TryGetValue(NormalizeNativeLabel(label), out mapId) &&
-                         !AllowedSeedMap(mapId, selectedNativeMode)))
+                         !AllowedSeedMap(mapId, selectedNativeMode)) ||
+                        IsForbiddenPlaySubmenuEntry(label))
                     {
                         forbidden = true;
                         break;
                     }
                 }
-                // Only exact native labels verified by the map registry are
-                // hidden. Unknown buttons are left untouched; the native
-                // OnOk guard still blocks every non-seed map/mode.
                 if (forbidden)
                 {
                     HideNativeEntry(go);
                     hidden++;
                 }
             }
-            if (hidden > 0 && nativeRestrictionLogCount++ < 5)
+            if (hidden > 0 && nativeRestrictionLogCount++ < 8)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
-                    " out-of-seed mode/map controls; seed=" + seed +
-                    " mode=" + mode + ".");
+                    " new restricted controls; mode=" + selectedNativeMode +
+                    " seed=" + seed + ".");
+        }
+
+        private static bool IsForbiddenPlaySubmenuEntry(string label)
+        {
+            switch (NormalizeNativeLabel(label))
+            {
+                case "map editor": case "éditeur de cartes":
+                case "éditeur de carte": case "map maker":
+                case "level editor": case "wonder": case "wonders":
+                case "merveilles": case "merveille":
+                case "workshop": case "steam workshop":
+                    return true;
+                default: return false;
+            }
         }
 
         private void ProbeNativeArchipelagoUi()
