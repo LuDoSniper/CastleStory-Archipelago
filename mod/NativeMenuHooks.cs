@@ -280,6 +280,10 @@ namespace CastleStoryArchipelago
             if (Instance != null)
             {
                 Instance.nativeStarterMenu = __instance;
+                // Clear obsolete "open New Game first" instructions now that
+                // the game's native map selector has actually opened.
+                Instance.campaignNotice = "";
+                Instance.campaignNoticeIsError = false;
                 Instance.nativeMapScanComplete = false;
                 Instance.TryDiscoverNativeMaps(__instance);
                 Instance.nativeNewGameVisible = Instance.bridgeConnected &&
@@ -489,14 +493,14 @@ namespace CastleStoryArchipelago
             if (campaign == null || !campaign.ready ||
                 campaign.missions == null || campaign.missions.Length == 0)
             {
-                statusLine = "The connected AP campaign has no playable map list.";
+                SetCampaignNotice("La campagne connectée ne contient aucune mission jouable.", true);
                 Logger.LogWarning("[AP MENU] Native start blocked: missing/unready seed campaign.");
                 nativeNewGameVisible = true;
                 return false;
             }
             if (!IsSelectedMissionType("Conquest") && !IsSelectedMissionType("Invasion"))
             {
-                statusLine = "Select an AP mission before starting a new game.";
+                SetCampaignNotice("Sélectionne d'abord une mission Archipelago avant de démarrer.", true);
                 Logger.LogWarning("[AP MENU] Blocked new game: no seed-selected mission.");
                 return false;
             }
@@ -510,8 +514,8 @@ namespace CastleStoryArchipelago
                 object map = property == null ? null : property.GetValue(menuInstance, null);
                 if (map == null)
                 {
-                    statusLine = "Choisis la carte ID " + MissionMapId(selected) +
-                        " avant de démarrer.";
+                    SetCampaignNotice("Choisis la carte ID " + MissionMapId(selected) +
+                        " avant de démarrer.", true);
                     return false;
                 }
                 // Asset_Map.GetHeightmapPath() is present in the supplied Castle Story
@@ -519,15 +523,15 @@ namespace CastleStoryArchipelago
                 string actual = MapIdentity(map);
                 if (String.IsNullOrEmpty(actual))
                 {
-                    statusLine = "Map identity unavailable: AP guard prevented unsafe start.";
+                    SetCampaignNotice("Impossible de vérifier l'identifiant de carte. Le démarrage a été bloqué.", true);
                     Logger.LogWarning("[AP MENU] Could not resolve Asset_Map.GetHeightmapPath.");
                     return false;
                 }
                 if (!String.Equals(actual, MissionMapId(selected),
                                    StringComparison.OrdinalIgnoreCase))
                 {
-                    statusLine = "ID attendu : " + MissionMapId(selected) +
-                        " (carte choisie : " + actual + ")";
+                    SetCampaignNotice("ID attendu : " + MissionMapId(selected) +
+                        " (carte choisie : " + actual + ")", true);
                     Logger.LogWarning("[AP MENU] Blocked map_id=" + actual +
                         " for mission " + selected.id +
                         " expected map_id=" + MissionMapId(selected));
@@ -540,8 +544,8 @@ namespace CastleStoryArchipelago
                 if (code == null ||
                     !String.Equals(code, selected.mode, StringComparison.OrdinalIgnoreCase))
                 {
-                    statusLine = "Expected game mode: " + selected.mode +
-                        " (selected " + (code ?? "<unknown>") + ")";
+                    SetCampaignNotice("Mode requis : " + selected.mode +
+                        " (sélection actuelle : " + (code ?? "<inconnu>") + ")", true);
                     Logger.LogWarning("[AP MENU] Blocked wrong game mode.");
                     return false;
                 }
@@ -551,7 +555,8 @@ namespace CastleStoryArchipelago
             }
             catch (Exception error)
             {
-                statusLine = "Could not validate new-game map; see BepInEx log.";
+                SetCampaignNotice("Impossible de vérifier la carte : " + error.Message +
+                    ". Consulte les logs BepInEx.", true);
                 Logger.LogWarning("[AP MENU] Map guard failed safely: " + error);
                 return false;
             }
