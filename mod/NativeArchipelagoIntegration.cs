@@ -11,6 +11,8 @@ namespace CastleStoryArchipelago
         // The main menu button is a clone of a real Unity UI control, not an
         // IMGUI control drawn over the main menu.
         private GameObject nativeArchipelagoButton;
+        private readonly Dictionary<RectTransform, Vector2> shiftedMenuEntries =
+            new Dictionary<RectTransform, Vector2>();
         private readonly Dictionary<GameObject, bool> hiddenNativeEntries =
             new Dictionary<GameObject, bool>();
         private readonly Dictionary<string, string> nativeMapLabels =
@@ -106,6 +108,8 @@ namespace CastleStoryArchipelago
                 {
                     try
                     {
+                        string current = textProp.GetValue(text, null) as string;
+                        if (!IsPlayLabel(current)) continue;
                         textProp.SetValue(text, value, null);
                         return true;
                     }
@@ -205,8 +209,28 @@ namespace CastleStoryArchipelago
                         var srcRect = source.transform as RectTransform;
                         var dstRect = copy.transform as RectTransform;
                         if (srcRect != null && dstRect != null)
+                        {
+                            float delta = Mathf.Max(45f, srcRect.rect.height + 8f);
                             dstRect.anchoredPosition = srcRect.anchoredPosition +
-                                new Vector2(0, -Mathf.Max(45f, srcRect.rect.height + 8f));
+                                new Vector2(0, -delta);
+                            // In manually positioned menus, make room below
+                            // Play rather than overlapping the next button.
+                            Transform parent = source.transform.parent;
+                            if (parent != null)
+                                for (int i = 0; i < parent.childCount; i++)
+                                {
+                                    var child = parent.GetChild(i) as RectTransform;
+                                    if (child == null || child == dstRect ||
+                                        child == srcRect || child.GetSiblingIndex() <=
+                                        srcRect.GetSiblingIndex() + 1) continue;
+                                    if (child.anchoredPosition.y <=
+                                        srcRect.anchoredPosition.y - 5f)
+                                    {
+                                        shiftedMenuEntries[child] = child.anchoredPosition;
+                                        child.anchoredPosition += new Vector2(0, -delta);
+                                    }
+                                }
+                        }
                     }
                     copy.SetActive(true);
                     nativeArchipelagoButton = copy;
@@ -225,6 +249,13 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogWarning("[AP NATIVE UI] Button integration: " + error);
             }
+        }
+
+        private void RestoreNativeMenuLayout()
+        {
+            foreach (var item in shiftedMenuEntries)
+                if (item.Key != null) item.Key.anchoredPosition = item.Value;
+            shiftedMenuEntries.Clear();
         }
 
         private void RestoreNativeEntries()
