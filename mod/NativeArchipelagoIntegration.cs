@@ -415,9 +415,10 @@ namespace CastleStoryArchipelago
             }
 
             string selectedNativeMode = SelectedNativeGamemode();
-            string filterKey = token + "|" + selectedNativeMode +
-                "|" + (nativeStarterMenu == null ? "root" :
-                    nativeStarterMenu.GetType().FullName);
+            // Opening/closing the same native menu does NOT change this
+            // cache key: otherwise Back -> Invasion re-enables old tiles and
+            // triggers Castle Story's native OnEnable card duplication.
+            string filterKey = token + "|" + selectedNativeMode;
             if (lastNativeFilterKey != filterKey)
             {
                 // Only restore when switching mode, seed or native menu.
