@@ -238,6 +238,8 @@ namespace CastleStoryArchipelago
             miniStyle = StyledText(12, TextMuted, FontStyle.Normal);
             errorStyle = StyledText(14, new Color(1f, .69f, .53f), FontStyle.Normal);
             inputLabelStyle = StyledText(13, TextMuted, FontStyle.Bold);
+            // Use the real native Play button's font if Castle Story exposes it.
+            ApplyNativeTypography();
         }
 
         private void WriteConnection(bool enable)
