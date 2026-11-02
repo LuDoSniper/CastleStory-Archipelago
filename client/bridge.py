@@ -1,6 +1,7 @@
 """Archipelago websocket client for the Castle Story BepInEx file bridge."""
 import argparse
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -20,6 +21,7 @@ IDS = {
     "Conquest": set(range(CONQUEST_BASE + 1, CONQUEST_BASE + 31)) | {CONQUEST_BASE + 100},
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
+AUTO_INVASION_MAP_ID = "auto:invasion"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -81,7 +83,11 @@ def validate_campaign_manifest(campaign, mode):
         if kind not in ("Invasion", "Conquest"):
             return "Une mission utilise un mode inconnu."
         map_id = mission.get("map_id")
-        if canonical_map_id(map_id) is None:
+        auto_invasion = (
+            kind == "Invasion" and map_id == AUTO_INVASION_MAP_ID and
+            mission.get("map_policy") == "local_seeded_invasion"
+        )
+        if not auto_invasion and canonical_map_id(map_id) is None:
             return ("Cette seed utilise un nom de carte plutôt qu'un ID "
                     "interne (official:<dossier> ou workshop:<dossier>). "
                     "Importe le nouvel APWorld et régénère la seed.")
@@ -121,6 +127,37 @@ def reconcile_local_maps(directory, campaign):
                  "Not blocking: the Unity asset registry is authoritative.", missing)
     return updated
 
+def native_invasion_catalog(directory):
+    """Read Castle Story's native asset discovery, never translated UI labels.
+
+    Returns None until the Unity map scanner completed. An empty list after
+    completion means that no compatible map could be identified safely.
+    """
+    data = load_json(Path(directory) / "installed_maps.json")
+    if not isinstance(data, dict) or data.get("scan_complete") is not True:
+        return None
+    universe = {canonical_map_id(x) for x in data.get("map_ids", [])
+                if canonical_map_id(x)}
+    found = {}
+    for value in data.get("invasion_map_ids", []):
+        name = canonical_map_id(value)
+        if name and name in universe:
+            found.setdefault(name, value)
+    return [found[key] for key in sorted(found)]
+
+
+def seeded_local_map_choice(seed, player, candidates):
+    """Stable across process restarts and game language changes."""
+    pool = sorted(set(candidates), key=str.casefold)
+    if not pool:
+        raise ValueError("No verified native Invasion maps available")
+    digest = hashlib.sha256(
+        ("%s|%s|castle-story-invasion-map" % (seed, player)).encode("utf-8")
+    ).digest()
+    index = int.from_bytes(digest[:8], "big") % len(pool)
+    return pool[index]
+
+
 def load_json(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -155,6 +192,7 @@ class Bridge:
         self.team = 0
         self.mode = ""
         self.campaign = {}
+        self.source_campaign = {}
         self.protocol_version = 0
         self.campaign_status = "unknown"
         self.campaign_message = ""
@@ -254,7 +292,9 @@ class Bridge:
             self.slot = int(packet["slot"])
             self.team = int(packet.get("team", 0))
             self.token = token_for(self.seed, self.slot, self.player, self.team)
+            self.source_campaign = copy.deepcopy(self.campaign)
             self.connected = True
+            self.refresh_dynamic_campaign()
             write_status(self.directory, "connected", "Connected to Archipelago as " + self.player)
             self.received = []
             self.seen_checks.clear()
@@ -281,6 +321,79 @@ class Bridge:
             LOG.info("AP: %s", "".join(str(e.get("text", "")) for e in packet.get("data", [])))
         elif command == "RoomUpdate":
             LOG.info("Room state updated")
+
+    def refresh_dynamic_campaign(self):
+        """Bind auto:invasion to one real native map, pinned per Archipelago seed.
+
+        Until the game's New Game screen has enumerated its assets, keep the
+        auto mission visible and request that the player open New Game.
+        Never silently substitute an incompatible or localized map name.
+        """
+        if not self.connected or not self.token or not isinstance(self.source_campaign, dict):
+            return False
+        original = self.source_campaign.get("missions")
+        if not isinstance(original, list) or not any(
+                isinstance(m, dict) and m.get("map_id") == AUTO_INVASION_MAP_ID
+                for m in original):
+            return False
+
+        campaign = copy.deepcopy(self.source_campaign)
+        catalog = native_invasion_catalog(self.directory)
+        state, message = "ready", ""
+        if catalog is None:
+            state = "waiting_for_game"
+            message = ("Ouvre Nouvelle partie dans Castle Story pour charger les cartes "
+                       "Invasion disponibles. Le jeu choisira ensuite la carte de la seed.")
+        elif not catalog:
+            state = "unready"
+            message = ("Castle Story n'a pas exposé de carte compatible Invasion. "
+                       "Ouvre Nouvelle partie et vérifie installed_maps.json / F9.")
+            campaign["ready"] = False
+            campaign["warning"] = message
+        else:
+            path = self.directory / "auto_map_selection.json"
+            saved = load_json(path)
+            previous = (
+                saved.get("map_id") if isinstance(saved, dict) and
+                saved.get("token") == self.token else None
+            )
+            if previous:
+                selected = next(
+                    (name for name in catalog
+                     if canonical_map_id(name) == canonical_map_id(previous)),
+                    None,
+                )
+                if selected is None:
+                    state = "unready"
+                    message = ("La carte choisie pour cette seed n'est plus "
+                               "disponible : " + str(previous))
+                    campaign["ready"] = False
+                    campaign["warning"] = message
+            else:
+                selected = seeded_local_map_choice(
+                    self.seed, self.player, catalog
+                )
+                save_json(path, {"token": self.token, "map_id": selected})
+                LOG.info("Assigned local Invasion map to seed %s: %s",
+                         self.seed, selected)
+            if state == "ready":
+                for mission in campaign["missions"]:
+                    if mission.get("map_id") == AUTO_INVASION_MAP_ID:
+                        mission["map_id"] = selected
+                        mission["map"] = selected
+                        mission["resolved_from"] = "native_invasion_catalog"
+
+        if (campaign != self.campaign or state != self.campaign_status or
+                message != self.campaign_message):
+            self.campaign = campaign
+            self.campaign_status = state
+            self.campaign_message = message
+            self.persist_session()
+            LOG.info("[AP CAMPAIGN] dynamic map state=%s: %s", state, message or
+                     next((m.get("map_id") for m in campaign["missions"]
+                           if m.get("mode") == "Invasion"), "?"))
+            return True
+        return False
 
     async def poll_once(self, ws):
         if not self.connected:
@@ -324,6 +437,7 @@ class Bridge:
                         self.directory, getattr(self, "fallback_request", None)
                     ) != self.request_snapshot):
                 raise ConnectionChanged()
+            self.refresh_dynamic_campaign()
             await self.poll_once(ws)
 
 async def run_once(url, bridge):
