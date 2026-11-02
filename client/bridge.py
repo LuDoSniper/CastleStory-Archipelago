@@ -24,7 +24,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.6.9"
+BRIDGE_CLIENT_VERSION = "0.7.0"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
