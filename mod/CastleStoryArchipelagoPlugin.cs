@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.3")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.4")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -87,8 +87,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.3 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.3 initialised.");
+                "Castle Story Archipelago v0.6.4 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.4 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -494,6 +494,7 @@ namespace CastleStoryArchipelago
             if (Input.GetKeyDown(KeyCode.F10))
                 DumpBonusRewardQueue();
             ProcessPendingNativeBonus();
+            UpdateNativeInputShield();
             if (Input.GetKeyDown(KeyCode.F8))
             {
                 debugOverlayVisible = !debugOverlayVisible;
@@ -520,7 +521,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.3 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.4 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -563,6 +564,7 @@ namespace CastleStoryArchipelago
                 localBridge.Dispose();
                 localBridge = null;
             }
+            DestroyNativeInputShield();
             CleanupApUi();
             if (Instance == this) Instance = null;
         }

@@ -625,11 +625,9 @@ namespace CastleStoryArchipelago
             if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
             {
                 DrawCampaign();
-                // Block clicks on the original map-selection UI under this modal overlay.
-                if (Event.current.type == EventType.MouseDown ||
-                    Event.current.type == EventType.MouseUp ||
-                    Event.current.type == EventType.ScrollWheel)
-                    Event.current.Use();
+                // Native Unity UI events are blocked by NativeInputShield.cs.
+                // Do not call Event.Use() here: IMGUI controls such as
+                // "Fermer" need the complete MouseDown/MouseUp sequence.
             }
             else if (apMenuOpen)
                 DrawConnection();

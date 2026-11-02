@@ -19,6 +19,18 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIn("!Instance.apPopupDismissedOnNativeScreen", native)
         self.assertIn("Instance.apPopupDismissedOnNativeScreen = false;", native)
 
+    def test_modal_blocks_native_ui_without_consuming_its_own_clicks(self):
+        blocker = (ROOT / "mod/NativeInputShield.cs").read_text(encoding="utf-8")
+        self.assertIn("GraphicRaycaster", blocker)
+        self.assertIn("raycastTarget", blocker)
+        self.assertIn("ScreenSpaceOverlay", blocker)
+        self.assertIn("nativeInputShield.SetActive(modal)", blocker)
+        self.assertIn("DestroyNativeInputShield()", (
+            ROOT / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8"))
+        ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
+        self.assertNotIn("Event.current.Use();\n            }\n            else if (apMenuOpen)", ui)
+        self.assertIn('"Fermer", subtleButton', ui)
+
     def test_ui_displays_both_server_manifest_and_bridge_details(self):
         code = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
         self.assertIn("Manifeste transmis :", code)
