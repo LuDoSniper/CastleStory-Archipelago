@@ -160,7 +160,11 @@ namespace CastleStoryArchipelago
                 {
                     nativeInputShield.SetActive(modal);
                     Logger.LogInfo("[AP UI] Native pointer shield " +
-                        (modal ? "activated" : "deactivated"));
+                        (modal ? "activated" : "deactivated") +
+                        "; apMenu=" + apMenuOpen +
+                        "; nativeNewGame=" + nativeNewGameVisible +
+                        "; campaignPreview=" + campaignPreviewOpen +
+                        "; connected=" + bridgeConnected);
                 }
             }
             else if (modal && !nativeShieldWarningShown)
