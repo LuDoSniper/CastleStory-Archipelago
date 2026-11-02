@@ -49,6 +49,11 @@ namespace CastleStoryArchipelago
         private bool apMenuOpen;
         private bool nativeNewGameVisible;
         private bool campaignPreviewOpen;
+        private int slotProtocolVersion;
+        private string bridgeClientVersion = "";
+        private string[] serverSlotDataFields;
+        private bool serverManifestProvided;
+        private bool serverSlotDataProvided;
         private bool disconnectPending;
         private string campaignStatus = "unknown";
         private string campaignMessage = "";
@@ -480,6 +485,23 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private void LoggerCampaignDiagnostics()
+        {
+            // Diagnostic is available in UI; avoid verbose log spam from OnGUI.
+        }
+
+        private void ExitCampaignToMainMenu()
+        {
+            // "Retour" means close the AP popup, not open another popup.
+            // Also close Castle Story's New Game screen if it is active.
+            campaignPreviewOpen = false;
+            apMenuOpen = false;
+            nativeNewGameVisible = false;
+            if (nativeStarterMenu != null) CloseNativeNewGame();
+            GUIUtility.keyboardControl = 0;
+            Logger.LogInfo("[AP MENU] Back: AP overlay dismissed, native New Game close requested.");
+        }
+
         private void DrawCampaign()
         {
             float width = Mathf.Min(900f, Mathf.Max(320f, Screen.width - 26f));
@@ -492,6 +514,13 @@ namespace CastleStoryArchipelago
                        "Missions de la seed",
                        "Cette seed impose les cartes et les modes à jouer.");
             float x = panel.x + 28, inner = panel.width - 56;
+            if (Event.current.type == EventType.KeyDown &&
+                Event.current.keyCode == KeyCode.Escape)
+            {
+                ExitCampaignToMainMenu();
+                Event.current.Use();
+                return;
+            }
             if (GUI.Button(new Rect(panel.xMax - 245, panel.y + 25, 130, 38),
                            "Déconnexion", secondaryButton))
             {
@@ -501,23 +530,33 @@ namespace CastleStoryArchipelago
             if (GUI.Button(new Rect(panel.xMax - 101, panel.y + 25, 72, 38),
                            "Retour", subtleButton))
             {
-                campaignPreviewOpen = false;
-                if (nativeNewGameVisible) CloseNativeNewGame();
-                apMenuOpen = true;
+                ExitCampaignToMainMenu();
                 return;
             }
             if (campaign == null || campaign.missions == null)
             {
-                GUI.Box(new Rect(x, panel.y + 167, inner, 118), "", cardStyle);
+                GUI.Box(new Rect(x, panel.y + 167, inner, 215), "", cardStyle);
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 33),
-                    "Aucune campagne reçue", subTitleStyle);
-                GUI.Label(new Rect(x + 20, panel.y + 220, inner - 40, 53),
-                    String.IsNullOrEmpty(campaignMessage) ?
-                        (campaignStatus == "missing" ?
-                            "La connexion fonctionne, mais cette seed ne contient pas de liste de missions. Mets à jour l'APWorld sur ArchiLAN, puis génère une nouvelle seed." :
-                            "Le client n'a reçu aucune liste de missions. Vérifie l'APWorld utilisé pour cette seed.") :
-                        campaignMessage,
-                    mutedStyle);
+                    "Campagne Archipelago indisponible", subTitleStyle);
+                string reason = String.IsNullOrEmpty(campaignMessage) ?
+                    (campaignStatus == "missing" ?
+                        "ArchiLAN a accepté la connexion mais n'a transmis aucun manifeste de campagne. Une ancienne seed peut fonctionner sans missions : importe le nouvel APWorld et génère une nouvelle seed." :
+                        "La session est connectée, mais la liste des missions n'a pas été chargée. Consulte le diagnostic ci-dessous.") :
+                    campaignMessage;
+                GUI.Label(new Rect(x + 20, panel.y + 221, inner - 40, 75),
+                    reason, mutedStyle);
+                GUI.Label(new Rect(x + 20, panel.y + 300, inner - 40, 26),
+                    "Seed : " + (String.IsNullOrEmpty(seed) ? "inconnue" : seed) +
+                    "  |  Mode : " + mode + "  |  Protocole : " +
+                    slotProtocolVersion, miniStyle);
+                GUI.Label(new Rect(x + 20, panel.y + 327, inner - 40, 48),
+                    "Client : " + (String.IsNullOrEmpty(bridgeClientVersion) ?
+                        "ancien / inconnu" : bridgeClientVersion) +
+                    "  |  Manifeste fourni : " +
+                    (serverManifestProvided ? "oui" : "non") +
+                    "  |  Slot data : " + (serverSlotDataProvided ? "oui" : "non"),
+                    miniStyle);
+                LoggerCampaignDiagnostics();
                 return;
             }
             if (!campaign.ready)
