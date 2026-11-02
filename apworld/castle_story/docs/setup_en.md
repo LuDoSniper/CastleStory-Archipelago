@@ -1,21 +1,25 @@
-# Castle Story Archipelago — Experimental
-Requires Castle Story for Windows, BepInEx 5 Unity Mono, the CastleStoryArchipelago plugin, Python 3.11+ and the bridge.
+# Castle Story Archipelago campaign — developer preview
 
-## Generation
-Install the .apworld with your Archipelago Launcher. Put a player YAML in Players:
-```yaml
-name: CastleStoryPlayer
-game: Castle Story
-Castle Story:
-  game_mode: conquest # or invasion
-```
-Generate a seed and host the resulting multiworld.
+Game mode: `invasion`, `conquest` or `hybrid`. Hybrid requires both branches for
+the final server goal. Set `invasion_goal` between 1 and 10 and
+`conquest_shards` between 1 and 30.
 
-## Conquest
-Capturing 1, 2 and 3 distinct shards provides three checks, and winning provides a fourth. Capture detection uses `CrystalVisuals.PlayCapturedSound`, and a **single neutral-shard capture was verified in a real Conquest session on 2026-11-02**, with the local faction check passing. Different crystal types, duplicates and AP server delivery remain unverified. Enable the capture-check option **only for a disposable test game**; leave it disabled otherwise.
+## Seed-selected maps
 
-## Invasion
-Completed waves 1-10 provide checks; wave 10 is the goal.
+The map planner chooses a subset with total shard capacity at least the
+configured target, minimizing extra shard capacity and then the number of maps.
+It uses the seed for deterministic ties.
 
-## Current limitations
-The plugin displays incoming AP item names/counts but does not yet modify game resources, equipment or unit permissions. The bridge must be connected and the selected in-game mode must match the slot's YAML mode. Save-to-seed binding is not implemented, so do not reuse ordinary saves.
+**IMPORTANT:** the .apworld cannot read your game's installed map files.
+`conquest_map_capacities` must list maps and VERIFIED shard counts. Empty or
+insufficient map catalogs produce `campaign.ready=false`; the client must not
+claim to have auto-selected playable maps. Do not guess counts. The default
+invasion pool names the official Pioneer Pass map, but it must be installed.
+
+## Game integration status
+
+The client carries the seed-generated campaign to `session.json`. The Unity
+plugin can display the campaign and connection UI, but the native game map-menu
+replacement and automatic map launch still require verified game menu hooks.
+Equipped Bricktron rewards are modeled in the item catalog, not yet granted
+outside the Home Crystal's cap. The current release is a development build.

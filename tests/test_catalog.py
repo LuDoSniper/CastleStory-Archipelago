@@ -8,19 +8,18 @@ catalog = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(catalog)
 
 class CatalogTests(unittest.TestCase):
-    def test_mode_pools_match_location_counts(self):
-        self.assertEqual(len(catalog.INVASION_POOL), len(catalog.INVASION_LOCATIONS))
-        self.assertEqual(len(catalog.CONQUEST_POOL), len(catalog.CONQUEST_LOCATIONS))
-        self.assertEqual(len(catalog.LOCATION_NAME_TO_ID), 14)
+    def test_id_stability(self):
+        self.assertEqual(catalog.LOCATION_NAME_TO_ID["Invasion - Survive Wave 10"], 276810010)
+        self.assertEqual(catalog.LOCATION_NAME_TO_ID["Conquest - Capture Shard 3"], 276812003)
+        self.assertEqual(catalog.LOCATION_NAME_TO_ID["Conquest - Victory"], 276812100)
 
-    def test_ids_are_unique_stable(self):
-        items = set(catalog.ITEM_NAME_TO_ID.values())
-        locations = set(catalog.LOCATION_NAME_TO_ID.values())
-        self.assertEqual(len(items), 6)
-        self.assertEqual(len(locations), 14)
-        self.assertFalse(items & locations)
-        self.assertEqual(catalog.INVASION_LOCATIONS["Invasion - Survive Wave 10"], 276810010)
-        self.assertEqual(catalog.CONQUEST_LOCATIONS["Conquest - Victory"], 276812100)
+    def test_stable_unique_ids(self):
+        self.assertEqual(len(catalog.INVASION_LOCATIONS), 10)
+        self.assertEqual(len(catalog.CONQUEST_LOCATIONS), 31)
+        self.assertEqual(len(set(catalog.LOCATION_NAME_TO_ID.values())), 41)
+        self.assertFalse(set(catalog.ITEM_NAME_TO_ID.values()) &
+                         set(catalog.LOCATION_NAME_TO_ID.values()))
+        self.assertEqual(len(set(catalog.ITEM_NAME_TO_ID.values())), 12)
 
 if __name__ == "__main__":
     unittest.main()

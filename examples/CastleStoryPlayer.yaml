@@ -1,7 +1,16 @@
-# Castle Story APWorld example. Copy into the Archipelago Players/ folder.
-# IMPORTANT: use a new save/level and match your chosen in-game mode.
+# Castle Story Archipelago campaign settings.
+# To auto-select Conquest maps you MUST enter real verified shard capacities
+# of maps installed in your Castle Story copy. Never invent map counts.
 name: CastleStoryPlayer
 game: Castle Story
 Castle Story:
-  game_mode: invasion
-  # Change to 'conquest' for a Conquest slot.
+  game_mode: hybrid
+  invasion_goal: 5
+  conquest_shards: 8
+  invasion_map_pool:
+    - Pioneer Pass
+  conquest_map_capacities: {}
+  # Example FORMAT ONLY (not factual counts):
+  # conquest_map_capacities:
+  #   "Verified Map A": 3
+  #   "Verified Map B": 6
