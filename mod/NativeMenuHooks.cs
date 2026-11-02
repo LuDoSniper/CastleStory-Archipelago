@@ -549,6 +549,13 @@ namespace CastleStoryArchipelago
                     Logger.LogWarning("[AP MENU] Blocked wrong game mode.");
                     return false;
                 }
+                // Only this validated native Castle Story start makes a
+                // seeded mission eligible for Archipelago gameplay checks.
+                startedMission = selected.id;
+                lastRejectedWave = -1;
+                Logger.LogInfo("[AP MISSION START] " + selected.id +
+                    " map=" + actual + " mode=" + selected.mode +
+                    " checks=automatic for seed Invasion");
                 Logger.LogInfo("[AP MENU] Allowed game start: " + selected.id +
                     " map=" + actual + " mode=" + selected.mode);
                 return true;
