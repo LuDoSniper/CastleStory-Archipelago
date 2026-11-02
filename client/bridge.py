@@ -22,6 +22,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
+BRIDGE_CLIENT_VERSION = "0.6.2"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -194,6 +195,9 @@ class Bridge:
         self.campaign = {}
         self.source_campaign = {}
         self.protocol_version = 0
+        self.slot_data_provided = False
+        self.slot_data_fields = []
+        self.manifest_provided = False
         self.campaign_status = "unknown"
         self.campaign_message = ""
         self.goal_wave = 10
@@ -216,6 +220,10 @@ class Bridge:
             "allowed_location_ids": sorted(self.allowed_ids),
             "campaign": self.campaign,
             "protocol_version": self.protocol_version,
+            "bridge_client_version": BRIDGE_CLIENT_VERSION,
+            "slot_data_provided": self.slot_data_provided,
+            "slot_data_fields": self.slot_data_fields,
+            "manifest_provided": self.manifest_provided,
             "campaign_status": self.campaign_status,
             "campaign_message": self.campaign_message,
             "connected": self.connected,
@@ -245,7 +253,10 @@ class Bridge:
                 "items_handling": 7, "tags": [], "slot_data": True,
             })
         elif command == "Connected":
-            slot_data = packet.get("slot_data") or {}
+            self.slot_data_provided = isinstance(packet.get("slot_data"), dict)
+            slot_data = packet.get("slot_data") if self.slot_data_provided else {}
+            self.slot_data_fields = sorted(str(key) for key in slot_data)
+            self.manifest_provided = "campaign" in slot_data
             mode = slot_data.get("game_mode", "Invasion")
             if mode not in IDS:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
@@ -279,9 +290,9 @@ class Bridge:
                 else:
                     self.campaign_status = "ready"
                     self.campaign_message = ""
-            LOG.info("AP slot_data: protocol=%s campaign=%s missions=%s",
-                     self.protocol_version, self.campaign_status,
-                     len(self.campaign.get("missions", [])))
+            LOG.info("AP slot_data: keys=%s protocol=%s campaign=%s missions=%s",
+                     self.slot_data_fields, self.protocol_version,
+                     self.campaign_status, len(self.campaign.get("missions", [])))
             if self.campaign_message:
                 LOG.warning("[AP CAMPAIGN] %s", self.campaign_message)
             self.goal_wave = int(slot_data.get("goal_wave", 10))
