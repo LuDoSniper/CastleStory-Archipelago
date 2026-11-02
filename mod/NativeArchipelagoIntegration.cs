@@ -420,8 +420,14 @@ namespace CastleStoryArchipelago
                 GameObject go = button.gameObject;
                 if (hiddenNativeEntries.ContainsKey(go)) continue;
                 bool forbidden = false;
+                bool inPlaySubmenu = IsPlaySubmenuGroup(go.transform.parent, buttonType);
                 foreach (string label in NativeUiLabels(go))
                 {
+                    if (inPlaySubmenu && !IsAllowedPlaySubmenuEntry(label))
+                    {
+                        forbidden = true;
+                        break;
+                    }
                     string namedMode = NativeModeFromLabel(label);
                     string mapId;
                     if (IsSandboxLabel(label) ||
@@ -444,6 +450,43 @@ namespace CastleStoryArchipelago
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
                     " new restricted controls; mode=" + selectedNativeMode +
                     " seed=" + seed + ".");
+        }
+
+        private static bool IsAllowedPlaySubmenuEntry(string label)
+        {
+            switch (NormalizeNativeLabel(label))
+            {
+                case "new game": case "new game...": case "nouvelle partie":
+                case "new": case "nouveau jeu":
+                case "load": case "load game": case "load game...":
+                case "charger": case "charger une partie": case "continuer":
+                case "multiplayer": case "multijoueur":
+                case "back": case "retour": case "previous":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private static bool IsSubmenuAnchor(string label)
+        {
+            string value = NormalizeNativeLabel(label);
+            return value == "new game" || value == "nouvelle partie" ||
+                value == "load game" || value == "charger une partie" ||
+                value == "multiplayer" || value == "multijoueur";
+        }
+
+        private static bool IsPlaySubmenuGroup(Transform parent, Type buttonType)
+        {
+            if (parent == null || buttonType == null) return false;
+            int known = 0;
+            foreach (Component candidate in parent.GetComponentsInChildren(buttonType, true))
+            {
+                if (candidate == null || candidate.transform.parent != parent) continue;
+                foreach (string label in NativeUiLabels(candidate.gameObject))
+                    if (IsSubmenuAnchor(label)) { known++; break; }
+                if (known >= 2) return true;
+            }
+            return false;
         }
 
         private static bool IsForbiddenPlaySubmenuEntry(string label)
