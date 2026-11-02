@@ -374,12 +374,13 @@ namespace CastleStoryArchipelago
             // Uses the actual Castle Story starter UI, not a fabricated map object.
             if (!bridgeConnected || campaign == null || !campaign.ready)
             {
-                statusLine = "Connect to a ready Archipelago campaign first.";
+                SetCampaignNotice("Connecte-toi à une campagne Archipelago prête avant de lancer.", true);
                 return;
             }
             if (nativeStarterMenu == null)
             {
-                statusLine = "Open New Game in Castle Story first; its map list is not loaded.";
+                SetCampaignNotice("Pour lancer : ferme cette fenêtre, ouvre Nouvelle partie dans Castle Story, puis sélectionne et lance la mission.", true);
+                Logger.LogWarning("[AP LAUNCH] Blocked: native New Game menu has not been opened.");
                 return;
             }
             MissionFile mission = null;
@@ -387,14 +388,14 @@ namespace CastleStoryArchipelago
                 if (m != null && m.id == chosenMission) mission = m;
             if (mission == null)
             {
-                statusLine = "Choose a mission first.";
+                SetCampaignNotice("Choisis une mission avant de lancer une partie.", true);
                 return;
             }
             object asset;
             string wantedId = MissionMapId(mission);
             if (String.IsNullOrEmpty(wantedId))
             {
-                statusLine = "La seed ne fournit pas d'identifiant de carte.";
+                SetCampaignNotice("La seed ne fournit pas d'identifiant de carte.", true);
                 return;
             }
             if (!observedMapAssets.TryGetValue(wantedId, out asset))
@@ -402,9 +403,9 @@ namespace CastleStoryArchipelago
                 TryDiscoverNativeMaps(nativeStarterMenu);
                 if (!observedMapAssets.TryGetValue(wantedId, out asset))
                 {
-                    statusLine = "Identifiant introuvable : " + wantedId +
+                    SetCampaignNotice("Carte introuvable : " + wantedId +
                         " (" + observedMapAssets.Count + " cartes vues). " +
-                        "Consulte installed_maps.json et la configuration ArchiLAN.";
+                        "Vérifie installed_maps.json et la configuration ArchiLAN.", true);
                     Logger.LogWarning("[AP MAPS] Unresolved seed map_id=" + wantedId +
                         "; native IDs=" + String.Join(",",
                             new List<string>(observedMapAssets.Keys).ToArray()));
@@ -419,7 +420,7 @@ namespace CastleStoryArchipelago
                 if (selectedMap == null || !selectedMap.CanWrite ||
                     selectedMode == null)
                 {
-                    statusLine = "Native map/mode selector unavailable on this game version.";
+                    SetCampaignNotice("Sélecteur de carte ou de mode indisponible sur cette version du jeu.", true);
                     return;
                 }
                 object gameMode = null;
@@ -446,8 +447,8 @@ namespace CastleStoryArchipelago
                 }
                 if (gameMode == null)
                 {
-                    statusLine = "Cannot find " + mission.mode +
-                        " game mode for this map. Select it manually.";
+                    SetCampaignNotice("Mode " + mission.mode +
+                        " indisponible sur cette carte. Vérifie le menu natif.", true);
                     return;
                 }
                 if (selectedMode.CanWrite)
@@ -458,16 +459,17 @@ namespace CastleStoryArchipelago
                 var start = AccessTools.Method(starter, "OnOk", Type.EmptyTypes);
                 if (start == null)
                 {
-                    statusLine = "Native start method unavailable; manual start required.";
+                    SetCampaignNotice("Impossible de lancer automatiquement : méthode native absente.", true);
                     return;
                 }
                 start.Invoke(nativeStarterMenu, new object[0]);
-                statusLine = "Lancement de " + (mission.map ?? wantedId) + "...";
+                SetCampaignNotice("Lancement de " + (mission.map ?? wantedId) + "...", false);
                 nativeNewGameVisible = false;
             }
             catch (Exception error)
             {
-                statusLine = "Cannot launch mission; check game logs.";
+                SetCampaignNotice("Lancement impossible : " + error.Message +
+                    ". Consulte BepInEx/LogOutput.log.", true);
                 Logger.LogWarning("[AP MENU] Native launch failed: " + error);
             }
         }
