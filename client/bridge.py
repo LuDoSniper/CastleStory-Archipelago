@@ -588,7 +588,12 @@ class StdinControl:
     def _read(self):
         for line in sys.stdin:
             try:
-                value = json.loads(line)
+                if line.startswith("APIPC1:"):
+                    raw = base64.b64decode(line[7:].strip(), validate=True)
+                    value = json.loads(raw.decode("utf-8"))
+                else:
+                    # Standalone test clients may still use JSON messages.
+                    value = json.loads(line)
                 if isinstance(value, dict):
                     self.queue.put(value)
             except (ValueError, TypeError):
