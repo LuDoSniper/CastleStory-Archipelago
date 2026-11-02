@@ -18,6 +18,7 @@ namespace CastleStoryArchipelago
             public string[] map_ids;
             public string[] invasion_map_ids;
             public string[] conquest_map_ids;
+            public bool scan_complete;
         }
 
         private static string MissionMapId(MissionFile mission)
@@ -27,7 +28,7 @@ namespace CastleStoryArchipelago
                 mission.map_id : mission.map; // Legacy pre-protocol-5 slots.
         }
 
-        private void SaveObservedMapIds()
+        private void SaveObservedMapIds(bool scanComplete)
         {
             try
             {
@@ -72,7 +73,8 @@ namespace CastleStoryArchipelago
                     UnityEngine.JsonUtility.ToJson(new NativeMapCatalog {
                         map_ids = ids.ToArray(),
                         invasion_map_ids = invasion.ToArray(),
-                        conquest_map_ids = conquest.ToArray()
+                        conquest_map_ids = conquest.ToArray(),
+                        scan_complete = scanComplete
                     }));
                 Logger.LogInfo("[AP MAPS] Exported " + ids.Count + " IDs; " +
                     invasion.Count + " verified Invasion maps and " +
@@ -160,7 +162,7 @@ namespace CastleStoryArchipelago
                 }
                 observedMapAssets[key] = gameMap;
                 if (nativeStarterMenu != null)
-                    SaveObservedMapIds();
+                    SaveObservedMapIds(false);
             }
             else if (!unknownMapTypeLogged && gameMap != null)
             {
@@ -197,7 +199,7 @@ namespace CastleStoryArchipelago
                         try { ObserveMapCollection(method.Invoke(menu, new object[0])); }
                         catch (Exception) { }
                 }
-                SaveObservedMapIds();
+                SaveObservedMapIds(true);
                 Logger.LogInfo("[AP MENU] Map discovery after OpenSelf: " +
                     observedMapAssets.Count + " native assets. Stable IDs saved to installed_maps.json.");
             }
