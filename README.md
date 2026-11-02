@@ -15,6 +15,10 @@ descendants toutes les 500 ms, même sans changement de menu.
 
 Changements de cette passe :
 
+- Le catalogue des cartes n'est plus régénéré et écrit sur disque à chaque
+  appel `GetAssetLabel` (un travail auparavant quadratique pendant le
+  chargement). Il est sauvegardé une fois après découverte, puis avec
+  un délai de 1,5 seconde pour les cartes tardives.
 - Le scan permanent est supprimé. Les méthodes `OpenSelf` des menus
   `Brix.UI.Builder.Menu.BaseMenu` sont interceptées ; après chaque
   ouverture, quelques passes courtes et limitées découvrent les cartes
