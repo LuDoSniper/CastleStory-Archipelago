@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.5.1")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.5.2")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -52,6 +52,9 @@ namespace CastleStoryArchipelago
             public int goal_wave;
             public int shard_goal;
             public CampaignFile campaign;
+            public int protocol_version;
+            public string campaign_status;
+            public string campaign_message;
         }
         [Serializable] private sealed class CheckFile
         {
@@ -80,8 +83,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.5.1 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.5.1 initialised.");
+                "Castle Story Archipelago v0.5.2 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.5.2 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -394,7 +397,23 @@ namespace CastleStoryArchipelago
                     Logger.LogInfo("[AP SESSION] " + mode + " seed=" + seed +
                         " checked=" + checkedIds.Count);
                 }
-                bridgeConnected = session.connected;
+                // The server connection and the seed mission manifest are
+                // separate states: an older seed can connect successfully while
+                // having no campaign data in its AP slot_data.
+                string nextStatus = String.IsNullOrEmpty(session.campaign_status) ?
+                    (session.campaign == null ? "missing" :
+                        (session.campaign.ready ? "ready" : "unready")) :
+                    session.campaign_status;
+                string nextMessage = session.campaign_message ?? "";
+                if (campaignStatus != nextStatus || campaignMessage != nextMessage)
+                {
+                    Logger.LogInfo("[AP CAMPAIGN] protocol=" + session.protocol_version +
+                        " status=" + nextStatus + " reason=" + nextMessage);
+                    campaignStatus = nextStatus;
+                    campaignMessage = nextMessage;
+                }
+                campaign = session.campaign;
+                bridgeConnected = session.connected && !disconnectPending;
                 var itemsPath = Path.Combine(directory, "items.json");
                 if (!File.Exists(itemsPath)) return;
                 var items = JsonUtility.FromJson<ItemsFile>(File.ReadAllText(itemsPath));
@@ -485,7 +504,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.5.1 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.5.2 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
