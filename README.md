@@ -1,4 +1,4 @@
-# Castle Story × Archipelago — v0.5.2 interface and session fixes
+# Castle Story × Archipelago — v0.6.0 map IDs and Hybrid generation
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
 
@@ -72,6 +72,55 @@ Si le problème persiste avec une nouvelle seed, les fichiers de diagnostic
 `BepInEx/config/castle_story_archipelago` indiquent `campaign_status`
 et `campaign_message`. Ne transmets pas `connection.json` : il contient
 potentiellement ton mot de passe.
+
+## Campagnes avec cartes non localisées (v0.6.0)
+
+Les noms affichés par Castle Story changent avec la langue :
+`Pioneer Pass` peut être traduit. Ils ne doivent plus être comparés
+au contenu de la seed. Le protocole v5 utilise les véritables **IDs de
+dossiers d'assets**, préfixés par `official:` ou `workshop:`.
+
+**Important :** une seed générée avec l'ancien APWorld ne peut pas être
+réparée par la DLL seule. Il faut importer le `castle_story.apworld` du
+nouveau paquet dans ArchiLAN, renseigner un pool de maps et générer
+une **nouvelle** partie.
+
+Le choix fixe de `Pioneer Pass` a été supprimé. Une campagne Invasion
+ou Hybride requiert au moins une map Invasion explicitement connue ;
+le générateur sélectionne une carte au hasard de manière **déterministe
+pour la seed**. Fournir plusieurs IDs permet de varier d'une run à l'autre.
+En Hybride, il exige aussi au moins une mission Conquête ; sinon la
+génération échoue avec une explication, au lieu de fournir seulement la
+mission Invasion.
+
+### Inventorier automatiquement les cartes du jeu
+
+1. Avec le mod installé, ouvrir **Nouvelle partie** au moins une fois.
+   Le plugin écrit `BepInEx/config/castle_story_archipelago/installed_maps.json`
+   depuis les assets réellement connus de Castle Story. Si le jeu expose
+   `GetGamemodes`, la liste contient également les IDs compatibles Invasion
+   et Conquête.
+2. Dans le dossier du kit extrait, lancer le scanner avec Python :
+
+```powershell
+py .\inspect_maps.py "C:\Program Files (x86)\Steam\steamapps\common\Castle Story"
+```
+
+Il produit un `castle_story_map_options.yaml` contenant automatiquement
+les IDs Invasion détectés, plus un rapport des cartes. **Ne pas inventer le
+nombre de shards** : après confirmation en jeu ou via un format de marqueurs
+fiable, relancer par exemple avec
+`--approve "official:ID_VERIFIE=4"` (valeur fictive). Le scanner ajoute
+alors les maps Conquête au YAML.
+
+Importer ces options dans la configuration du slot Castle Story sur ArchiLAN,
+puis générer une nouvelle seed. `installed_maps.json` est un fichier de
+diagnostic non sensible qui peut être communiqué pour fiabiliser le catalogue.
+
+Le scan de dossiers du client Python est désormais **indicatif** : une map
+absente de `Info/Maps` peut être fournie comme asset empaqueté. Le menu
+Unity vérifie la véritable identité native avant le lancement ; le bridge
+ne refuse plus une campagne simplement parce qu'un dossier manque.
 
 ## Three campaign modes
 
