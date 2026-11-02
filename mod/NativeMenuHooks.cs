@@ -381,7 +381,7 @@ namespace CastleStoryArchipelago
 
         private static void ObserveStarterClosed(object __instance)
         {
-            if (Instance == null || !Object.ReferenceEquals(Instance.nativeStarterMenu, __instance))
+            if (Instance == null || !System.Object.ReferenceEquals(Instance.nativeStarterMenu, __instance))
                 return;
             Instance.nativeNewGameVisible = false;
             Instance.nativeStarterMenu = null;
