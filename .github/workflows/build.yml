@@ -71,6 +71,18 @@ jobs:
         with:
           name: castle-story-ap-bridge-exe
           path: package/BepInEx/plugins/castle_story_ap
+      - name: Validate Windows installer PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path (Get-Location) "tools/Install-CastleStoryAP.ps1"),
+            [ref] $tokens, [ref] $parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | Format-List | Out-String | Write-Host
+            throw "Installer has invalid PowerShell syntax."
+          }
       - name: Assemble tester kit
         shell: pwsh
         run: |

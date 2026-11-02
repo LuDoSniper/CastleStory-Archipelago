@@ -1,6 +1,67 @@
-# Castle Story × Archipelago — v0.6.1 génération Invasion sans catalogue
+# Castle Story × Archipelago — v0.6.5 (correctifs UI et bridge)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.6.5 : corriger les clics traversants et la session fantôme
+
+**Observé sur un test réel :** le menu IMGUI était visible et les clics
+passaient parfois au menu natif, même après les correctifs v0.6.3/0.6.4.
+La v0.6.5 intercepte le clic \`Fermer\` dans \`Update()\` via
+\`Input.GetMouseButtonDown\` et suspend les Unity \`EventSystem\` natifs
+pendant la popup. Elle maintient la protection jusqu'après le relâchement
+de la souris. Il faut **confirmer le résultat en jeu** : CI verte n'est pas
+une preuve que le Unity 5.6 utilisé par Castle Story distribue les inputs
+comme prévu.
+
+La même version exige un heartbeat \`session.updated_at\` du client réseau.
+Un ancien \`session.json\` avec \`connected=true\` ne doit plus donner
+l'illusion d'une connexion active. L'UI doit demander de mettre à jour
+le bridge si le protocole de diagnostic est absent.
+
+### Installation atomique recommandée sur Windows
+
+1. Télécharger l'artifact \`castle-story-archipelago-test-kit\` dans la
+   dernière action GitHub verte et **extraire tout le ZIP**.
+2. Fermer le jeu complètement.
+3. Ouvrir PowerShell dans le dossier extrait du ZIP et exécuter :
+
+\`\`\`powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-CastleStoryAP.ps1 -GameDirectory "C:\Program Files (x86)\Steam\steamapps\common\Castle Story"
+\`\`\`
+
+Adapter le chemin à l'installation réelle. Le script :
+
+- vérifie le dossier du jeu et les trois fichiers requis ;
+- arrête uniquement l'ancien bridge lancé depuis ce dossier ;
+- sauvegarde la DLL précédente, le bridge précédent et les fichiers de session ;
+- installe la DLL, le bridge EXE et le logo, avec vérification SHA-256 ;
+- vide uniquement \`session.json\` et \`bridge_status.json\` périmés.
+
+**Il ne touche pas à \`connection.json\`, \`checks.json\`, aux sauvegardes
+Castle Story ni aux récompenses suivies.** Si le jeu est encore ouvert,
+le script refuse de remplacer les fichiers.
+
+Relancer le jeu et se reconnecter par le logo. La nouvelle interface doit
+afficher le **bridge 0.6.5** et ne plus montrer une ancienne session connectée
+sur la base d'un fichier statique.
+
+### Problème indépendant : ArchiLAN et Hybrid
+
+Un joueur avec \`game_mode: hybrid\` et
+\`conquest_map_capacities: {}\` **ne peut toujours pas générer de campagne
+Hybride**, car le serveur doit connaître le nombre de shards à capturer.
+Le log \`Not enough verified Conquest shards: need 3, catalog has 0\`
+signifie que **la génération a échoué avant qu'un serveur de cette seed
+puisse démarrer**. Mettre à jour le plugin ou le bridge ne la corrigera pas.
+
+Pour un test de bout en bout immédiatement générable, utiliser
+\`CastleStoryPlayer.yaml\` du bundle, avec \`game_mode: invasion\` et
+\`invasion_map_pool: []\`. Dans ArchiLAN, **enregistrer le YAML du slot**,
+générer une nouvelle seed, démarrer ce nouveau serveur, et se connecter
+avec le nom du slot de ce nouveau serveur. Ce choix Invasion est un test
+temporaire, **pas une modification de l'objectif Hybride final**.
+
+
 
 The tester verified Invasion wave events, a real Conquest shard capture,
 and checks reaching ArchiLAN. **The new mission launcher, map validation
