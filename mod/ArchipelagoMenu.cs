@@ -23,6 +23,7 @@ namespace CastleStoryArchipelago
             public bool ready;
             public string warning;
             public string mode;
+            public string[] missing_modes;
             public MissionFile[] missions;
         }
         [Serializable] private sealed class ConnectionFile
@@ -511,12 +512,17 @@ namespace CastleStoryArchipelago
             if (!campaign.ready)
             {
                 GUI.Box(new Rect(x, panel.y + 167, inner, 150), "", cardStyle);
+                bool hybrid = mode == "Hybrid" || campaign.mode == "Hybrid";
+                string[] missing = campaign.missing_modes;
+                string missingText = missing == null || missing.Length == 0 ?
+                    "" : "Branche manquante : " + String.Join(", ", missing) + ". ";
                 GUI.Label(new Rect(x + 20, panel.y + 182, inner - 40, 28),
-                    "Cette campagne n'est pas prête", subTitleStyle);
-                GUI.Label(new Rect(x + 20, panel.y + 218, inner - 40, 84),
-                    String.IsNullOrEmpty(campaign.warning) ?
-                    "La seed ne contient aucune liste de cartes jouables." : campaign.warning,
-                    errorStyle);
+                    hybrid ? "Campagne Hybride incomplète" :
+                        "Cette campagne n'est pas prête", subTitleStyle);
+                GUI.Label(new Rect(x + 20, panel.y + 218, inner - 40, 95),
+                    missingText + (String.IsNullOrEmpty(campaign.warning) ?
+                        "La seed ne contient pas toutes les missions requises." :
+                        campaign.warning), errorStyle);
                 return;
             }
             GUI.Label(new Rect(x, panel.y + 154, inner, 22),
