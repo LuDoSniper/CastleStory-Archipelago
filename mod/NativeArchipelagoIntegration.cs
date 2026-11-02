@@ -19,6 +19,12 @@ namespace CastleStoryArchipelago
         private readonly Dictionary<string, string> nativeMapLabels =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private float nextNativeUiRefresh;
+        // Never walk every Unity button on every Update. Menu hooks schedule
+        // a small, bounded number of passes after the native UI is built.
+        private float nextMainMenuProbeAt;
+        private int mainMenuProbeCount;
+        private int pendingFilterPasses;
+        private float nextFilterPassAt;
         private bool nativeButtonMissingLogged;
         private int nativeRestrictionLogCount;
         private string lastNativeFilterKey;
@@ -209,23 +215,31 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static bool IsOptionsLabel(string label)
+        {
+            string normalized = NormalizeNativeLabel(label);
+            return normalized == "options" || normalized == "option" ||
+                normalized == "settings" || normalized == "paramètres" ||
+                normalized == "parametres" || normalized == "einstellungen";
+        }
+
         private static bool HasNativeOptionsSibling(GameObject play)
         {
-            if (play == null || play.transform.parent == null) return false;
+            // Castle Story can nest the Play and Options controls under
+            // separate layout groups. Requiring the same immediate parent
+            // caused the main menu button (and intro) never to appear.
+            if (play == null) return false;
             Type type = FindRuntimeType("UnityEngine.UI.Button");
             if (type == null) return false;
-            foreach (Component sibling in
-                play.transform.parent.GetComponentsInChildren(type, true))
+            Transform ancestor = play.transform.parent;
+            for (int level = 0; level < 4 && ancestor != null; level++,
+                ancestor = ancestor.parent)
             {
-                if (sibling == null || sibling.gameObject == play ||
-                    sibling.transform.parent != play.transform.parent) continue;
-                foreach (string label in NativeUiLabels(sibling.gameObject))
+                foreach (Component button in ancestor.GetComponentsInChildren(type, true))
                 {
-                    string name = NormalizeNativeLabel(label);
-                    if (name == "options" || name == "option" ||
-                        name == "settings" || name == "paramètres" ||
-                        name == "parametres" || name == "einstellungen")
-                        return true;
+                    if (button == null || button.gameObject == play) continue;
+                    foreach (string label in NativeUiLabels(button.gameObject))
+                        if (IsOptionsLabel(label)) return true;
                 }
             }
             return false;
@@ -258,17 +272,21 @@ namespace CastleStoryArchipelago
                     string name = null;
                     foreach (string label in NativeUiLabels(button.gameObject))
                         if (IsPlayLabel(label)) { name = label; break; }
-                    if (name == null || !HasNativeOptionsSibling(button.gameObject))
-                        continue;
+                    if (name == null) continue;
                     GameObject source = button.gameObject;
+                    // Play can be nested separately from Options; this is
+                    // only an advisory confidence check, not a hard gate.
+                    bool optionsFound = HasNativeOptionsSibling(source);
+                    if (!optionsFound)
+                        Logger.LogInfo("[AP NATIVE UI] Play located without same-group Options; trying native insertion.");
                     BeginOwnIntroCredit();
                     mainMenuPlayTemplate = source;
                     Type buttonClass = FindRuntimeType("UnityEngine.UI.Button");
-                    foreach (Component sibling in source.transform.parent.GetComponentsInChildren(buttonClass, true))
-                        foreach (string label in NativeUiLabels(sibling.gameObject))
-                            if (NormalizeNativeLabel(label) == "options" ||
-                                NormalizeNativeLabel(label) == "paramètres")
-                                mainMenuOptionsTemplate = sibling.gameObject;
+                    if (source.transform.parent != null)
+                        foreach (Component sibling in source.transform.parent.GetComponentsInChildren(buttonClass, true))
+                            foreach (string label in NativeUiLabels(sibling.gameObject))
+                                if (IsOptionsLabel(label))
+                                    mainMenuOptionsTemplate = sibling.gameObject;
                     GameObject copy = UnityEngine.Object.Instantiate(source)
                         as GameObject;
                     if (copy == null) return;
@@ -554,19 +572,40 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP NATIVE UI PROBE] Finished. visibleButtons=" + count);
         }
 
+        private void ScheduleNativeUiFilter(string source)
+        {
+            // Three short checks cover asynchronous native card creation.
+            // No continuous polling and no re-enabling cards on each pass.
+            pendingFilterPasses = 3;
+            nextFilterPassAt = Time.realtimeSinceStartup;
+            Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
+        }
+
         private void UpdateNativeArchipelagoIntegration()
         {
-            if (introCreditActive &&
-                Time.realtimeSinceStartup - introCreditStart >= 3.5f)
+            float now = Time.realtimeSinceStartup;
+            if (introCreditActive && now - introCreditStart >= 3.5f)
             {
                 introCreditActive = false;
                 Logger.LogInfo("[AP CREDITS] Archipelago splash completed.");
             }
-            if (Time.realtimeSinceStartup < nextNativeUiRefresh) return;
-            nextNativeUiRefresh = Time.realtimeSinceStartup + 0.5f;
-            if (nativeArchipelagoButton == null)
+            // A handful of title-screen probes only. Once native button is
+            // inserted or the title cannot be found, stop scanning entirely.
+            if (nativeArchipelagoButton == null && mainMenuProbeCount < 8 &&
+                now >= nextMainMenuProbeAt)
+            {
+                mainMenuProbeCount++;
+                nextMainMenuProbeAt = now + (mainMenuProbeCount < 4 ? 1f : 3f);
                 TryInstallNativeArchipelagoButton();
-            RefreshNativeSeedMenu();
+                if (mainMenuProbeCount == 8 && nativeArchipelagoButton == null)
+                    Logger.LogWarning("[AP NATIVE UI] No native Play button found after bounded probes; F7 remains available.");
+            }
+            if (pendingFilterPasses > 0 && now >= nextFilterPassAt)
+            {
+                pendingFilterPasses--;
+                nextFilterPassAt = now + .12f;
+                RefreshNativeSeedMenu();
+            }
         }
 
         private void DrawArchipelagoIntroCredit()
