@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.6")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.7")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -107,8 +107,8 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.6 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.6 initialised.");
+                "Castle Story Archipelago v0.6.7 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.6.7 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -414,6 +414,72 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static string DecodeWireText(string encoded)
+        {
+            return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+        }
+
+        private void ReadCampaignWire(SessionFile session)
+        {
+            string path = Path.Combine(directory, "campaign_wire.txt");
+            if (!File.Exists(path))
+            {
+                campaignDecodeDiagnostic += " | campaign_wire.txt absent (bridge ancien ?).";
+                return;
+            }
+            try
+            {
+                string[] lines = File.ReadAllText(path).Replace("\r", "").Split('\n');
+                if (lines.Length < 11 || lines[0] != "CASTLE_STORY_AP_CAMPAIGN_V1")
+                    throw new FormatException("En-tête ou taille de manifeste incorrect.");
+                if (lines[1] != session.token)
+                    throw new FormatException("Token de campagne différent de la session.");
+                int protocol = Int32.Parse(lines[2], System.Globalization.CultureInfo.InvariantCulture);
+                if (protocol != session.protocol_version)
+                    throw new FormatException("Protocole de campagne différent de la session.");
+                int count = Int32.Parse(lines[9], System.Globalization.CultureInfo.InvariantCulture);
+                if (count < 0 || count > 256 || lines.Length < count + 11)
+                    throw new FormatException("Nombre de missions invalide ou fichier tronqué.");
+                var missions = new MissionFile[count];
+                for (int i = 0; i < count; i++)
+                {
+                    string[] columns = lines[10 + i].Split('\t');
+                    if (columns.Length != 7)
+                        throw new FormatException("Mission " + i + " : colonnes incorrectes.");
+                    missions[i] = new MissionFile {
+                        id = DecodeWireText(columns[0]),
+                        mode = DecodeWireText(columns[1]),
+                        map_id = DecodeWireText(columns[2]),
+                        map = DecodeWireText(columns[3]),
+                        wave_goal = Int32.Parse(columns[4], System.Globalization.CultureInfo.InvariantCulture),
+                        shard_start = Int32.Parse(columns[5], System.Globalization.CultureInfo.InvariantCulture),
+                        shard_count = Int32.Parse(columns[6], System.Globalization.CultureInfo.InvariantCulture)
+                    };
+                    if (String.IsNullOrEmpty(missions[i].id) ||
+                        (missions[i].mode != "Invasion" && missions[i].mode != "Conquest"))
+                        throw new FormatException("Mission " + i + " : ID ou mode invalide.");
+                }
+                string missing = DecodeWireText(lines[8]);
+                campaign = new CampaignFile {
+                    ready = lines[5] == "1",
+                    mode = DecodeWireText(lines[6]),
+                    warning = DecodeWireText(lines[7]),
+                    missing_modes = String.IsNullOrEmpty(missing) ?
+                        new string[0] : missing.Split(','),
+                    missions = missions
+                };
+                bridgeManifestMissionCount = count;
+                campaignStatus = DecodeWireText(lines[3]);
+                campaignMessage = DecodeWireText(lines[4]);
+                campaignDecodeDiagnostic = "Transfert texte V1 : " + count +
+                    " mission(s) décodée(s), statut " + campaignStatus + ".";
+            }
+            catch (Exception error)
+            {
+                campaignDecodeDiagnostic += " | Transfert texte invalide : " + error.Message;
+            }
+        }
+
         private void ReadBridge()
         {
             try
@@ -520,6 +586,7 @@ namespace CastleStoryArchipelago
                 serverSlotDataFields = session.slot_data_fields;
                 campaign = session.campaign;
                 ReadCampaignView(session);
+                ReadCampaignWire(session);
                 if (campaignDecodeDiagnostic != lastCampaignDecodeLog)
                 {
                     Logger.LogInfo("[AP MANIFEST] " + campaignDecodeDiagnostic +
@@ -542,7 +609,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.6 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.6.7 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -643,7 +710,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.6 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.7 [EXPERIMENTAL]");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
