@@ -201,6 +201,39 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static bool HasNativeOptionsSibling(GameObject play)
+        {
+            if (play == null || play.transform.parent == null) return false;
+            Type type = FindRuntimeType("UnityEngine.UI.Button");
+            if (type == null) return false;
+            foreach (Component sibling in
+                play.transform.parent.GetComponentsInChildren(type, true))
+            {
+                if (sibling == null || sibling.gameObject == play ||
+                    sibling.transform.parent != play.transform.parent) continue;
+                foreach (string label in NativeUiLabels(sibling.gameObject))
+                {
+                    string name = NormalizeNativeLabel(label);
+                    if (name == "options" || name == "option" ||
+                        name == "settings" || name == "paramètres" ||
+                        name == "parametres" || name == "einstellungen")
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private void BeginOwnIntroCredit()
+        {
+            // Start only AFTER Play+Options are present, which marks the end
+            // of the studio splash sequence. Never overlay a studio logo.
+            if (introCreditShown) return;
+            introCreditShown = true;
+            introCreditActive = true;
+            introCreditStart = Time.realtimeSinceStartup;
+            Logger.LogInfo("[AP CREDITS] Dedicated Archipelago credit after studio splashes.");
+        }
+
         private void TryInstallNativeArchipelagoButton()
         {
             if (nativeArchipelagoButton != null) return;
@@ -217,8 +250,10 @@ namespace CastleStoryArchipelago
                     string name = null;
                     foreach (string label in NativeUiLabels(button.gameObject))
                         if (IsPlayLabel(label)) { name = label; break; }
-                    if (name == null) continue;
+                    if (name == null || !HasNativeOptionsSibling(button.gameObject))
+                        continue;
                     GameObject source = button.gameObject;
+                    BeginOwnIntroCredit();
                     GameObject copy = UnityEngine.Object.Instantiate(source)
                         as GameObject;
                     if (copy == null) return;
@@ -454,6 +489,12 @@ namespace CastleStoryArchipelago
 
         private void UpdateNativeArchipelagoIntegration()
         {
+            if (introCreditActive &&
+                Time.realtimeSinceStartup - introCreditStart >= 3.5f)
+            {
+                introCreditActive = false;
+                Logger.LogInfo("[AP CREDITS] Archipelago splash completed.");
+            }
             if (Time.realtimeSinceStartup < nextNativeUiRefresh) return;
             nextNativeUiRefresh = Time.realtimeSinceStartup + 0.5f;
             if (nativeArchipelagoButton == null)
@@ -463,26 +504,48 @@ namespace CastleStoryArchipelago
 
         private void DrawArchipelagoIntroCredit()
         {
-            // Extra non-interactive mod credit; never replace studio logos,
-            // alter splash assets or intercept clicks. Intro scene timing
-            // differs across Castle Story builds, so this is best-effort.
-            if (Time.realtimeSinceStartup < 2f ||
-                Time.realtimeSinceStartup > 5f ||
-                nativeArchipelagoButton != null) return;
+            if (!introCreditActive) return;
+            // This is an entire additional credit after the original game's
+            // splash sequence, not a watermark on top of Sauropod's credit.
+            // Main menu buttons exist under the full white canvas, blocked by
+            // the input shield until this dedicated 3.5-second segment ends.
             LoadApLogo();
-            if (apLogo == null) return;
-            if (introCreditStyle == null)
+            float elapsed = Time.realtimeSinceStartup - introCreditStart;
+            float opacity = Mathf.Clamp01(elapsed / .55f) *
+                Mathf.Clamp01((3.5f - elapsed) / .65f);
+            int oldDepth = GUI.depth;
+            Color old = GUI.color;
+            GUI.depth = -32000;
+            try
             {
-                introCreditStyle = new GUIStyle(GUI.skin.label);
-                introCreditStyle.alignment = TextAnchor.MiddleCenter;
-                introCreditStyle.normal.textColor = Color.white;
-                introCreditStyle.fontSize = 16;
+                GUI.color = Color.white;
+                GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height),
+                    Texture2D.whiteTexture);
+                GUI.color = new Color(1f, 1f, 1f, opacity);
+                if (apLogo != null)
+                {
+                    float size = Mathf.Min(250f, Screen.height * .34f);
+                    GUI.DrawTexture(new Rect((Screen.width - size) * .5f,
+                        (Screen.height - size) * .43f, size, size),
+                        apLogo, ScaleMode.ScaleToFit, true);
+                }
+                if (introCreditStyle == null)
+                {
+                    introCreditStyle = new GUIStyle(GUI.skin.label);
+                    introCreditStyle.alignment = TextAnchor.MiddleCenter;
+                    introCreditStyle.normal.textColor = Color.black;
+                    introCreditStyle.fontSize = 27;
+                    introCreditStyle.fontStyle = FontStyle.Bold;
+                    if (nativeMenuFont != null) introCreditStyle.font = nativeMenuFont;
+                }
+                GUI.Label(new Rect(0, Screen.height * .69f,
+                    Screen.width, 60f), "ARCHIPELAGO", introCreditStyle);
             }
-            Rect logo = new Rect((Screen.width - 64f) * .5f,
-                Screen.height * .73f, 64f, 64f);
-            GUI.DrawTexture(logo, apLogo, ScaleMode.ScaleToFit, true);
-            GUI.Label(new Rect(0, logo.yMax, Screen.width, 30f),
-                "ARCHIPELAGO  ·  Multiworld integration", introCreditStyle);
+            finally
+            {
+                GUI.color = old;
+                GUI.depth = oldDepth;
+            }
         }
     }
 }
