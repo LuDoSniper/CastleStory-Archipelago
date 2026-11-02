@@ -241,15 +241,34 @@ namespace CastleStoryArchipelago
             button.SetActive(false);
         }
 
-        private bool AllowedSeedMap(string mapId)
+        private bool AllowedSeedMap(string mapId, string selectedMode)
         {
             if (campaign == null || campaign.missions == null) return false;
             foreach (MissionFile mission in campaign.missions)
-                if (mission != null && String.Equals(
-                    MissionMapId(mission), mapId,
-                    StringComparison.OrdinalIgnoreCase))
+                if (mission != null &&
+                    String.Equals(MissionMapId(mission), mapId,
+                                  StringComparison.OrdinalIgnoreCase) &&
+                    (String.IsNullOrEmpty(selectedMode) ||
+                     String.Equals(mission.mode, selectedMode,
+                                   StringComparison.OrdinalIgnoreCase)))
                     return true;
             return false;
+        }
+
+        private string SelectedNativeGamemode()
+        {
+            if (nativeStarterMenu == null) return mode == "Hybrid" ? null : mode;
+            try
+            {
+                var selected = AccessTools.Property(
+                    nativeStarterMenu.GetType(), "SelectedGamemode");
+                object value = selected == null ? null :
+                    selected.GetValue(nativeStarterMenu, null);
+                string code = ModeIdentity(value);
+                return code == "Invasion" || code == "Conquest" ?
+                    code : mode == "Hybrid" ? null : mode;
+            }
+            catch (Exception) { return mode == "Hybrid" ? null : mode; }
         }
 
         private void ObserveNativeMapLabel(object map, string label)
@@ -276,6 +295,7 @@ namespace CastleStoryArchipelago
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
             int hidden = 0;
+            string selectedNativeMode = SelectedNativeGamemode();
             foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
             {
                 Component button = value as Component;
@@ -289,7 +309,7 @@ namespace CastleStoryArchipelago
                     if (IsSandboxLabel(label) ||
                         (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
                         (nativeMapLabels.TryGetValue(NormalizeNativeLabel(label), out mapId) &&
-                         !AllowedSeedMap(mapId)))
+                         !AllowedSeedMap(mapId, selectedNativeMode)))
                     {
                         forbidden = true;
                         break;
