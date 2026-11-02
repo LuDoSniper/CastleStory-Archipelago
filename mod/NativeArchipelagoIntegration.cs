@@ -254,7 +254,10 @@ namespace CastleStoryArchipelago
         private void RefreshNativeSeedMenu()
         {
             // Do not change vanilla UI when there is no valid AP campaign.
-            if (!bridgeConnected || campaign == null || !campaign.ready ||
+            // A short heartbeat drop must not flash forbidden native modes
+            // back into view while the player is in a seeded session.
+            if (disconnectPending || String.IsNullOrEmpty(token) ||
+                campaign == null || !campaign.ready ||
                 campaign.missions == null)
             {
                 if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
