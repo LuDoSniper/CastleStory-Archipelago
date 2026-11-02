@@ -76,7 +76,7 @@ namespace CastleStoryArchipelago
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
-                "EXPERIMENTAL: send unique CrystalVisuals.PlayCapturedSound events as shard captures. Validate before enabling.");
+                "EXPERIMENTAL: send unique locally owned crystal capture sound events as shard checks. One neutral shard validated; other crystal types not yet proven.");
             victoryChecks = Config.Bind("Conquest", "EnableVictoryCheck", false,
                 "Send Conquest GameWon() event as an AP victory when a Conquest slot is connected.");
             showOverlay = Config.Bind("Interface", "ShowOverlay", true,
@@ -184,7 +184,14 @@ namespace CastleStoryArchipelago
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
             conquestCaptured++;
-            if (mode != "Conquest" || !captureChecks.Value || !bridgeConnected) return;
+            if (mode != "Conquest" || !captureChecks.Value || !bridgeConnected)
+            {
+                Logger.LogInfo("[AP CONQUEST] Local capture counted for diagnostics only; " +
+                    "selected AP mode=" + (mode == "" ? "<none>" : mode) +
+                    ", check sending=" + (captureChecks.Value ? "enabled" : "disabled") +
+                    ", bridge connected=" + bridgeConnected + ".");
+                return;
+            }
             if (conquestCaptured <= 3 && checkedIds.Add(ConquestBase + conquestCaptured))
             {
                 WriteChecks();

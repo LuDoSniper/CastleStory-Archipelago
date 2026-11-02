@@ -12,7 +12,7 @@ Castle Story:
 Generate a seed and host the resulting multiworld.
 
 ## Conquest
-Capturing 1, 2 and 3 distinct shards provides three checks, and winning provides a fourth. Capture detection currently uses `CrystalVisuals.PlayCapturedSound`, which is **not yet verified in a real Conquest session**. Enable the capture-check option **only for a disposable test game**; leave it disabled otherwise.
+Capturing 1, 2 and 3 distinct shards provides three checks, and winning provides a fourth. Capture detection uses `CrystalVisuals.PlayCapturedSound`, and a **single neutral-shard capture was verified in a real Conquest session on 2026-11-02**, with the local faction check passing. Different crystal types, duplicates and AP server delivery remain unverified. Enable the capture-check option **only for a disposable test game**; leave it disabled otherwise.
 
 ## Invasion
 Completed waves 1-10 provide checks; wave 10 is the goal.
