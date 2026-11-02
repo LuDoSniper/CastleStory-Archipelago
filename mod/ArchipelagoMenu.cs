@@ -65,6 +65,20 @@ namespace CastleStoryArchipelago
         private string loginPassword = "";
         private string chosenMission = "";
         private string statusLine = "Connecte-toi à ta partie Archipelago.";
+        // Bridge heartbeat is distinct from a user-action warning.
+        private string campaignNotice = "";
+        private bool campaignNoticeIsError;
+        private string lastUiException = "";
+
+        private void SetCampaignNotice(string message, bool isError)
+        {
+            campaignNotice = message ?? "";
+            campaignNoticeIsError = isError;
+            if (isError)
+                Logger.LogWarning("[AP ACTION] " + campaignNotice);
+            else
+                Logger.LogInfo("[AP ACTION] " + campaignNotice);
+        }
         private Process localBridge;
         private float nextBridgeStatusRead;
         private float logoScale = 1f;
@@ -243,6 +257,7 @@ namespace CastleStoryArchipelago
                         password = enable ? loginPassword : ""
                     }));
                 statusLine = enable ? "Connexion en cours…" : "Déconnexion demandée…";
+                campaignNotice = "";
                 if (enable)
                 {
                     disconnectPending = false;
@@ -307,8 +322,10 @@ namespace CastleStoryArchipelago
                 if (!File.Exists(path)) return;
                 var state = JsonUtility.FromJson<BridgeStatusFile>(File.ReadAllText(path));
                 // Do not hide an obsolete-client error behind a stale bridge status.
+                // Never clobber an action error with the heartbeat every second.
                 if (state != null && !String.IsNullOrEmpty(state.state) &&
-                    campaignStatus != "obsolete_bridge" && campaignStatus != "stale")
+                    campaignStatus != "obsolete_bridge" && campaignStatus != "stale" &&
+                    !bridgeConnected && String.IsNullOrEmpty(campaignNotice))
                     statusLine = state.state + ": " + (state.message ?? "");
             }
             catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
@@ -319,7 +336,9 @@ namespace CastleStoryArchipelago
             if (mission == null || String.IsNullOrEmpty(token)) return;
             if (mission.map_id == "auto:invasion")
             {
-                statusLine = "Ouvre Nouvelle partie pour que le jeu choisisse la carte Invasion.";
+                SetCampaignNotice(
+                    "Ouvre Nouvelle partie dans Castle Story pour charger les cartes Invasion.",
+                    true);
                 return;
             }
             chosenMission = mission.id;
@@ -330,6 +349,10 @@ namespace CastleStoryArchipelago
                         token = token, mission_id = mission.id,
                         map = MissionMapId(mission), mode = mission.mode
                     }));
+                SetCampaignNotice("Mission " + mission.id +
+                    " sélectionnée. " + (nativeStarterMenu == null ?
+                    "Ferme cette fenêtre puis ouvre Nouvelle partie pour la lancer." :
+                    "Tu peux maintenant lancer la mission."), false);
                 Logger.LogInfo("[AP MISSION] Choisie " + mission.id +
                     ", map " + mission.map + ", mode " + mission.mode);
             }
@@ -354,7 +377,7 @@ namespace CastleStoryArchipelago
             GUI.color = Color.white;
             if (GUI.Button(new Rect(15, 12, 67, 68), "", GUIStyle.none))
             {
-                if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
+                if (nativeNewGameVisible || campaignPreviewOpen)
                 {
                     CloseCampaignPopup();
                     apMenuOpen = true;
