@@ -4,14 +4,20 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class UiRegressionTests(unittest.TestCase):
-    def test_campaign_back_closes_both_popups(self):
+    def test_close_campaign_popup_does_not_navigate_native_menu(self):
         ui = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
-        self.assertIn("private void ExitCampaignToMainMenu()", ui)
-        segment = ui.split("private void ExitCampaignToMainMenu()", 1)[1].split("private void DrawCampaign()",1)[0]
+        self.assertIn("private void CloseCampaignPopup()", ui)
+        segment = ui.split("private void CloseCampaignPopup()", 1)[1].split("private void DrawCampaign()",1)[0]
         self.assertIn("campaignPreviewOpen = false;", segment)
         self.assertIn("apMenuOpen = false;", segment)
-        self.assertIn("CloseNativeNewGame();", segment)
-        self.assertIn("ExitCampaignToMainMenu();", ui)
+        self.assertIn("nativeNewGameVisible = false;", segment)
+        self.assertIn("apPopupDismissedOnNativeScreen = true;", segment)
+        self.assertNotIn("CloseNativeNewGame(", segment)
+        self.assertIn("CloseCampaignPopup();", ui)
+        self.assertIn('"Fermer", subtleButton', ui)
+        native = (ROOT / "mod/NativeMenuHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("!Instance.apPopupDismissedOnNativeScreen", native)
+        self.assertIn("Instance.apPopupDismissedOnNativeScreen = false;", native)
 
     def test_ui_displays_both_server_manifest_and_bridge_details(self):
         code = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")

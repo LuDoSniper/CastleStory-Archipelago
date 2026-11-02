@@ -282,7 +282,8 @@ namespace CastleStoryArchipelago
                 Instance.nativeStarterMenu = __instance;
                 Instance.nativeMapScanComplete = false;
                 Instance.TryDiscoverNativeMaps(__instance);
-                Instance.nativeNewGameVisible = Instance.bridgeConnected;
+                Instance.nativeNewGameVisible = Instance.bridgeConnected &&
+                    !Instance.apPopupDismissedOnNativeScreen;
                 Instance.apMenuOpen = false;
                 Instance.Logger.LogInfo("[AP MENU] New Game opened; Archipelago mission UI=" +
                     Instance.nativeNewGameVisible + " campaign ready=" +
@@ -299,6 +300,7 @@ namespace CastleStoryArchipelago
                 return;
             Instance.nativeNewGameVisible = false;
             Instance.nativeStarterMenu = null;
+            Instance.apPopupDismissedOnNativeScreen = false;
             Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed.");
         }
 

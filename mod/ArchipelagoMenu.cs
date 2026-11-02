@@ -49,6 +49,9 @@ namespace CastleStoryArchipelago
         private bool apMenuOpen;
         private bool nativeNewGameVisible;
         private bool campaignPreviewOpen;
+        // Closing the AP popup must not navigate the vanilla new-game menu.
+        // Prevent a duplicate OpenSelf callback from reopening the popup.
+        private bool apPopupDismissedOnNativeScreen;
         private int slotProtocolVersion;
         private string bridgeClientVersion = "";
         private string[] serverSlotDataFields;
@@ -351,8 +354,7 @@ namespace CastleStoryArchipelago
             {
                 if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
                 {
-                    campaignPreviewOpen = false;
-                    if (nativeNewGameVisible) CloseNativeNewGame();
+                    CloseCampaignPopup();
                     apMenuOpen = true;
                 }
                 else apMenuOpen = !apMenuOpen;
@@ -485,16 +487,17 @@ namespace CastleStoryArchipelago
             }
         }
 
-        private void ExitCampaignToMainMenu()
+        private void CloseCampaignPopup()
         {
-            // "Retour" means close the AP popup, not open another popup.
-            // Also close Castle Story's New Game screen if it is active.
+            // Only dismiss OUR overlay. The native Invasion/Conquest map selector
+            // stays open so its own Back button continues to work normally.
+            if (nativeStarterMenu != null)
+                apPopupDismissedOnNativeScreen = true;
+            nativeNewGameVisible = false;
             campaignPreviewOpen = false;
             apMenuOpen = false;
-            nativeNewGameVisible = false;
-            if (nativeStarterMenu != null) CloseNativeNewGame();
             GUIUtility.keyboardControl = 0;
-            Logger.LogInfo("[AP MENU] Back: AP overlay dismissed, native New Game close requested.");
+            Logger.LogInfo("[AP MENU] AP campaign popup closed without navigating native menus.");
         }
 
         private void DrawCampaign()
@@ -512,7 +515,7 @@ namespace CastleStoryArchipelago
             if (Event.current.type == EventType.KeyDown &&
                 Event.current.keyCode == KeyCode.Escape)
             {
-                ExitCampaignToMainMenu();
+                CloseCampaignPopup();
                 Event.current.Use();
                 return;
             }
@@ -523,7 +526,7 @@ namespace CastleStoryArchipelago
                 return;
             }
             if (GUI.Button(new Rect(panel.xMax - 101, panel.y + 25, 72, 38),
-                           "Retour", subtleButton))
+                           "Fermer", subtleButton))
             {
                 ExitCampaignToMainMenu();
                 return;
