@@ -9,8 +9,8 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.3.0")]
-    public sealed class CastleStoryArchipelagoPlugin : BaseUnityPlugin
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.4.0")]
+    public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
         private const int ConquestBase = 276812000;
@@ -21,6 +21,8 @@ namespace CastleStoryArchipelago
         private string mode = "";
         private bool bridgeConnected;
         private int goalWave = 10;
+        private int shardGoal = 3;
+        private CampaignFile campaign;
         private int lastWave;
         private int lastObservedWave = -1;
         private int waveEventCount;
@@ -45,6 +47,8 @@ namespace CastleStoryArchipelago
             public string mode;
             public bool connected;
             public int goal_wave;
+            public int shard_goal;
+            public CampaignFile campaign;
         }
         [Serializable] private sealed class CheckFile
         {
@@ -71,15 +75,15 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.3.0 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.3.0 initialised.");
+                "Castle Story Archipelago v0.4.0 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.4.0 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
                 "EXPERIMENTAL: send unique locally owned crystal capture sound events as shard checks. One neutral shard validated; other crystal types not yet proven.");
             victoryChecks = Config.Bind("Conquest", "EnableVictoryCheck", false,
                 "Send Conquest GameWon() event as an AP victory when a Conquest slot is connected.");
-            showOverlay = Config.Bind("Interface", "ShowOverlay", true,
+            showOverlay = Config.Bind("Interface", "ShowOverlay", false,
                 "Display connection, wave/capture statistics and AP item inventory.");
             harmony = new Harmony("fr.castlestory.archipelago.gameplay");
             Patch("Brix.Game.StatsTracker", "InvasionWave", "OnInvasionWave",
@@ -134,7 +138,7 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP WAVE EVENT] value=" + wave +
                 " at t=" + Time.realtimeSinceStartup.ToString("F1") +
                 "s event #" + waveEventCount);
-            if (mode != "Invasion" || wave < 1 || wave > goalWave) return;
+            if ((mode != "Invasion" && mode != "Hybrid") || wave < 1 || wave > goalWave) return;
             if (!waveChecks.Value || !bridgeConnected) return;
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
             {
@@ -184,7 +188,7 @@ namespace CastleStoryArchipelago
                 " new=" + isNew + " t=" + Time.realtimeSinceStartup.ToString("F1") + "s");
             if (!isNew) return;
             conquestCaptured++;
-            if (mode != "Conquest" || !captureChecks.Value || !bridgeConnected)
+            if ((mode != "Conquest" && mode != "Hybrid") || !captureChecks.Value || !bridgeConnected)
             {
                 Logger.LogInfo("[AP CONQUEST] Local capture counted for diagnostics only; " +
                     "selected AP mode=" + (mode == "" ? "<none>" : mode) +
@@ -192,7 +196,7 @@ namespace CastleStoryArchipelago
                     ", bridge connected=" + bridgeConnected + ".");
                 return;
             }
-            if (conquestCaptured <= 3 && checkedIds.Add(ConquestBase + conquestCaptured))
+            if (conquestCaptured <= shardGoal && checkedIds.Add(ConquestBase + conquestCaptured))
             {
                 WriteChecks();
                 Logger.LogInfo("[AP CHECK] Conquest candidate capture #" + conquestCaptured);
@@ -204,7 +208,7 @@ namespace CastleStoryArchipelago
             conquestWinEvents++;
             Logger.LogInfo("[AP VICTORY] StatsTracker.GameWon() at t=" +
                 Time.realtimeSinceStartup.ToString("F1") + "s, mode=" + mode);
-            if (mode != "Conquest" || !victoryChecks.Value || !bridgeConnected) return;
+            if ((mode != "Conquest" && mode != "Hybrid") || !victoryChecks.Value || !bridgeConnected) return;
             conquestVictory = true;
             if (checkedIds.Add(ConquestBase + 100))
                 Logger.LogInfo("[AP CHECK] Conquest victory detected");
@@ -215,9 +219,10 @@ namespace CastleStoryArchipelago
         {
             if (selectedMode == "Invasion")
                 return id > WaveBase && id <= WaveBase + goal;
-            if (selectedMode == "Conquest")
-                return (id > ConquestBase && id <= ConquestBase + 3) ||
-                    id == ConquestBase + 100;
+            if (selectedMode == "Conquest" || selectedMode == "Hybrid")
+                return (id > ConquestBase && id <= ConquestBase + goal) ||
+                    id == ConquestBase + 100 ||
+                    (selectedMode == "Hybrid" && id > WaveBase && id <= WaveBase + 10);
             return false;
         }
 
@@ -229,7 +234,7 @@ namespace CastleStoryArchipelago
                 if (!File.Exists(sessionPath)) return;
                 var session = JsonUtility.FromJson<SessionFile>(File.ReadAllText(sessionPath));
                 if (session == null || String.IsNullOrEmpty(session.token)) return;
-                if (session.mode != "Invasion" && session.mode != "Conquest")
+                if (session.mode != "Invasion" && session.mode != "Conquest" && session.mode != "Hybrid")
                 {
                     Logger.LogWarning("[AP SESSION] Unsupported or missing mode.");
                     bridgeConnected = false;
@@ -241,6 +246,8 @@ namespace CastleStoryArchipelago
                     mode = session.mode;
                     seed = session.seed ?? "";
                     goalWave = Math.Max(1, Math.Min(10, session.goal_wave));
+                    shardGoal = Math.Max(1, Math.Min(30, session.shard_goal == 0 ? 3 : session.shard_goal));
+                    campaign = session.campaign;
                     checkedIds.Clear();
                     capturedObjects.Clear();
                     inventory.Clear();
@@ -255,18 +262,18 @@ namespace CastleStoryArchipelago
                         if (prior != null && prior.token == token &&
                             prior.mode == mode && prior.location_ids != null)
                             foreach (int id in prior.location_ids)
-                                if (ValidCheck(mode, id, goalWave)) checkedIds.Add(id);
+                                if (ValidCheck(mode, id, shardGoal)) checkedIds.Add(id);
                     }
-                    if (mode == "Invasion")
+                    if (mode == "Invasion" || mode == "Hybrid")
                     {
                         var waves = checkedIds.Where(id =>
                             id > WaveBase && id <= WaveBase + goalWave);
                         lastWave = waves.Any() ? waves.Max() - WaveBase : 0;
                     }
-                    else
+                    if (mode == "Conquest" || mode == "Hybrid")
                     {
                         conquestCaptured = checkedIds.Count(id =>
-                            id > ConquestBase && id <= ConquestBase + 3);
+                            id > ConquestBase && id <= ConquestBase + shardGoal);
                         conquestVictory = checkedIds.Contains(ConquestBase + 100);
                     }
                     Logger.LogInfo("[AP SESSION] " + mode + " seed=" + seed +
@@ -281,7 +288,7 @@ namespace CastleStoryArchipelago
                 foreach (var item in items.items)
                 {
                     if (item == null || item.item < ItemBase + 1 ||
-                        item.item > ItemBase + 6) continue;
+                        item.item > ItemBase + 12) continue;
                     if (!totals.ContainsKey(item.item)) totals[item.item] = 0;
                     totals[item.item]++;
                 }
@@ -307,7 +314,12 @@ namespace CastleStoryArchipelago
             if (!bridgeConnected || String.IsNullOrEmpty(token)) return;
             var path = Path.Combine(directory, "checks.json");
             var temp = path + ".tmp";
-            bool won = mode == "Invasion" ? lastWave >= goalWave : conquestVictory;
+            bool allShards = checkedIds.Contains(ConquestBase + shardGoal);
+            bool invasionFinished = lastWave >= goalWave;
+            bool conquestFinished = conquestVictory && allShards;
+            bool won = mode == "Invasion" ? invasionFinished :
+                mode == "Conquest" ? conquestFinished :
+                (invasionFinished && conquestFinished);
             File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
                 token = token, mode = mode,
                 location_ids = checkedIds.OrderBy(x => x).ToArray(),
@@ -333,11 +345,12 @@ namespace CastleStoryArchipelago
 
         private void OnGUI()
         {
+            DrawApMenu();
             if (showOverlay == null || !showOverlay.Value) return;
             int oldDepth = GUI.depth;
             GUI.depth = -10000;
             GUI.Box(new Rect(8, 8, 680, 180), "");
-            GUI.Label(new Rect(18, 16, 650, 22), "Castle Story AP v0.3.0 [EXPERIMENTAL]");
+            GUI.Label(new Rect(18, 16, 650, 22), "Castle Story AP v0.4.0 [EXPERIMENTAL]");
             GUI.Label(new Rect(18, 40, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -352,8 +365,10 @@ namespace CastleStoryArchipelago
                 " | Conquest captures=" + (captureChecks.Value ? "ON" : "OFF") +
                 " | Victory=" + (victoryChecks.Value ? "ON" : "OFF"));
             string itemText = "";
-            string[] names = { "Archer", "Knight", "Catapult", "Reinforcements", "Wood", "Stone" };
-            for (int i = 1; i <= 6; i++)
+            string[] names = { "Archer", "Knight", "Catapult", "Reinforcements", "Wood",
+                "Stone", "Alchemist", "Worker bonus", "Archer bonus", "Knight bonus",
+                "Alchemist bonus", "Wisps" };
+            for (int i = 1; i <= 12; i++)
             {
                 int amount;
                 if (inventory.TryGetValue(ItemBase + i, out amount))
