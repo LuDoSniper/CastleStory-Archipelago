@@ -151,9 +151,13 @@ namespace CastleStoryArchipelago
             catch (Exception e) { Logger.LogWarning("[AP MENU] Observation failed: " + e.Message); }
         }
 
-        private static void ObserveMapListed(object __0)
+        private static void ObserveMapListed(object __0, object __result)
         {
-            if (Instance != null) Instance.RegisterAvailableMap(__0);
+            if (Instance == null) return;
+            Instance.RegisterAvailableMap(__0);
+            // GetAssetLabel gives the native localized label for a technical
+            // Asset_Map. Retain that mapping for precise native UI filtering.
+            Instance.ObserveNativeMapLabel(__0, __result as string);
         }
 
         private void RegisterAvailableMap(object gameMap)
@@ -286,11 +290,14 @@ namespace CastleStoryArchipelago
                 Instance.campaignNoticeIsError = false;
                 Instance.nativeMapScanComplete = false;
                 Instance.TryDiscoverNativeMaps(__instance);
-                Instance.nativeNewGameVisible = Instance.bridgeConnected &&
-                    !Instance.apPopupDismissedOnNativeScreen;
+                // Native selection replaces the custom AP campaign popup.
+                // This flag must remain false so the input shield does not
+                // steal mouse events from Castle Story's own map selector.
+                Instance.nativeNewGameVisible = false;
                 Instance.apMenuOpen = false;
-                Instance.Logger.LogInfo("[AP MENU] New Game opened; Archipelago mission UI=" +
-                    Instance.nativeNewGameVisible + " campaign ready=" +
+                Instance.RefreshNativeSeedMenu();
+                Instance.Logger.LogInfo("[AP MENU] Native New Game opened; native seed filtering=" +
+                    Instance.bridgeConnected + " campaign ready=" +
                     (Instance.campaign != null && Instance.campaign.ready) +
                     " missions=" + (Instance.campaign == null ||
                     Instance.campaign.missions == null ? 0 :
@@ -305,6 +312,7 @@ namespace CastleStoryArchipelago
             Instance.nativeNewGameVisible = false;
             Instance.nativeStarterMenu = null;
             Instance.apPopupDismissedOnNativeScreen = false;
+            Instance.RestoreNativeEntries();
             Instance.Logger.LogInfo("[AP MENU] Native New Game screen closed.");
         }
 
@@ -485,7 +493,7 @@ namespace CastleStoryArchipelago
 
         private bool CanStartNativeMap(object menuInstance)
         {
-            // Vanilla mode stays untouched when AP is disconnected.
+            // No connection: never alter the ordinary Castle Story flow.
             if (!bridgeConnected) return true;
             if (menuInstance == null ||
                 !menuInstance.GetType().Name.Contains("SpNewGameStarterMenu"))
@@ -493,78 +501,70 @@ namespace CastleStoryArchipelago
             if (campaign == null || !campaign.ready ||
                 campaign.missions == null || campaign.missions.Length == 0)
             {
-                SetCampaignNotice("La campagne connectée ne contient aucune mission jouable.", true);
-                Logger.LogWarning("[AP MENU] Native start blocked: missing/unready seed campaign.");
-                nativeNewGameVisible = true;
+                SetCampaignNotice("La seed Archipelago ne contient aucune carte jouable.", true);
+                Logger.LogWarning("[AP NATIVE UI] Blocked launch without a ready campaign.");
                 return false;
             }
-            if (!IsSelectedMissionType("Conquest") && !IsSelectedMissionType("Invasion"))
-            {
-                SetCampaignNotice("Sélectionne d'abord une mission Archipelago avant de démarrer.", true);
-                Logger.LogWarning("[AP MENU] Blocked new game: no seed-selected mission.");
-                return false;
-            }
-            MissionFile selected = null;
-            foreach (var mission in campaign.missions)
-                if (mission != null && mission.id == chosenMission) selected = mission;
-            if (selected == null) return false;
             try
             {
-                var property = AccessTools.Property(menuInstance.GetType(), "SelectedMap");
-                object map = property == null ? null : property.GetValue(menuInstance, null);
-                if (map == null)
-                {
-                    SetCampaignNotice("Choisis la carte ID " + MissionMapId(selected) +
-                        " avant de démarrer.", true);
-                    return false;
-                }
-                // Asset_Map.GetHeightmapPath() is present in the supplied Castle Story
-                // Assembly-CSharp-firstpass.dll. It provides a stable folder identity.
-                string actual = MapIdentity(map);
-                if (String.IsNullOrEmpty(actual))
-                {
-                    SetCampaignNotice("Impossible de vérifier l'identifiant de carte. Le démarrage a été bloqué.", true);
-                    Logger.LogWarning("[AP MENU] Could not resolve Asset_Map.GetHeightmapPath.");
-                    return false;
-                }
-                if (!String.Equals(actual, MissionMapId(selected),
-                                   StringComparison.OrdinalIgnoreCase))
-                {
-                    SetCampaignNotice("ID attendu : " + MissionMapId(selected) +
-                        " (carte choisie : " + actual + ")", true);
-                    Logger.LogWarning("[AP MENU] Blocked map_id=" + actual +
-                        " for mission " + selected.id +
-                        " expected map_id=" + MissionMapId(selected));
-                    return false;
-                }
+                var mapProperty = AccessTools.Property(menuInstance.GetType(), "SelectedMap");
                 var modeProperty = AccessTools.Property(menuInstance.GetType(), "SelectedGamemode");
-                object actualMode = modeProperty == null ? null :
+                object map = mapProperty == null ? null : mapProperty.GetValue(menuInstance, null);
+                object selectedMode = modeProperty == null ? null :
                     modeProperty.GetValue(menuInstance, null);
-                string code = ModeIdentity(actualMode);
-                if (code == null ||
-                    !String.Equals(code, selected.mode, StringComparison.OrdinalIgnoreCase))
+                string mapId = MapIdentity(map);
+                string modeId = ModeIdentity(selectedMode);
+                if (String.IsNullOrEmpty(mapId) || String.IsNullOrEmpty(modeId))
                 {
-                    SetCampaignNotice("Mode requis : " + selected.mode +
-                        " (sélection actuelle : " + (code ?? "<inconnu>") + ")", true);
-                    Logger.LogWarning("[AP MENU] Blocked wrong game mode.");
+                    SetCampaignNotice(
+                        "Sélectionne une carte et un mode disponibles dans la seed.",
+                        true);
+                    Logger.LogWarning("[AP NATIVE UI] Missing selected map/mode in native start.");
                     return false;
                 }
-                // Only this validated native Castle Story start makes a
-                // seeded mission eligible for Archipelago gameplay checks.
-                startedMission = selected.id;
+                MissionFile matching = null;
+                foreach (MissionFile mission in campaign.missions)
+                {
+                    if (mission == null ||
+                        !String.Equals(MissionMapId(mission), mapId,
+                                       StringComparison.OrdinalIgnoreCase) ||
+                        !String.Equals(mission.mode, modeId,
+                                       StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (matching != null)
+                    {
+                        SetCampaignNotice(
+                            "Plusieurs missions utilisent cette carte et ce mode. " +
+                            "Une sélection explicite sera nécessaire.", true);
+                        Logger.LogWarning("[AP NATIVE UI] Ambiguous seed mapping for " +
+                            mapId + " / " + modeId);
+                        return false;
+                    }
+                    matching = mission;
+                }
+                if (matching == null)
+                {
+                    SetCampaignNotice(
+                        "Cette carte ou ce mode n'appartient pas à la seed Archipelago.",
+                        true);
+                    Logger.LogWarning("[AP NATIVE UI] Rejected unseeded native start: " +
+                        mapId + " / " + modeId);
+                    return false;
+                }
+                // The user's native selection is authoritative. No custom
+                // popup is necessary to select a map or mission.
+                SelectMission(matching);
+                startedMission = matching.id;
                 lastRejectedWave = -1;
-                Logger.LogInfo("[AP MISSION START] " + selected.id +
-                    " map=" + actual + " mode=" + selected.mode +
-                    " checks=automatic for seed Invasion");
-                Logger.LogInfo("[AP MENU] Allowed game start: " + selected.id +
-                    " map=" + actual + " mode=" + selected.mode);
+                Logger.LogInfo("[AP MISSION START] " + matching.id +
+                    " map=" + mapId + " mode=" + modeId +
+                    " via=native-menu");
                 return true;
             }
             catch (Exception error)
             {
-                SetCampaignNotice("Impossible de vérifier la carte : " + error.Message +
-                    ". Consulte les logs BepInEx.", true);
-                Logger.LogWarning("[AP MENU] Map guard failed safely: " + error);
+                SetCampaignNotice("Erreur du sélecteur natif : " + error.Message, true);
+                Logger.LogWarning("[AP NATIVE UI] Native start guard: " + error);
                 return false;
             }
         }
