@@ -137,8 +137,9 @@ namespace CastleStoryArchipelago
 
         private bool IsApModalVisible()
         {
-            return apMenuOpen ||
-                (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen));
+            // The popup stays open to show an error even when the bridge
+            // heartbeat drops. Its pointer shield must remain in sync.
+            return apMenuOpen || nativeNewGameVisible || campaignPreviewOpen;
         }
 
         private void UpdateNativeInputShield()
