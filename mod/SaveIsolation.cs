@@ -21,6 +21,7 @@ namespace CastleStoryArchipelago
             public string slot;
             public string mode;
             public string mission;
+            public string map_id;
             public string created_utc;
         }
 
@@ -175,10 +176,15 @@ namespace CastleStoryArchipelago
                         Logger.LogInfo("[AP SAVE] Existing tagged folder unchanged: " + name);
                         continue;
                     }
+                    MissionFile active = campaign == null ||
+                        campaign.missions == null ? null :
+                        campaign.missions.FirstOrDefault(item =>
+                            item != null && item.id == startedMission);
                     var tag = new ApSaveTag {
                         folder = name, token = token, seed = seed,
                         slot = loginSlot, mode = mode,
                         mission = startedMission,
+                        map_id = active == null ? "" : MissionMapId(active),
                         created_utc = DateTime.UtcNow.ToString("o")
                     };
                     apSaveTags[name] = tag;
@@ -473,10 +479,14 @@ namespace CastleStoryArchipelago
                             campaign.missions == null ? null :
                             campaign.missions.FirstOrDefault(item =>
                                 item != null && item.id == tag.mission);
-                        if (mission == null)
+                        if (mission == null ||
+                            !String.Equals(tag.mode, mode, StringComparison.Ordinal) ||
+                            (!String.IsNullOrEmpty(tag.map_id) &&
+                             !String.Equals(tag.map_id, MissionMapId(mission),
+                                            StringComparison.OrdinalIgnoreCase)))
                         {
-                            Logger.LogWarning("[AP SAVE] Current campaign no longer " +
-                                "contains saved mission: " + tag.mission);
+                            Logger.LogWarning("[AP SAVE] Save mission, mode or map " +
+                                "does not match active campaign.");
                             return false;
                         }
                         // Restores the same mission selection that normal
