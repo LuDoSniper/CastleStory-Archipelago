@@ -34,6 +34,7 @@ namespace CastleStoryArchipelago
         private bool introCreditActive;
         private float introCreditStart = -1f;
         private float titleSceneReadyAt = -1f;
+        private float nextTitleReadyProbeAt;
         private bool titleSceneSeen;
         private bool titleSceneEvidenceLogged;
         private readonly Dictionary<GameObject, List<string>> cachedNativeLabels =
@@ -1144,8 +1145,12 @@ namespace CastleStoryArchipelago
             }
             // Do not guess the original credits' duration. Show our segment
             // as soon as the actual title controls become active.
-            if (titleSceneSeen && !introCreditShown && titleSceneReadyAt >= 0f)
+            if (titleSceneSeen && !introCreditShown &&
+                titleSceneReadyAt >= 0f && now >= nextTitleReadyProbeAt)
+            {
+                nextTitleReadyProbeAt = now + .20f;
                 BeginOwnIntroCredit();
+            }
             if (introCreditActive && now - introCreditStart >= 3.5f)
             {
                 introCreditActive = false;
