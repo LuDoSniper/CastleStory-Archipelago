@@ -50,6 +50,44 @@ namespace CastleStoryArchipelago
             get { return Path.Combine(directory, "save_tags.json"); }
         }
 
+        private string SaveTagsMirrorPath
+        {
+            get { return String.IsNullOrEmpty(apSaveRoot) ? null :
+                Path.Combine(apSaveRoot, ".archipelago-save-tags.json"); }
+        }
+
+        private void MergeSaveTagsFrom(string path, bool primary)
+        {
+            if (String.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            try
+            {
+                var registry = JsonUtility.FromJson<ApSaveRegistry>(
+                    File.ReadAllText(path));
+                if (registry == null || registry.saves == null)
+                    throw new InvalidDataException("Missing saves array");
+                int imported = 0;
+                foreach (ApSaveTag item in registry.saves)
+                {
+                    if (item == null || String.IsNullOrEmpty(item.folder) ||
+                        String.IsNullOrEmpty(item.token)) continue;
+                    string key = NormalizeSaveFolder(item.folder);
+                    if (primary || !apSaveTags.ContainsKey(key))
+                    {
+                        apSaveTags[key] = item;
+                        imported++;
+                    }
+                }
+                Logger.LogInfo("[AP SAVE] Imported " + imported +
+                    " tags from " + Path.GetFileName(path));
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP SAVE] Failed to read " +
+                    Path.GetFileName(path) + ": " + error.GetType().Name);
+                if (primary) saveRegistryWritable = false;
+            }
+        }
+
         private static string NormalizeSaveFolder(string value)
         {
             if (String.IsNullOrEmpty(value)) return "";
@@ -79,34 +117,27 @@ namespace CastleStoryArchipelago
         private void InitializeApSaveRegistry()
         {
             apSaveRoot = FindCastleStorySaveRoot();
-            if (File.Exists(SaveTagsPath))
+            // Info/Saves sidecar survives BepInEx upgrades and contains no
+            // proprietary game data. It is a backup index, NOT a saved game.
+            MergeSaveTagsFrom(SaveTagsMirrorPath, false);
+            // Older installer versions could have kept an archive of the
+            // primary registry under upgrade-backup-*. Prefer the live file.
+            try
             {
-                try
-                {
-                    var registry = JsonUtility.FromJson<ApSaveRegistry>(
-                        File.ReadAllText(SaveTagsPath));
-                    if (registry != null && registry.saves != null)
-                        foreach (ApSaveTag item in registry.saves)
-                        {
-                            if (item == null || String.IsNullOrEmpty(item.folder) ||
-                                String.IsNullOrEmpty(item.token)) continue;
-                            apSaveTags[NormalizeSaveFolder(item.folder)] = item;
-                        }
-                }
-                catch (Exception error)
-                {
-                    saveRegistryWritable = false;
-                    Logger.LogWarning("[AP SAVE] Invalid save_tags.json: " +
-                        error.GetType().Name +
-                        "; registry is read-only to protect existing tags.");
-                    // Never overwrite corrupt metadata without an explicit
-                    // backup. Unknown saves remain untagged.
-                }
+                foreach (string backup in Directory.GetDirectories(directory,
+                    "upgrade-backup-*").OrderByDescending(x => x))
+                    MergeSaveTagsFrom(Path.Combine(backup, "save_tags.json"), false);
             }
+            catch (Exception) { /* No legacy installer backups. */ }
+            MergeSaveTagsFrom(SaveTagsPath, true);
             Logger.LogInfo("[AP SAVE] Registry loaded tags=" + apSaveTags.Count +
                 " saveRoot=" + (apSaveRoot == null ? "not-found" :
                     Path.GetFileName(apSaveRoot)));
             if (apSaveRoot != null) SnapshotNativeSaveFolders();
+            // Reconstruct the primary index if it was removed by reinstalling
+            // BepInEx but a durable sidecar or upgrade backup survived.
+            if (!File.Exists(SaveTagsPath) && apSaveTags.Count > 0)
+                PersistApSaveRegistry();
         }
 
         private void SnapshotNativeSaveFolders()
@@ -209,13 +240,32 @@ namespace CastleStoryArchipelago
             string temp = SaveTagsPath + ".tmp";
             try
             {
-                File.WriteAllText(temp, JsonUtility.ToJson(new ApSaveRegistry {
+                string contents = JsonUtility.ToJson(new ApSaveRegistry {
                     schema = 1, saves = apSaveTags.Values.OrderBy(
                         entry => entry.folder, StringComparer.OrdinalIgnoreCase).ToArray()
-                }, true));
+                }, true);
+                File.WriteAllText(temp, contents);
                 if (File.Exists(SaveTagsPath))
                     File.Replace(temp, SaveTagsPath, null);
                 else File.Move(temp, SaveTagsPath);
+
+                string mirror = SaveTagsMirrorPath;
+                if (!String.IsNullOrEmpty(mirror))
+                {
+                    try
+                    {
+                        string mirrorTemp = mirror + ".tmp";
+                        File.WriteAllText(mirrorTemp, contents);
+                        if (File.Exists(mirror))
+                            File.Replace(mirrorTemp, mirror, null);
+                        else File.Move(mirrorTemp, mirror);
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning("[AP SAVE] Sidecar backup unavailable: " +
+                            e.GetType().Name);
+                    }
+                }
             }
             catch (Exception error)
             {
