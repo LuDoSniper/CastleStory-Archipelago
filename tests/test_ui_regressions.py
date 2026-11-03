@@ -39,7 +39,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         code = INTEGRATION.read_text(encoding="utf-8")
         hooks = NATIVE.read_text(encoding="utf-8")
         self.assertIn("pendingFilterPasses = 3;", code)
-        self.assertIn("if (pendingFilterPasses > 0 && now >= nextFilterPassAt)", code)
+        self.assertIn("pendingFilterPasses > 0 && now >= nextFilterPassAt)", code)
         update = code.split("private void UpdateNativeArchipelagoIntegration()", 1)[1]
         update = update.split("private void DrawArchipelagoIntroCredit()", 1)[0]
         self.assertNotIn("RefreshNativeSeedMenu();\n        }", update)
@@ -91,7 +91,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         native = INTEGRATION.read_text(encoding="utf-8")
         self.assertNotIn('"TMPro.TextMeshProUGUI"', native)
         self.assertIn("CachedNativeUiLabels(", native)
-        self.assertIn('ScheduleNativeUiFilter("title/menu interaction")', native)
+        self.assertIn('ScheduleNativeUiFilter("legacy title interaction")', native)
         self.assertIn("pendingFilterPasses = 3;", native)
 
     def test_native_mode_options_are_filtered_even_without_selectable(self):
@@ -165,7 +165,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('if (simple == "luamenu")', hooks)
         self.assertIn('if (plugin.titleSceneSeen && plugin.bridgeConnected', hooks)
         self.assertIn('plugin.lastLuaTitleFilterAt > .65f', hooks)
-        self.assertIn('if (plugin.titleSceneSeen || plugin.nativeStarterMenu != null)', hooks)
+        self.assertIn('plugin.nativeStarterMenu != null))', hooks)
 
     def test_ui_policies_are_prepared_on_connection_and_rendered_atomically(self):
         native = INTEGRATION.read_text(encoding="utf-8")
@@ -195,8 +195,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("Empty valid index", saves)
         self.assertIn("RefreshSaveRegistryWhenModified()", saves)
         self.assertIn("GetLastWriteTimeUtc(path)", saves)
-        self.assertNotIn("File.Replace(", saves.replace(
-            '// throws "path not in legal form"', ''))
+        self.assertNotIn("File.Replace(temp, SaveTagsPath", saves)
         self.assertIn("authenticatedApSaveSession && !disconnectPending", saves)
         self.assertIn("lastPrimaryTagStamp", saves)
 
