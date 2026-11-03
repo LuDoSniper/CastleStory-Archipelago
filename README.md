@@ -1,6 +1,76 @@
-# Castle Story × Archipelago — v0.7.4 (menus complets, accueil et connexion au premier clic)
+# Castle Story × Archipelago — v0.7.5 (accueil stable et sauvegardes identifiées par seed)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.5 — Boutons d'accueil et séparation des sauvegardes
+
+Le retour sur v0.7.4 confirme que les crédits sont désormais suffisamment
+bien synchronisés. Cette passe **ne modifie pas leur déclenchement**.
+
+### Accueil et menu Jouer
+
+- Le bouton Archipelago prend le sprite/couleur de l'Image native de
+  « Jouer » lorsqu'elle est accessible. Sinon, son repli dessine un
+  **bouton primaire blanc avec bord sombre et accent bleu**, plutôt
+  qu'une simple surface blanche.
+- « Options » est maintenant placé à partir des **bords réels en
+  coordonnées monde** de Jouer et Archipelago, et pas d'un décalage
+  fixe dans son conteneur. Cela permet d'espacer des boutons qui
+  n'ont pas le même parent ou le même point d'ancrage. Les positions
+  originales restent restaurables à la fermeture du mod.
+- Le filtre de Jouer n'utilise plus de liste blanche dangereuse.
+  **Nouvelle partie, Charger partie, Multijoueur et Retour** sont
+  reconnus et conservés ; seuls les choix explicitement interdits
+  comme l'éditeur de cartes, les merveilles et le Workshop sont
+  masqués. Le conteneur contenant plusieurs choix ne doit jamais
+  être désactivé.
+
+### Sauvegardes Archipelago
+
+Castle Story stocke normalement les sauvegardes sous
+`<dossier du jeu>/Info/Saves/<nom de sauvegarde>`. Le plugin ne
+modifie ni ne déplace **aucun** de ces fichiers.
+
+- Lors du lancement d'une mission validée par la seed, le plugin
+  relève les dossiers déjà présents. Un nouveau dossier créé pendant
+  la partie est enregistré dans
+  `BepInEx/config/castle_story_archipelago/save_tags.json`.
+  Chaque entrée contient nom de dossier, token de seed, seed, slot,
+  mode, mission et date (sans mot de passe).
+- Dans un menu Charger natif reconnu, le mod tente de relier chaque
+  carte au dossier correspondant. **Connecté à Archipelago**, seules
+  les sauvegardes marquées pour le **token courant** sont autorisées ;
+  **déconnecté**, les sauvegardes Archipelago sont masquées et
+  les sauvegardes ordinaires restent accessibles.
+- Le contrôle de chargement vérifie également la seed pour les
+  sélecteurs natifs dont les propriétés de sélection sont accessibles.
+  Une sauvegarde Archipelago de la seed courante peut restaurer
+  l'identifiant de la mission, afin de retrouver le fonctionnement
+  des checks.
+- Les sauvegardes anciennes (créées avant la pose du registre)
+  ne sont **pas** automatiquement converties : une simple ressemblance
+  de nom n'est pas une preuve qu'elles appartiennent à Archipelago.
+  Une sauvegarde classique écrasée par une partie AP n'est pas non plus
+  renommée ou réétiquetée automatiquement.
+- Si le menu Charger expose une structure différente, le filtre
+  conserve les objets non identifiés et écrit des diagnostics
+  `[AP SAVE UI]`, `[AP SAVE API]` dans BepInEx. Une intégration
+  complète nécessite alors de vérifier cette hiérarchie en jeu.
+  Les contrôles programmatiques ne remplacent pas un test réel.
+
+### Essai recommandé
+
+Installer le kit v0.7.5, examiner l'accueil Jouer → Archipelago →
+Options ; ouvrir Jouer et vérifier **les trois actions utiles**.
+Connecter une seed, démarrer une nouvelle partie Invasion, enregistrer
+une sauvegarde sous un **nouveau nom**, puis retourner au menu.
+Ouvrir Charger partie connecté : vérifier la présence de cette
+sauvegarde et l'absence des sauvegardes classiques ; ensuite
+déconnecter et vérifier l'inverse. Le fichier
+`save_tags.json` doit contenir une entrée pour le nouveau dossier
+créé. Pour le premier test du chargement, garder une copie
+de la sauvegarde du jeu, et transmettre `LogOutput.log` si le
+sélecteur de chargement ne montre pas le bon sous-ensemble.
 
 ## v0.7.4 — Ajustements du dernier retour de jeu
 
