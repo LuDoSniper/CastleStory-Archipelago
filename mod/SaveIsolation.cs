@@ -42,6 +42,16 @@ namespace CastleStoryArchipelago
         private float nextLoadMenuFilterAt;
         private int pendingLoadFilterPasses;
         private int lastSaveMenuDiagnosticCount;
+        private DateTime lastPrimaryTagStamp = DateTime.MinValue;
+        private DateTime lastMirrorTagStamp = DateTime.MinValue;
+        private float nextSaveRegistryCheckAt;
+        private readonly HashSet<string> cachedSaveFolderNames =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> cachedAllowedSaveNames =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool apSavePolicyPrepared;
+        private string lastSavePolicyToken = null;
+        private bool lastSavePolicyActive;
         private readonly HashSet<string> probedNativeLoadMenus =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -63,8 +73,17 @@ namespace CastleStoryArchipelago
             {
                 var registry = JsonUtility.FromJson<ApSaveRegistry>(
                     File.ReadAllText(path));
-                if (registry == null || registry.saves == null)
-                    throw new InvalidDataException("Missing saves array");
+                // An empty registry may serialize saves as null (Unity's
+                // JsonUtility) or [] (PowerShell's ConvertTo-Json). Neither
+                // means corrupt data, and neither may lock future writes.
+                if (registry == null || registry.schema != 1)
+                    throw new InvalidDataException("Invalid schema");
+                if (registry.saves == null)
+                {
+                    Logger.LogInfo("[AP SAVE] Empty valid index " +
+                        Path.GetFileName(path));
+                    return;
+                }
                 int imported = 0;
                 foreach (ApSaveTag item in registry.saves)
                 {
@@ -138,6 +157,9 @@ namespace CastleStoryArchipelago
                     "cannot be assigned a seed without explicit confirmation; " +
                     "the kit includes Associate-CastleStoryAPSave.ps1.");
             if (apSaveRoot != null) SnapshotNativeSaveFolders();
+            RebuildSaveVisibilityPolicy("initial registry");
+            lastPrimaryTagStamp = GetTagTimestamp(SaveTagsPath);
+            lastMirrorTagStamp = GetTagTimestamp(SaveTagsMirrorPath);
             // Reconstruct the primary index if it was removed by reinstalling
             // BepInEx but a durable sidecar or upgrade backup survived.
             if (!File.Exists(SaveTagsPath) && apSaveTags.Count > 0)
@@ -238,43 +260,95 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static DateTime GetTagTimestamp(string path)
+        {
+            try { return !String.IsNullOrEmpty(path) && File.Exists(path) ?
+                File.GetLastWriteTimeUtc(path) : DateTime.MinValue; }
+            catch (Exception) { return DateTime.MinValue; }
+        }
+
         private void PersistApSaveRegistry()
         {
             if (!saveRegistryWritable) return;
-            string temp = SaveTagsPath + ".tmp";
             try
             {
                 string contents = JsonUtility.ToJson(new ApSaveRegistry {
                     schema = 1, saves = apSaveTags.Values.OrderBy(
                         entry => entry.folder, StringComparer.OrdinalIgnoreCase).ToArray()
                 }, true);
-                File.WriteAllText(temp, contents);
-                if (File.Exists(SaveTagsPath))
-                    File.Replace(temp, SaveTagsPath, null);
-                else File.Move(temp, SaveTagsPath);
-
-                string mirror = SaveTagsMirrorPath;
-                if (!String.IsNullOrEmpty(mirror))
+                // Write durable mirror first. File.Replace(source, dest, null)
+                // throws "path not in legal form" on the user's Windows build.
+                // Use validated absolute-path copies and keep backup files.
+                foreach (string target in new [] { SaveTagsMirrorPath, SaveTagsPath })
                 {
+                    if (String.IsNullOrEmpty(target)) continue;
+                    string temp = target + ".tmp";
+                    string backup = target + ".bak";
                     try
                     {
-                        string mirrorTemp = mirror + ".tmp";
-                        File.WriteAllText(mirrorTemp, contents);
-                        if (File.Exists(mirror))
-                            File.Replace(mirrorTemp, mirror, null);
-                        else File.Move(mirrorTemp, mirror);
+                        File.WriteAllText(temp, contents);
+                        if (File.Exists(target)) File.Copy(target, backup, true);
+                        File.Copy(temp, target, true);
+                        File.Delete(temp);
                     }
-                    catch (Exception e)
+                    catch (Exception error)
                     {
-                        Logger.LogWarning("[AP SAVE] Sidecar backup unavailable: " +
-                            e.GetType().Name);
+                        Logger.LogError("[AP SAVE] Index write failed at " +
+                            Path.GetFileName(target) + ": " + error.Message);
                     }
                 }
+                lastPrimaryTagStamp = GetTagTimestamp(SaveTagsPath);
+                lastMirrorTagStamp = GetTagTimestamp(SaveTagsMirrorPath);
+                RebuildSaveVisibilityPolicy("new save tagged");
             }
             catch (Exception error)
             {
                 Logger.LogError("[AP SAVE] Cannot persist save tags: " + error.Message);
             }
+        }
+
+        private void RefreshSaveRegistryWhenModified(bool force = false)
+        {
+            DateTime primary = GetTagTimestamp(SaveTagsPath);
+            DateTime mirror = GetTagTimestamp(SaveTagsMirrorPath);
+            if (!force && lastPrimaryTagStamp == primary &&
+                lastMirrorTagStamp == mirror) return;
+            lastPrimaryTagStamp = primary;
+            lastMirrorTagStamp = mirror;
+            // External association utility can change tags while Castle Story
+            // is already running. Reload metadata only when file stamps
+            // change, never on each navigation. Primary remains authoritative.
+            MergeSaveTagsFrom(SaveTagsMirrorPath, false);
+            MergeSaveTagsFrom(SaveTagsPath, true);
+            RebuildSaveVisibilityPolicy("save index updated");
+            Logger.LogInfo("[AP SAVE] Refreshed registry from disk, tagged=" +
+                apSaveTags.Count + ".");
+        }
+
+        private void RebuildSaveVisibilityPolicy(string reason)
+        {
+            if (String.IsNullOrEmpty(apSaveRoot))
+                apSaveRoot = FindCastleStorySaveRoot();
+            bool active = IsArchipelagoSaveSessionActive();
+            if (apSavePolicyPrepared &&
+                lastSavePolicyToken == token && lastSavePolicyActive == active &&
+                reason == "unchanged") return;
+            cachedSaveFolderNames.Clear();
+            cachedAllowedSaveNames.Clear();
+            if (!String.IsNullOrEmpty(apSaveRoot) &&
+                Directory.Exists(apSaveRoot))
+                foreach (string path in Directory.GetDirectories(apSaveRoot))
+                    cachedSaveFolderNames.Add(NormalizeSaveFolder(path));
+            foreach (string name in cachedSaveFolderNames)
+                if (IsAllowedNativeSave(name))
+                    cachedAllowedSaveNames.Add(name);
+            lastSavePolicyToken = token;
+            lastSavePolicyActive = active;
+            apSavePolicyPrepared = true;
+            Logger.LogInfo("[AP UI PREPARED] " + reason +
+                ": AP=" + active + " saves=" + cachedSaveFolderNames.Count +
+                " allowed=" + cachedAllowedSaveNames.Count +
+                " tagged=" + apSaveTags.Count);
         }
 
         private bool IsArchipelagoSaveSessionActive()
