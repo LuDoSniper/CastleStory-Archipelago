@@ -365,10 +365,17 @@ namespace CastleStoryArchipelago
 
         private void OnApAuthenticationChanged(bool becameConnected)
         {
+            bool before = IsArchipelagoSaveSessionActive();
             if (disconnectPending) authenticatedApSaveSession = false;
             else if (becameConnected) authenticatedApSaveSession = true;
             RefreshSaveRegistryWhenModified();
-            RebuildSaveVisibilityPolicy("connection state changed");
+            bool after = IsArchipelagoSaveSessionActive();
+            if (before != after || lastSavePolicyToken != token ||
+                !apSavePolicyPrepared)
+            {
+                RestoreNativeEntries();
+                RebuildSaveVisibilityPolicy("connection state changed");
+            }
         }
 
         private bool IsAllowedNativeSave(string folder)
@@ -416,6 +423,13 @@ namespace CastleStoryArchipelago
 
         private void ScheduleNativeSaveFilter(string source)
         {
+            if (nativeCaptionHookInstalled)
+            {
+                // The membership snapshot exists before opening Load. Brix
+                // captions are filtered at assignment and OnEnable. Do not
+                // ever schedule a visible delayed 0.13-second hide.
+                return;
+            }
             if (!titleSceneSeen ||
                 (!IsArchipelagoSaveSessionActive() && apSaveTags.Count == 0))
                 return;
@@ -560,7 +574,8 @@ namespace CastleStoryArchipelago
                 nextSaveScanAt = now + 1f;
                 ScanNewNativeSaves();
             }
-            if (pendingLoadFilterPasses > 0 && now >= nextLoadMenuFilterAt)
+            if (!nativeCaptionHookInstalled &&
+                pendingLoadFilterPasses > 0 && now >= nextLoadMenuFilterAt)
             {
                 pendingLoadFilterPasses--;
                 nextLoadMenuFilterAt = now + .13f;
