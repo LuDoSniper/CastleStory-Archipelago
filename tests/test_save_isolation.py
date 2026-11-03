@@ -43,7 +43,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('IsArchipelagoSaveSessionActive()', SAVE)
         self.assertIn('String.Equals(tag.token, token', SAVE)
         self.assertIn('return !tagged;', SAVE)
-        self.assertIn('!disconnectPending && !String.IsNullOrEmpty(token)', SAVE)
+        self.assertIn('authenticatedApSaveSession && !disconnectPending', SAVE)
         self.assertIn('ScheduleNativeSaveFilter(name);', MENU)
         self.assertIn('FilterNativeSaveChoices();', SAVE)
         self.assertIn('FindNativeSaveCardRoot(label, known)', SAVE)
@@ -86,7 +86,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('EnforceHiddenNativeEntries();', PLUGIN)
         self.assertIn('private void EnforceHiddenNativeEntries()', UI)
         self.assertIn('pair.Key.activeSelf', UI)
-        self.assertIn('ScheduleNativeSaveFilter("native title UI refreshed")', UI)
+        self.assertNotIn('ScheduleNativeSaveFilter("native title UI refreshed")', UI)
 
     def test_play_menu_never_uses_destructive_unknown_control_whitelist(self):
         self.assertIn('case "charger partie":', UI)
