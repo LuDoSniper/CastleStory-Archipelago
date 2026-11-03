@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.7.9")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.8.0")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -19,6 +19,9 @@ namespace CastleStoryArchipelago
         private string token = "";
         private string seed = "";
         private string mode = "";
+        private string currentApSlotName = "";
+        private int currentApTeam;
+        private int currentApSlotNumber;
         private bool bridgeConnected;
         // This is set only after the native Castle Story start guard validates
         // the exact Archipelago map and game mode.
@@ -54,6 +57,9 @@ namespace CastleStoryArchipelago
             public string token;
             public string seed;
             public string mode;
+            public string slot_name;
+            public int slot;
+            public int team;
             public bool connected;
             public int goal_wave;
             public int shard_goal;
@@ -115,8 +121,8 @@ namespace CastleStoryArchipelago
             LoadRememberedConnection();
             InitializeApSaveRegistry();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.7.9 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.7.9 initialised.");
+                "Castle Story Archipelago v0.8.0 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.8.0 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -539,13 +545,24 @@ namespace CastleStoryArchipelago
                     bridgeConnected = false;
                     return;
                 }
-                bool seedChanged = token != session.token || mode != session.mode;
+                bool seedChanged = token != session.token || mode != session.mode ||
+                    seed != (session.seed ?? "") ||
+                    currentApTeam != session.team ||
+                    currentApSlotNumber != session.slot ||
+                    currentApSlotName != (session.slot_name ?? "");
                 if (seedChanged)
                 {
                     authenticatedApSaveSession = false;
                     token = session.token;
                     mode = session.mode;
                     seed = session.seed ?? "";
+                    currentApTeam = session.team;
+                    currentApSlotNumber = session.slot;
+                    currentApSlotName = session.slot_name ?? "";
+                    Logger.LogInfo("[AP RUN ID] seed=" + seed +
+                        " team=" + currentApTeam +
+                        " slot=" + currentApSlotNumber +
+                        " player=" + currentApSlotName);
                     goalWave = Math.Max(1, Math.Min(10, session.goal_wave));
                     shardGoal = Math.Max(1, Math.Min(30, session.shard_goal == 0 ? 3 : session.shard_goal));
                     campaign = session.campaign;
@@ -668,7 +685,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.7.9 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.8.0 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -849,24 +866,30 @@ namespace CastleStoryArchipelago
             GUI.depth = oldDepth;
         }
 
+        private bool pluginShutdownStarted;
+
+        private void OnApplicationQuit()
+        {
+            ShutdownArchipelagoRuntime();
+        }
+
+        private void ShutdownArchipelagoRuntime()
+        {
+            if (pluginShutdownStarted) return;
+            pluginShutdownStarted = true;
+            // Unity OnDestroy is not guaranteed on every game-exit path.
+            // Flush the last valid save and close only our owned bridge.
+            ScanNewNativeSaves(true);
+            StopLocalBridge();
+        }
+
         private void OnDestroy()
         {
-            // Catch a save created just before closing the game, without
-            // modifying the native game data.
-            ScanNewNativeSaves(true);
+            ShutdownArchipelagoRuntime();
             UninstallNativePreRenderHooks();
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged -=
                 OnArchipelagoSceneChanged;
             if (harmony != null) harmony.UnpatchSelf();
-            // The standalone bridge is a child process only when launched by this plugin.
-            // Do not kill a bridge started by the user from PowerShell.
-            if (localBridge != null)
-            {
-                try { if (!localBridge.HasExited) localBridge.Kill(); }
-                catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
-                localBridge.Dispose();
-                localBridge = null;
-            }
             DestroyNativeInputShield();
             RestoreNativeEntries();
             RestoreNativeMenuLayout();
