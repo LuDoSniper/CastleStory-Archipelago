@@ -259,7 +259,8 @@ namespace CastleStoryArchipelago
             }
             string name = __instance.GetType().FullName;
             plugin.Logger.LogInfo("[AP NATIVE SCREEN] OpenSelf: " + name);
-            if (plugin.titleSceneSeen || plugin.nativeStarterMenu != null)
+            if (!plugin.nativeCaptionHookInstalled &&
+                (plugin.titleSceneSeen || plugin.nativeStarterMenu != null))
                 plugin.ScheduleNativeUiFilter(name);
             if (simple.Contains("load") || simple.Contains("save"))
             {
@@ -296,9 +297,15 @@ namespace CastleStoryArchipelago
         private static void ObserveNativeLibraryOpened(object __instance)
         {
             if (Instance == null) return;
-            Instance.ScheduleNativeUiFilter("native library OpenSelf");
-            Instance.RefreshNativeSeedMenu();
-            Instance.Logger.LogInfo("[AP NATIVE UI] Library opened; seed filter applied before first frame.");
+            // The new hook filters captions as Brix assigns them. No global
+            // post-open scan and no visible unfiltered first frame.
+            if (!Instance.nativeCaptionHookInstalled)
+            {
+                Instance.ScheduleNativeUiFilter("native library OpenSelf fallback");
+                Instance.RefreshNativeSeedMenu();
+            }
+            Instance.Logger.LogInfo("[AP UI NATIVE] Native library opened; " +
+                "visibility policy active before text is rendered.");
         }
 
         private static void ObserveMapListed(object __0, object __result)
@@ -462,8 +469,11 @@ namespace CastleStoryArchipelago
                 // steal mouse events from Castle Story's own map selector.
                 Instance.nativeNewGameVisible = false;
                 Instance.apMenuOpen = false;
-                Instance.ScheduleNativeUiFilter("native starter OpenSelf");
-                Instance.RefreshNativeSeedMenu();
+                if (!Instance.nativeCaptionHookInstalled)
+                {
+                    Instance.ScheduleNativeUiFilter("native starter fallback");
+                    Instance.RefreshNativeSeedMenu();
+                }
                 Instance.Logger.LogInfo("[AP MENU] Native New Game opened; native seed filtering=" +
                     Instance.bridgeConnected + " campaign ready=" +
                     (Instance.campaign != null && Instance.campaign.ready) +
