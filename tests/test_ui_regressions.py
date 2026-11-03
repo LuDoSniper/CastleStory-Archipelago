@@ -199,6 +199,34 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("authenticatedApSaveSession && !disconnectPending", saves)
         self.assertIn("lastPrimaryTagStamp", saves)
 
+    def test_pre_render_never_deactivates_a_pooled_brix_card_during_build(self):
+        pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("private void HidePreRenderCard(GameObject card)", pre)
+        self.assertIn("private void ShowPreRenderCard(GameObject card)", pre)
+        self.assertIn("CanvasGroup group = card.GetComponent<CanvasGroup>();", pre)
+        self.assertIn("state.group.alpha = 0f;", pre)
+        self.assertIn("state.group.blocksRaycasts = false;", pre)
+        self.assertIn('SetUiProperty(state.layout, "ignoreLayout", true);', pre)
+        self.assertIn("FindIndividualNativeChoice(text, isMap)", pre)
+        self.assertIn('name.IndexOf("GamemodeButton"', pre)
+        self.assertIn('name.IndexOf("Btn_DblTxt_RightIcon"', pre)
+        self.assertIn('name.IndexOf("ThumbnailListItem"', pre)
+        self.assertIn("ReconcileKnownNativeSaveCards()", pre)
+        self.assertIn("ClearPreRenderCardPolicy()", INTEGRATION.read_text(encoding="utf-8"))
+        self.assertNotIn("HideNativeEntry(card);", pre)
+        self.assertNotIn("HideNativeEntry(choice);", pre)
+        self.assertNotIn("FindNativeChoiceRoot(text)", pre)
+        self.assertNotIn("SetActive(false)", pre)
+
+    def test_native_card_subtitles_cannot_unmask_forbidden_action(self):
+        pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("if (IsAllowedPlaySubmenuEntry(caption))", pre)
+        self.assertIn("ShowPreRenderCard(allowedAction)", pre)
+        self.assertIn("(isModeCard && nativeMode != null)", pre)
+        self.assertIn("(isMapCard && isMap)", pre)
+        self.assertNotIn("(isPlayCard && forbiddenPlay == false)", pre)
+        self.assertIn("if (cardRoot == null) return;", pre)
+
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
         native = NATIVE.read_text(encoding="utf-8")
