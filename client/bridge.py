@@ -579,9 +579,10 @@ class StdinControl:
     Unity writes one JSON command per line to the child's anonymous stdin
     pipe. Only the server and slot are remembered by the Unity plugin.
     """
-    def __init__(self, start_reader=True):
+    def __init__(self, start_reader=True, directory=None):
         self.queue = queue.Queue()
         self.request = None
+        self.directory = Path(directory) if directory is not None else None
         if start_reader:
             self.reader = threading.Thread(target=self._read, daemon=True)
             self.reader.start()
@@ -614,6 +615,15 @@ class StdinControl:
             self.request = (normalize_url(address), slot, password)
         else:
             LOG.warning("Unsupported bridge control command")
+            return
+        # Ack only that the private IPC message reached the bridge. Neither
+        # password, server nor slot are ever written into this diagnostic.
+        request_id = command.get("request_id")
+        if self.directory is not None and isinstance(request_id, str):
+            save_json(self.directory / "bridge_command_ack.json", {
+                "request_id": request_id,
+                "cmd": action
+            })
 
     def drain(self):
         while True:
@@ -664,7 +674,7 @@ async def main(args):
     active = None
     delay = 1
     static = (normalize_url(args.server), args.slot, args.password) if args.server and args.slot else None
-    control = StdinControl() if getattr(args, "stdin_control", False) else None
+    control = StdinControl(directory=directory) if getattr(args, "stdin_control", False) else None
     while True:
         requested = control.drain() if control is not None else (
             effective_connection_request(directory, static))
