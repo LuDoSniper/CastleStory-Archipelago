@@ -18,7 +18,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('save_tags.json', SAVE)
         self.assertIn('new [] { "Saves", "Save", "Sauvegarde" }', SAVE)
         self.assertIn('Path.Combine(Paths.GameRootPath, "Info")', SAVE)
-        self.assertIn('File.WriteAllText(temp, JsonUtility.ToJson(new ApSaveRegistry', SAVE)
+        self.assertIn('string contents = JsonUtility.ToJson(new ApSaveRegistry', SAVE)
         self.assertNotIn('File.WriteAllText(Path.Combine(apSaveRoot', SAVE)
         self.assertNotIn('File.Delete(Path.Combine(apSaveRoot', SAVE)
         self.assertNotIn('Directory.Move(', SAVE)
@@ -55,7 +55,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('if (!saveRegistryWritable) return;', SAVE)
         self.assertIn('.archipelago-save-tags.json', SAVE)
         self.assertIn('MergeSaveTagsFrom(SaveTagsMirrorPath, false);', SAVE)
-        self.assertIn('Only load-oriented menus', SAVE)
+        self.assertIn('runtime instance type in the callback.', SAVE)
 
     def test_load_guard_applies_only_to_known_native_save_selections(self):
         self.assertIn('BeforeNativeLoadConfirmed', SAVE)
