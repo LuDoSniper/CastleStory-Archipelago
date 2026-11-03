@@ -52,6 +52,7 @@ namespace CastleStoryArchipelago
         private bool apSavePolicyPrepared;
         private string lastSavePolicyToken = null;
         private bool lastSavePolicyActive;
+        private bool authenticatedApSaveSession;
         private readonly HashSet<string> probedNativeLoadMenus =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -96,6 +97,7 @@ namespace CastleStoryArchipelago
                         imported++;
                     }
                 }
+                if (primary) saveRegistryWritable = true;
                 Logger.LogInfo("[AP SAVE] Imported " + imported +
                     " tags from " + Path.GetFileName(path));
             }
@@ -353,12 +355,20 @@ namespace CastleStoryArchipelago
 
         private bool IsArchipelagoSaveSessionActive()
         {
-            // The ArchiLAN bridge drops its heartbeat for ~0.7s several times
-            // in the supplied logs. That MUST NOT temporarily show vanilla
-            // saves or disable seed validation. Only explicit disconnect or
-            // loss of a valid manifest leaves Archipelago save mode.
-            return !disconnectPending && !String.IsNullOrEmpty(token) &&
-                campaign != null && campaign.ready;
+            // A cached session.json is NOT an authenticated connection.
+            // Once live connection is proven, retain AP isolation through
+            // brief bridge heartbeat drops, until explicit logout.
+            return authenticatedApSaveSession && !disconnectPending &&
+                !String.IsNullOrEmpty(token) && campaign != null &&
+                campaign.ready;
+        }
+
+        private void OnApAuthenticationChanged(bool becameConnected)
+        {
+            if (disconnectPending) authenticatedApSaveSession = false;
+            else if (becameConnected) authenticatedApSaveSession = true;
+            RefreshSaveRegistryWhenModified();
+            RebuildSaveVisibilityPolicy("connection state changed");
         }
 
         private bool IsAllowedNativeSave(string folder)
@@ -540,6 +550,11 @@ namespace CastleStoryArchipelago
         private void UpdateSaveIsolation()
         {
             float now = Time.realtimeSinceStartup;
+            if (now >= nextSaveRegistryCheckAt)
+            {
+                nextSaveRegistryCheckAt = now + 1.25f;
+                RefreshSaveRegistryWhenModified();
+            }
             if (now >= nextSaveScanAt)
             {
                 nextSaveScanAt = now + 1f;
