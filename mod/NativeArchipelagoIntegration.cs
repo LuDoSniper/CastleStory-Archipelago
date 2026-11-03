@@ -1099,9 +1099,15 @@ namespace CastleStoryArchipelago
             switch (NormalizeNativeLabel(label))
             {
                 case "map editor": case "éditeur de cartes":
-                case "éditeur de carte": case "map maker":
-                case "level editor": case "wonder": case "wonders":
+                case "éditeur de carte": case "éditeur de monde":
+                case "editeur de monde": case "world editor":
+                case "editeur du monde": case "édition de monde":
+                case "map maker": case "level editor":
+                case "wonder": case "wonders":
                 case "merveilles": case "merveille":
+                case "île de la renommée": case "ile de la renommée":
+                case "île de la renommee": case "ile de la renommee":
+                case "hall of fame": case "hall of fame island":
                 case "workshop": case "steam workshop":
                     return true;
                 default: return false;
