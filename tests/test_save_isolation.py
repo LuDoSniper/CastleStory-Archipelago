@@ -28,6 +28,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('PrepareNativeSaveTracking();', MENU)
         self.assertIn('startedMission = matching.id;', MENU)
         self.assertIn('if (!knownSaveFolders.Add(name)) continue;', SAVE)
+        self.assertIn('if (Directory.GetFiles(folder).Length == 0) continue;', SAVE)
         self.assertIn('if (!IsSeedGameplayActive()) return;', SAVE)
         self.assertIn('token = token, seed = seed,', SAVE)
         self.assertIn('slot = loginSlot, mode = mode,', SAVE)
@@ -55,7 +56,9 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('ValidateNativeLoad(__instance)', SAVE)
         self.assertIn('if (onOk == null || !typeName.Contains("load")) continue;', SAVE)
         self.assertIn('return !bridgeConnected;', SAVE)
-        self.assertIn('startedMission = tag.mission ?? "";', SAVE)
+        self.assertIn('SelectMission(mission);', SAVE)
+        self.assertIn('startedMission = mission.id;', SAVE)
+        self.assertIn('campaign.missions.FirstOrDefault(', SAVE)
         self.assertIn('Blocked cross-mode/foreign-seed load', SAVE)
 
     def test_play_menu_never_uses_destructive_unknown_control_whitelist(self):
