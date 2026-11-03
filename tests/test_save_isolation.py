@@ -27,12 +27,12 @@ class SaveIsolationTests(unittest.TestCase):
     def test_tags_new_folders_only_after_validated_seed_start(self):
         self.assertIn('PrepareNativeSaveTracking();', MENU)
         self.assertIn('startedMission = matching.id;', MENU)
-        self.assertIn('if (!knownSaveFolders.Add(name)) continue;', SAVE)
+        self.assertIn('if (knownSaveFolders.Contains(name)) continue;', SAVE)
         self.assertIn('if (Directory.GetFiles(folder).Length == 0) continue;', SAVE)
         self.assertIn('if (!finishingRun && !IsSeedGameplayActive()) return;', SAVE)
         self.assertIn('ScanNewNativeSaves(true)', PLUGIN)
         self.assertIn('token = token, seed = seed,', SAVE)
-        self.assertIn('slot = loginSlot, mode = mode,', SAVE)
+        self.assertIn('slot = currentApSlotName, team = currentApTeam,', SAVE)
         self.assertIn('mission = startedMission,', SAVE)
         self.assertIn('map_id = active == null ? "" : MissionMapId(active)', SAVE)
         self.assertIn('!String.Equals(tag.map_id, MissionMapId(mission)', SAVE)
@@ -41,7 +41,7 @@ class SaveIsolationTests(unittest.TestCase):
 
     def test_connection_scopes_archipelago_saves_and_vanilla_saves(self):
         self.assertIn('IsArchipelagoSaveSessionActive()', SAVE)
-        self.assertIn('String.Equals(tag.token, token', SAVE)
+        self.assertIn('TagBelongsToCurrentRun(tag)', SAVE)
         self.assertIn('return !tagged;', SAVE)
         self.assertIn('lastSavePolicyActive != after', SAVE)
         self.assertIn('OnApAuthenticationChanged(false);',
@@ -55,10 +55,29 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('if (distinctFolders.Count > 1) break;', SAVE)
         self.assertIn('if (HasNativeInteractiveSurface(node))', SAVE)
         self.assertIn('saveRegistryWritable = false;', SAVE)
-        self.assertIn('if (!saveRegistryWritable) return;', SAVE)
+        self.assertIn('if (!saveRegistryWritable)', SAVE)
         self.assertIn('.archipelago-save-tags.json', SAVE)
         self.assertIn('MergeSaveTagsFrom(SaveTagsMirrorPath, false);', SAVE)
         self.assertIn('runtime instance type in the callback.', SAVE)
+
+    def test_seed_team_slot_identity_survives_bridge_restarts(self):
+        self.assertIn('String.Equals(tag.seed, seed, StringComparison.Ordinal)', SAVE)
+        self.assertIn('tag.team == currentApTeam', SAVE)
+        self.assertIn('tag.slot_id == currentApSlotNumber', SAVE)
+        self.assertIn('currentApSlotName,', SAVE)
+        self.assertIn('!TagBelongsToCurrentRun(tag)', SAVE)
+        self.assertIn('return !tagged;', SAVE)
+        self.assertIn('has_slot_identity = true', SAVE)
+
+    def test_independent_durable_tags_and_failed_write_retry(self):
+        self.assertIn('ArchipelagoSaveTags', SAVE)
+        self.assertIn('save_tags.d', SAVE)
+        self.assertIn('SHA256.Create()', SAVE)
+        self.assertIn('RestoreIndividualTags()', SAVE)
+        self.assertIn('PersistIndividualTags()', SAVE)
+        self.assertIn('if (PersistApSaveRegistry())', SAVE)
+        self.assertIn('retry on next scan', SAVE)
+        self.assertNotIn('File.WriteAllText(Path.Combine(apSaveRoot', SAVE)
 
     def test_load_guard_applies_only_to_known_native_save_selections(self):
         self.assertIn('BeforeNativeLoadConfirmed', SAVE)
