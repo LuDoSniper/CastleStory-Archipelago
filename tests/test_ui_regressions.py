@@ -48,7 +48,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('InstallNativeMenuLifecycleHooks();', hooks)
         self.assertIn('ObserveAnyMenuOpened(object __instance)', hooks)
         self.assertIn('ScheduleNativeUiFilter("native starter fallback")', hooks)
-        self.assertIn('ScheduleNativeUiFilter("native library OpenSelf")', hooks)
+        self.assertIn('ScheduleNativeUiFilter("native library OpenSelf fallback")', hooks)
         self.assertIn("OnArchipelagoSceneChanged(", code)
         self.assertIn("activeSceneChanged", PLUGIN.read_text(encoding="utf-8"))
 
