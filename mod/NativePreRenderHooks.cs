@@ -16,6 +16,8 @@ namespace CastleStoryArchipelago
         private bool evaluatingNativeCaption;
         private int nativeCaptionDecisions;
         private bool observedSaveCardWithoutTag;
+        private readonly Dictionary<GameObject, string> nativeSaveCardFolders =
+            new Dictionary<GameObject, string>();
 
         private void InstallNativePreRenderHooks()
         {
@@ -82,6 +84,26 @@ namespace CastleStoryArchipelago
             Instance.ApplyNativeCaptionBeforeRender(__instance as Component);
         }
 
+        private void ReconcileKnownNativeSaveCards()
+        {
+            // Tag metadata can be associated externally while Load is open.
+            // Reconcile just previously classified save cards, not the full
+            // UI. Never restore an unrelated forbidden mode card.
+            foreach (var pair in nativeSaveCardFolders)
+            {
+                GameObject card = pair.Key;
+                if (card == null) continue;
+                bool allowed = cachedAllowedSaveNames.Contains(pair.Value);
+                if (allowed)
+                {
+                    bool wasHidden = hiddenNativeEntries.ContainsKey(card);
+                    hiddenNativeEntries.Remove(card);
+                    if (wasHidden && !card.activeSelf) card.SetActive(true);
+                }
+                else HideNativeEntry(card);
+            }
+        }
+
         private void ApplyKnownNativeRestrictionsBeforeRender()
         {
             // Constant work proportional to the small set of disallowed cards,
@@ -145,6 +167,7 @@ namespace CastleStoryArchipelago
                         }
                         return;
                     }
+                    nativeSaveCardFolders[card] = folder;
                     if (!cachedAllowedSaveNames.Contains(folder))
                     {
                         HideNativeEntry(card);
