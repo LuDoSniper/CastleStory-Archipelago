@@ -132,6 +132,7 @@ namespace CastleStoryArchipelago
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
             InstallNativeSaveMenuHooks();
+            InstallNativePreRenderHooks();
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged +=
                 OnArchipelagoSceneChanged;
             InstallBonusSpawnHooks();
@@ -538,8 +539,10 @@ namespace CastleStoryArchipelago
                     bridgeConnected = false;
                     return;
                 }
-                if (token != session.token || mode != session.mode)
+                bool seedChanged = token != session.token || mode != session.mode;
+                if (seedChanged)
                 {
+                    authenticatedApSaveSession = false;
                     token = session.token;
                     mode = session.mode;
                     seed = session.seed ?? "";
@@ -647,6 +650,11 @@ namespace CastleStoryArchipelago
                 bool previouslyConnected = bridgeConnected;
                 bridgeConnected = session.connected && freshHeartbeat &&
                     !disconnectPending;
+                if (seedChanged || previouslyConnected != bridgeConnected)
+                {
+                    OnApAuthenticationChanged(bridgeConnected);
+                    ApplyPrecomputedPolicyToVisibleTitles();
+                }
                 if (previouslyConnected != bridgeConnected)
                 {
                     Logger.LogInfo("[AP SESSION] Connection " +
@@ -849,6 +857,7 @@ namespace CastleStoryArchipelago
             // Catch a save created just before closing the game, without
             // modifying the native game data.
             ScanNewNativeSaves(true);
+            UninstallNativePreRenderHooks();
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged -=
                 OnArchipelagoSceneChanged;
             if (harmony != null) harmony.UnpatchSelf();
