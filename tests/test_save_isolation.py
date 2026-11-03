@@ -52,17 +52,37 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('if (HasNativeInteractiveSurface(node))', SAVE)
         self.assertIn('saveRegistryWritable = false;', SAVE)
         self.assertIn('if (!saveRegistryWritable) return;', SAVE)
+        self.assertIn('.archipelago-save-tags.json', SAVE)
+        self.assertIn('MergeSaveTagsFrom(SaveTagsMirrorPath, false);', SAVE)
         self.assertIn('Only load-oriented menus', SAVE)
 
     def test_load_guard_applies_only_to_known_native_save_selections(self):
         self.assertIn('BeforeNativeLoadConfirmed', SAVE)
         self.assertIn('ValidateNativeLoad(__instance)', SAVE)
-        self.assertIn('if (onOk == null || !typeName.Contains("load")) continue;', SAVE)
+        self.assertIn('OpenSelf hooks=', SAVE)
+        self.assertIn('ObserveNativeLoadLibraryOpened', SAVE)
+        self.assertIn('ValidateNativeLoadStarter(menuInstance)', MENU)
+        self.assertIn('NativeSaveFolderFromHeightmap(selectedMap)', SAVE)
         self.assertIn('return !bridgeConnected;', SAVE)
         self.assertIn('SelectMission(mission);', SAVE)
         self.assertIn('startedMission = mission.id;', SAVE)
         self.assertIn('campaign.missions.FirstOrDefault(', SAVE)
-        self.assertIn('Blocked cross-mode/foreign-seed load', SAVE)
+        self.assertIn('Rejected nonmatching or untagged', SAVE)
+
+    def test_native_loads_do_not_hit_new_game_map_guard(self):
+        self.assertIn('menuInstance.GetType().Name.IndexOf("LoadGameStarter"', MENU)
+        self.assertIn('return ValidateNativeLoadStarter(menuInstance);', MENU)
+        self.assertIn('const string marker = "/Info/Saves/";', SAVE)
+        self.assertIn('SelectMission(mission);', SAVE)
+        self.assertIn('startedMission = mission.id;', SAVE)
+        self.assertIn('PrepareNativeSaveTracking();', SAVE)
+
+    def test_reactivated_cards_are_hidden_again_and_title_order_is_stable(self):
+        self.assertIn('if (hiddenNativeEntries.ContainsKey(button))', UI)
+        self.assertIn('if (button.activeSelf)', UI)
+        self.assertIn('titleArchipelagoControl.SetSiblingIndex(', UI)
+        self.assertIn('MaintainTitleButtonSpacing();', PLUGIN)
+        self.assertIn('ScheduleNativeSaveFilter("native title UI refreshed")', UI)
 
     def test_play_menu_never_uses_destructive_unknown_control_whitelist(self):
         self.assertIn('case "charger partie":', UI)
