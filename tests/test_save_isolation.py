@@ -43,6 +43,9 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('IsArchipelagoSaveSessionActive()', SAVE)
         self.assertIn('String.Equals(tag.token, token', SAVE)
         self.assertIn('return !tagged;', SAVE)
+        self.assertIn('lastSavePolicyActive != after', SAVE)
+        self.assertIn('OnApAuthenticationChanged(false);',
+                      (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8"))
         self.assertIn('authenticatedApSaveSession && !disconnectPending', SAVE)
         self.assertIn('ScheduleNativeSaveFilter(name);', MENU)
         self.assertIn('FilterNativeSaveChoices();', SAVE)
