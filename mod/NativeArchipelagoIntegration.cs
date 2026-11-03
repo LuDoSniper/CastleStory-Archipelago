@@ -300,16 +300,42 @@ namespace CastleStoryArchipelago
             return false;
         }
 
+        private bool IsNativeTitleReady()
+        {
+            if (!titleSceneSeen || nativeStarterMenu != null ||
+                observedMapAssets.Count > 0) return false;
+            // The proprietary studio splash animation length is not in this
+            // repository. Detect the transition to the actual title choices,
+            // rather than guessing "4 seconds after SceneMenu".
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return false;
+            bool play = false, options = false;
+            foreach (UnityEngine.Object obj in
+                UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component component = obj as Component;
+                if (component == null || !component.gameObject.activeInHierarchy)
+                    continue;
+                string value = GetUiProperty(component, "text") as string;
+                if (IsPlayLabel(value)) play = true;
+                else if (IsOptionsLabel(value)) options = true;
+                if (play && options) return true;
+            }
+            return false;
+        }
+
         private void BeginOwnIntroCredit()
         {
             // Start only AFTER Play+Options are present, which marks the end
             // of the studio splash sequence. Never overlay a studio logo.
-            if (introCreditShown || !titleSceneSeen || nativeStarterMenu != null)
+            if (introCreditShown || !IsNativeTitleReady())
                 return;
             introCreditShown = true;
             introCreditActive = true;
             introCreditStart = Time.realtimeSinceStartup;
-            Logger.LogInfo("[AP CREDITS] Dedicated Archipelago credit after studio splashes.");
+            Logger.LogInfo("[AP CREDITS] Title Play+Options detected after " +
+                (Time.realtimeSinceStartup - titleSceneReadyAt).ToString("F2") +
+                "s in SceneMenu. Dedicated Archipelago credit started.");
         }
 
         private RectTransform FindTitleChoiceRect(Component label)
@@ -1004,14 +1030,9 @@ namespace CastleStoryArchipelago
                 titleSceneEvidenceLogged = true;
                 ProbeTitleScreenHierarchy();
             }
-            // Castle Story's first Play/Options screen is not represented by
-            // UnityEngine.UI.Button; only the later map screen uses that type.
-            // Start the independent credit from the title scene, never from
-            // a later New Game button. A grace interval lets the game's
-            // initial studio splashes finish before the white extra panel.
-            if (titleSceneSeen && !introCreditShown &&
-                titleSceneReadyAt >= 0f && now - titleSceneReadyAt >= 4.0f &&
-                nativeStarterMenu == null && observedMapAssets.Count == 0)
+            // Do not guess the original credits' duration. Show our segment
+            // as soon as the actual title controls become active.
+            if (titleSceneSeen && !introCreditShown && titleSceneReadyAt >= 0f)
                 BeginOwnIntroCredit();
             if (introCreditActive && now - introCreditStart >= 3.5f)
             {
