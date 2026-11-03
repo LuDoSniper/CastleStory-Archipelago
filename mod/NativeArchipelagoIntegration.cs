@@ -818,6 +818,18 @@ namespace CastleStoryArchipelago
             lastFilterMode = null;
         }
 
+        private void EnforceHiddenNativeEntries()
+        {
+            if (!titleSceneSeen || disconnectPending || hiddenNativeEntries.Count == 0)
+                return;
+            // Cheap O(hiddenCards) guard: Brix may reactivate the SAME pooled
+            // choice long after the three bounded filtering passes. Do not
+            // rescan every UI text; simply keep known forbidden cards inactive.
+            foreach (var pair in hiddenNativeEntries)
+                if (pair.Key != null && pair.Key.activeSelf)
+                    pair.Key.SetActive(false);
+        }
+
         private void HideNativeEntry(GameObject button)
         {
             if (button == null) return;
