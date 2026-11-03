@@ -246,6 +246,8 @@ namespace CastleStoryArchipelago
             plugin.Logger.LogInfo("[AP NATIVE SCREEN] OpenSelf: " + name);
             plugin.ScheduleNativeUiFilter(name);
             string simple = __instance.GetType().Name.ToLowerInvariant();
+            if (simple.Contains("load") || simple.Contains("save"))
+                plugin.ScheduleNativeSaveFilter(name);
             // The extra credit begins after the native title menu is ready,
             // not over the initial studio splash sequence.
             if (simple.Contains("title") || simple.Contains("mainmenu"))
@@ -711,6 +713,7 @@ namespace CastleStoryArchipelago
                 // popup is necessary to select a map or mission.
                 SelectMission(matching);
                 startedMission = matching.id;
+                PrepareNativeSaveTracking();
                 lastRejectedWave = -1;
                 Logger.LogInfo("[AP MISSION START] " + matching.id +
                     " map=" + mapId + " mode=" + modeId +
