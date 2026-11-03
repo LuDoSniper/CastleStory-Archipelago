@@ -354,6 +354,7 @@ namespace CastleStoryArchipelago
                     disconnectPending = true;
                     bridgeConnected = false;
                     loginPassword = "";
+                    ClearPendingBridgeHandshake();
                     return;
                 }
                 try { SendBridgeControl(enable); }
