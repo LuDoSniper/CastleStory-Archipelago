@@ -66,8 +66,9 @@ class NativeUiIntegrationTests(unittest.TestCase):
         ui = INTEGRATION.read_text(encoding="utf-8")
         self.assertIn("TryInstallTitleEntryFromText()", ui)
         self.assertIn("Archipelago_NativeTitleEntry", ui)
-        self.assertIn("nativeStarterMenu != null ||", ui)
-        self.assertIn("observedMapAssets.Count > 0", ui)
+        self.assertIn("if (nativeStarterMenu != null) return false;", ui)
+        self.assertIn("nativeStarterMenu = null;", ui)
+        self.assertIn("observedMapAssets.Clear();", ui)
         self.assertIn('String.Equals(name, "SceneMenu"', ui)
         self.assertIn("if (titleSceneSeen && !introCreditShown", ui)
         self.assertIn("IsNativeTitleReady()", ui)
@@ -122,6 +123,49 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("bridge_command_ack.json", bridge)
         self.assertIn('"request_id": request_id', bridge)
         self.assertNotIn('save_json(self.directory / "connection.json"', bridge)
+
+    def test_title_reinstalls_after_save_quit_scene_transition(self):
+        code = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn("nativeArchipelagoButton = null;", code)
+        self.assertIn("mainMenuPlayTemplate = null;", code)
+        self.assertIn("nativeStarterMenu = null;", code)
+        self.assertIn("hiddenNativeEntries.Clear();", code)
+        self.assertIn("lastNativeFilterKey = null;", code)
+        self.assertIn("observedMapAssets.Clear();", code)
+        self.assertIn("mainMenuProbeCount = 0;", code)
+        self.assertIn("Rebuilding Archipelago title UI", code)
+        self.assertIn("HideNativeConnectionPanel();", code)
+        # Replay credits only at first boot; preserve the introCreditShown state.
+        scene = code.split("private void OnArchipelagoSceneChanged(", 1)[1]
+        scene = scene.split("private void UpdateNativeArchipelagoIntegration()", 1)[0]
+        self.assertNotIn("introCreditShown = false;", scene)
+
+    def test_native_hover_uses_real_play_template_and_actions_do_not_replay(self):
+        integration = INTEGRATION.read_text(encoding="utf-8")
+        panel = (ROOT / "mod/NativeConnectionPanel.cs").read_text(encoding="utf-8")
+        self.assertIn("FindRealTitlePlayButton(label)", integration)
+        self.assertIn("UnityEngine.Object.Instantiate(realPlay)", integration)
+        self.assertIn("RemoveOriginalTitleClickTriggers(copy);", integration)
+        self.assertIn('name == "PointerClick"', integration)
+        self.assertIn("ConfigureFallbackPrimaryHover(copy);", integration)
+        self.assertIn("ConfigureFallbackPrimaryHover(cloned);", panel)
+        self.assertIn('hover=" + (hasNativeHover ?', panel)
+
+    def test_unwanted_native_play_options_are_explicitly_removed(self):
+        integration = INTEGRATION.read_text(encoding="utf-8")
+        self.assertIn('case "éditeur de monde":', integration)
+        self.assertIn('case "île de la renommée":', integration)
+        self.assertIn("HideNativeNonSelectableChoices(selectedNativeMode)", integration)
+        self.assertIn('case "nouvelle partie":', integration)
+        self.assertIn('case "charger partie":', integration)
+        self.assertIn('case "multijoueur":', integration)
+
+    def test_gameplay_lua_menu_does_not_schedule_unbounded_ui_passes(self):
+        hooks = NATIVE.read_text(encoding="utf-8")
+        self.assertIn('if (simple == "luamenu")', hooks)
+        self.assertIn('if (plugin.titleSceneSeen && plugin.bridgeConnected', hooks)
+        self.assertIn('plugin.lastLuaTitleFilterAt > .65f', hooks)
+        self.assertIn('if (plugin.titleSceneSeen || plugin.nativeStarterMenu != null)', hooks)
 
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
