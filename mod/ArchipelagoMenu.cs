@@ -404,7 +404,12 @@ namespace CastleStoryArchipelago
         {
             try
             {
-                if (localBridge != null && !localBridge.HasExited) return true;
+                if (localBridge != null)
+                {
+                    if (!localBridge.HasExited) return true;
+                    localBridge.Dispose();
+                    localBridge = null;
+                }
                 string exe = Path.Combine(Path.Combine(Paths.PluginPath,
                     "castle_story_ap"), "castle-story-ap-bridge.exe");
                 if (!File.Exists(exe))
@@ -413,7 +418,12 @@ namespace CastleStoryArchipelago
                     return false;
                 }
                 var info = new ProcessStartInfo(exe);
-                info.Arguments = "--stdin-control --bridge-dir " + Quote(directory);
+                // Parent PID is a lifecycle scope, NOT a run/session ID.
+                // The bridge also watches Windows process death in case
+                // Unity never calls OnApplicationQuit (crash/forced exit).
+                using (Process game = Process.GetCurrentProcess())
+                    info.Arguments = "--stdin-control --bridge-dir " +
+                        Quote(directory) + " --parent-pid " + game.Id;
                 info.UseShellExecute = false;
                 info.CreateNoWindow = true;
                 info.RedirectStandardInput = true;
@@ -426,6 +436,38 @@ namespace CastleStoryArchipelago
                 statusLine = "Démarrage du bridge impossible : " + error.Message;
                 Logger.LogWarning("[AP BRIDGE] " + error.GetType().Name);
                 return false;
+            }
+        }
+
+        private void StopLocalBridge()
+        {
+            if (localBridge == null) return;
+            try
+            {
+                if (!localBridge.HasExited)
+                {
+                    try
+                    {
+                        string command = Convert.ToBase64String(
+                            System.Text.Encoding.UTF8.GetBytes("{\\"cmd\\":\\"shutdown\\"}"));
+                        localBridge.StandardInput.WriteLine("APIPC1:" + command);
+                        localBridge.StandardInput.Flush();
+                        localBridge.StandardInput.Close();
+                    }
+                    catch (Exception) { /* Broken pipe: kill fallback below. */ }
+                    if (!localBridge.WaitForExit(450))
+                        localBridge.Kill();
+                    Logger.LogInfo("[AP BRIDGE] Owned bridge stopped on game exit.");
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP BRIDGE] Shutdown: " + error.GetType().Name);
+            }
+            finally
+            {
+                localBridge.Dispose();
+                localBridge = null;
             }
         }
 
