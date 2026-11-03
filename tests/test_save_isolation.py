@@ -40,9 +40,10 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('UpdateSaveIsolation();', PLUGIN)
 
     def test_connection_scopes_archipelago_saves_and_vanilla_saves(self):
-        self.assertIn('if (bridgeConnected)', SAVE)
+        self.assertIn('IsArchipelagoSaveSessionActive()', SAVE)
         self.assertIn('String.Equals(tag.token, token', SAVE)
         self.assertIn('return !tagged;', SAVE)
+        self.assertIn('!disconnectPending && !String.IsNullOrEmpty(token)', SAVE)
         self.assertIn('ScheduleNativeSaveFilter(name);', MENU)
         self.assertIn('FilterNativeSaveChoices();', SAVE)
         self.assertIn('FindNativeSaveCardRoot(label, known)', SAVE)
@@ -63,7 +64,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('ObserveNativeLoadLibraryOpened', SAVE)
         self.assertIn('ValidateNativeLoadStarter(menuInstance)', MENU)
         self.assertIn('NativeSaveFolderFromHeightmap(selectedMap)', SAVE)
-        self.assertIn('return !bridgeConnected;', SAVE)
+        self.assertIn('return !IsArchipelagoSaveSessionActive();', SAVE)
         self.assertIn('SelectMission(mission);', SAVE)
         self.assertIn('startedMission = mission.id;', SAVE)
         self.assertIn('campaign.missions.FirstOrDefault(', SAVE)
