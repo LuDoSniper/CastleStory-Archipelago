@@ -820,7 +820,7 @@ namespace CastleStoryArchipelago
 
         private void EnforceHiddenNativeEntries()
         {
-            if (!titleSceneSeen || disconnectPending || hiddenNativeEntries.Count == 0)
+            if (!titleSceneSeen || hiddenNativeEntries.Count == 0)
                 return;
             // Cheap O(hiddenCards) guard: Brix may reactivate the SAME pooled
             // choice long after the three bounded filtering passes. Do not
