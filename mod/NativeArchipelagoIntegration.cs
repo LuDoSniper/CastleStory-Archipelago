@@ -1205,7 +1205,8 @@ namespace CastleStoryArchipelago
             hidden += HideTextBasedPlaySubmenuChoices();
             // Always redo save filtering after a title navigation that may
             // rebuild the Load list (Brix menus use inherited OpenSelf).
-            ScheduleNativeSaveFilter("native title UI refreshed");
+            if (!nativeCaptionHookInstalled)
+                ScheduleNativeSaveFilter("legacy title scan");
             watch.Stop();
             if (hidden > 0 && nativeRestrictionLogCount++ < 12)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
@@ -1306,6 +1307,13 @@ namespace CastleStoryArchipelago
 
         private void ScheduleNativeUiFilter(string source)
         {
+            if (nativeCaptionHookInstalled)
+            {
+                // Brix cards are classified by Text.text/OnEnable before they
+                // reach Canvas. Delayed searches caused the visible flicker.
+                return;
+            }
+            // Legacy fallback only, when Unity's text setter could not be patched.
             // Three short checks cover asynchronous native card creation.
             // No continuous polling and no re-enabling cards on each pass.
             cachedNativeLabels.Clear();
@@ -1464,11 +1472,13 @@ namespace CastleStoryArchipelago
             // Main Play, mode choice and Back may use custom game controls,
             // not Brix.OpenSelf. A click schedules finite filtering once,
             // unlike the old unconditional 500 ms scanner.
-            if (titleSceneSeen && !introCreditActive && bridgeConnected &&
+            if (!nativeCaptionHookInstalled &&
+                titleSceneSeen && !introCreditActive && bridgeConnected &&
                 (nativeConnectionPanel == null || !nativeConnectionPanel.activeSelf) &&
                 (Input.GetMouseButtonUp(0) || Input.GetKeyDown(KeyCode.Return)))
-                ScheduleNativeUiFilter("title/menu interaction");
-            if (pendingFilterPasses > 0 && now >= nextFilterPassAt)
+                ScheduleNativeUiFilter("legacy title interaction");
+            if (!nativeCaptionHookInstalled &&
+                pendingFilterPasses > 0 && now >= nextFilterPassAt)
             {
                 pendingFilterPasses--;
                 nextFilterPassAt = now + .12f;
