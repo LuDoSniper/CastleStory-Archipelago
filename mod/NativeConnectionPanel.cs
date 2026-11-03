@@ -350,13 +350,16 @@ namespace CastleStoryArchipelago
                 return;
             }
             WriteConnection(true);
-            nativeConnectPending = true;
-            lastConnectRequestAt = Time.realtimeSinceStartup;
+            nativeConnectPending = !String.IsNullOrEmpty(pendingBridgeRequestId);
+            if (nativeConnectPending)
+                lastConnectRequestAt = Time.realtimeSinceStartup;
             SetUiProperty(passwordNativeInput, "text", "");
             loginPassword = "";
             nativeStatusCache = "";
             UpdateNativePanelStatus();
-            Logger.LogInfo("[AP LOGIN] Login handed to bridge once; retry handled by bridge.");
+            Logger.LogInfo(nativeConnectPending ?
+                "[AP LOGIN] Login command sent; acknowledgement pending." :
+                "[AP LOGIN] Login command not sent; check connection panel status.");
         }
 
         private void NativeDisconnectAction()
