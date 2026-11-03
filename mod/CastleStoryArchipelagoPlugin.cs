@@ -746,6 +746,7 @@ namespace CastleStoryArchipelago
             // Reapply the real primary button's relative sibling order and
             // position after that rebuild, without touching hover handlers.
             MaintainTitleButtonSpacing();
+            EnforceHiddenNativeEntries();
         }
 
         private void Update()
