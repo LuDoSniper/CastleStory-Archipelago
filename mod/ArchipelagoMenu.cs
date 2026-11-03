@@ -353,6 +353,8 @@ namespace CastleStoryArchipelago
                     // even if the child bridge has already exited.
                     disconnectPending = true;
                     bridgeConnected = false;
+                    RestoreNativeEntries();
+                    ScheduleNativeSaveFilter("manual disconnect");
                     loginPassword = "";
                     ClearPendingBridgeHandshake();
                     return;
@@ -379,6 +381,10 @@ namespace CastleStoryArchipelago
                     campaignPreviewOpen = false;
                     apMenuOpen = true;
                     bridgeConnected = false;
+                    // Re-enable ordinary native options immediately, then
+                    // hide only tagged AP saves if Load is still open.
+                    RestoreNativeEntries();
+                    ScheduleNativeSaveFilter("manual disconnect");
                     Logger.LogInfo("[AP SESSION] User requested disconnection.");
                 }
             }
