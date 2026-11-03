@@ -34,6 +34,7 @@ namespace CastleStoryArchipelago
         private int waveEventCount;
         private int lastLoggedWave = -1;
         private int lastRejectedWave = -1;
+        private int lastDuplicateWaveLogged = -1;
         private bool checksDirty;
         private int conquestCaptured;
         private int conquestWinEvents;
@@ -238,6 +239,12 @@ namespace CastleStoryArchipelago
                     " queued for Archipelago; network=" +
                     (bridgeConnected ? "online" : "temporarily offline") +
                     "; id=" + (WaveBase + wave));
+            }
+            else if (lastDuplicateWaveLogged != wave)
+            {
+                lastDuplicateWaveLogged = wave;
+                Logger.LogInfo("[AP CHECK] Wave " + wave +
+                    " already completed for this seed; Archipelago checks are unique.");
             }
         }
 
@@ -552,6 +559,9 @@ namespace CastleStoryArchipelago
                     currentApSlotName != (session.slot_name ?? "");
                 if (seedChanged)
                 {
+                    // Preserve the old live inbox before changing the run
+                    // identity. Other slots must never overwrite this run.
+                    PreservePreviousCheckLedger();
                     authenticatedApSaveSession = false;
                     token = session.token;
                     mode = session.mode;
@@ -579,32 +589,16 @@ namespace CastleStoryArchipelago
                     chosenMission = "";
                     startedMission = "";
                     lastRejectedWave = -1;
+                    lastDuplicateWaveLogged = -1;
                     checksDirty = false;
                     inventory.Clear();
                     ResetBonusRewards(token);
                     conquestCaptured = 0;
                     conquestVictory = false;
                     lastWave = 0;
-                    var checksPath = Path.Combine(directory, "checks.json");
-                    if (File.Exists(checksPath))
-                    {
-                        var prior = JsonUtility.FromJson<CheckFile>(
-                            File.ReadAllText(checksPath));
-                        if (prior != null && prior.token == token &&
-                            prior.mode == mode)
-                        {
-                            if (prior.location_ids != null)
-                                foreach (int id in prior.location_ids)
-                                    if (ValidCheck(mode, id, goalWave, shardGoal))
-                                        checkedIds.Add(id);
-                            if (prior.captured_keys != null)
-                                foreach (string key in prior.captured_keys)
-                                    if (!String.IsNullOrEmpty(key)) capturedKeys.Add(key);
-                            if (prior.completed_missions != null)
-                                foreach (string id in prior.completed_missions)
-                                    if (!String.IsNullOrEmpty(id)) conqueredMissions.Add(id);
-                        }
-                    }
+                    // Prefer the durable run-specific ledger, merging the
+                    // legacy live inbox only when its run token matches.
+                    RestoreCheckLedgerForCurrentRun();
                     if (mode == "Invasion" || mode == "Hybrid")
                     {
                         var waves = checkedIds.Where(id =>
@@ -667,6 +661,13 @@ namespace CastleStoryArchipelago
                 bool previouslyConnected = bridgeConnected;
                 bridgeConnected = session.connected && freshHeartbeat &&
                     !disconnectPending;
+                if (seedChanged && checkedIds.Count > 0)
+                {
+                    // A new bridge process only watches checks.json. Rebuild
+                    // its inbox from this run's durable ledger on login.
+                    checksDirty = true;
+                    if (bridgeConnected) WriteChecks();
+                }
                 if (seedChanged || previouslyConnected != bridgeConnected)
                     OnApAuthenticationChanged(bridgeConnected);
                 if (previouslyConnected != bridgeConnected)
@@ -726,40 +727,51 @@ namespace CastleStoryArchipelago
 
         private void WriteChecks()
         {
-            // Do not lose a valid seed check when ArchiLAN temporarily
-            // disconnects. The bridge will replay the token-scoped ledger.
+            // A check is owned by the seeded run, not the current game/bridge
+            // process. Persist to its own ledger first, then the live bridge
+            // inbox. If either write fails, retry without losing the event.
             if (String.IsNullOrEmpty(token) || disconnectPending ||
                 (!bridgeConnected && !IsActiveInvasionMission())) return;
-            var path = Path.Combine(directory, "checks.json");
-            var temp = path + ".tmp";
             bool allShards = checkedIds.Contains(ConquestBase + shardGoal);
             bool invasionFinished = lastWave >= goalWave;
             bool conquestFinished = conquestVictory && allShards;
             bool won = mode == "Invasion" ? invasionFinished :
                 mode == "Conquest" ? conquestFinished :
                 (invasionFinished && conquestFinished);
+            string contents = JsonUtility.ToJson(new CheckFile {
+                token = token, mode = mode,
+                location_ids = checkedIds.OrderBy(x => x).ToArray(),
+                captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
+                completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
+                goal = won
+            });
+            bool complete = true;
+            string archive = CheckLedgerPath(token);
+            if (String.IsNullOrEmpty(archive)) complete = false;
+            else
+            {
+                try { WriteCheckLedgerFile(archive, contents); }
+                catch (Exception error)
+                {
+                    complete = false;
+                    Logger.LogWarning("[AP CHECK LEDGER] Run history write failed: " +
+                        error.GetType().Name + " " + error.Message);
+                }
+            }
             try
             {
-                File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
-                    token = token, mode = mode,
-                    location_ids = checkedIds.OrderBy(x => x).ToArray(),
-                    captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
-                    completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
-                    goal = won
-                }));
-                // Atomic replacement on NTFS avoids readers observing the
-                // deletion gap of the old File.Delete + File.Move sequence.
-                if (File.Exists(path)) File.Replace(temp, path, null);
-                else File.Move(temp, path);
-                checksDirty = false;
+                WriteCheckLedgerFile(Path.Combine(directory, "checks.json"), contents);
                 Logger.LogInfo("[AP CHECK FILE] persisted=" + checkedIds.Count +
-                    " goal=" + won + " online=" + bridgeConnected);
+                    " goal=" + won + " online=" + bridgeConnected +
+                    " durable=" + complete + " seed=" + seed);
             }
             catch (Exception error)
             {
-                checksDirty = true;
-                Logger.LogError("[AP CHECK FILE] Could not persist checks: " + error);
+                complete = false;
+                Logger.LogError("[AP CHECK FILE] Could not persist bridge inbox: " +
+                    error.GetType().Name + " " + error.Message);
             }
+            checksDirty = !complete;
         }
 
         private void LateUpdate()
@@ -878,8 +890,9 @@ namespace CastleStoryArchipelago
             if (pluginShutdownStarted) return;
             pluginShutdownStarted = true;
             // Unity OnDestroy is not guaranteed on every game-exit path.
-            // Flush the last valid save and close only our owned bridge.
+            // Flush the last valid save/check and close only our owned bridge.
             ScanNewNativeSaves(true);
+            if (checksDirty) WriteChecks();
             StopLocalBridge();
         }
 
