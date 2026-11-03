@@ -1,6 +1,94 @@
-# Castle Story × Archipelago — v0.7.7 (ordre des menus, sauvegardes et reprise)
+# Castle Story × Archipelago — v0.7.8 (préfiltrage natif, sans flash visuel)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.8 — Préfiltrage natif au lieu de cacher après affichage
+
+Le nouveau retour du test v0.7.7 confirme que
+`Associate-CastleStoryAPSave.ps1` a **réussi à enregistrer**
+`ArchiLan-Test-01` pour la seed actuelle, la mission
+`invasion_1`, et la carte `official:TroubledHeaps`.
+Cependant le log du jeu fourni affiche **0 tags lors de son
+démarrage** et **24 sauvegardes masquées sur 24**. Il date donc
+d'un démarrage où le registre n'était pas encore lu correctement.
+Il faut regarder le nouveau journal après installation, sans
+réassocier artificiellement la même sauvegarde.
+
+### Changement architectural
+
+L'ancien comportement faisait d'abord apparaître la liste native,
+puis lançait trois ou quatre recherches différées (30–250 ms) pour
+masquer les éléments interdits. Ce mécanisme entraînait des flashes
+et des temps de filtrage dépassant parfois 200 ms dans les logs.
+
+La nouvelle stratégie, `mod/NativePreRenderHooks.cs` :
+
+1. Charge les tags, recense les noms de dossiers présents et
+   **prépare l'ensemble des sauvegardes autorisées dès la connexion
+   Archipelago authentifiée** ; hors connexion, seules les saves
+   classiques sont autorisées.
+2. Conserve les règles de cartes et de modes déjà connues. Il ne
+   recherche plus tous les boutons après chaque clic ni après
+   chaque ouverture de bibliothèque.
+3. Intercepte l'attribution du texte natif
+   `UnityEngine.UI.Text.text` ainsi que son activation
+   `OnEnable`. Lorsqu'un bouton ou une carte de sauvegarde est
+   construit par Brix, il est classé et masqué **avant le rendu**.
+   Cela s'applique aussi aux cartes réutilisées par le moteur.
+4. Le callback `Canvas.willRenderCanvases` maintient les cartes
+   déjà refusées invisibles, sans parcourir la scène entière.
+   Les anciens filtres temporisés ne servent plus qu'en cas
+   d'impossibilité d'installer ce hook (annoncée dans le log).
+5. Une modification externe du registre est détectée par les dates
+   de fichiers et **recharge les tags** sans redémarrer. Si une
+   sauvegarde déjà affichée devient autorisée, sa carte est
+   réconciliée sans rouvrir toute la liste.
+
+**Limite technique :** Castle Story ne construit pas tous ses menus
+à la connexion : certaines cartes sont instanciées quand le joueur
+entre dans un écran. Nous préchargeons **les décisions**, puis les
+appliquons pendant la construction de chaque contrôle — sans montrer
+le jeu non modifié. Le bon fonctionnement exact de ces hooks
+doit être confirmé par le test visuel, et non seulement la CI.
+
+### Correctifs de registre et de sécurité
+
+- Un `save_tags.json` de schéma 1 avec `saves: null` ou
+  `saves: []` est désormais accepté comme **vide valide**,
+  sans bloquer les prochains enregistrements.
+- Le plugin ne dépend plus de `File.Replace(..., null)` sur
+  Windows (déjà fautif dans l'utilitaire PowerShell).
+  Une copie de secours est créée avant chaque écriture et la
+  copie persistante dans `Info/Saves` est écrite en premier.
+- Une simple `session.json` conservée depuis une ancienne
+  connexion n'autorise plus les sauvegardes Archipelago :
+  il faut une **authentification réellement réussie**.
+  Les micro-coupures temporaires du heartbeat ne font pas
+  basculer la liste d'une seed active en mode vanilla.
+- Le sprite primaire natif Archipelago, le timing approuvé des
+  crédits, l'ordre Jouer/Archipelago/Options et la vérification
+  des checks ne sont pas modifiés.
+
+### Test ciblé
+
+1. Fermer le jeu, installer le kit v0.7.8 et reconnecter
+   l'**exacte même seed**.
+2. Dans `BepInEx/LogOutput.log`, chercher
+   `[AP SAVE] Imported 1 tags`, `[AP UI NATIVE]` et
+   `[AP UI PREPARED]`. Le compteur attendu pour la seed
+   n'est plus `tagged=0`.
+3. Ouvrir Jouer, Nouvelle partie, puis Retour plusieurs fois :
+   aucun bouton interdit ne doit apparaître brièvement.
+4. Ouvrir Charger partie : `ArchiLan-Test-01` devrait être
+   visible, sans les sauvegardes ordinaires ; lancer la
+   sauvegarde seulement si sa seed/mode/carte correspondent.
+5. Déconnecter Archipelago puis rouvrir Charger partie :
+   les sauvegardes classiques reviennent et les sauvegardes
+   AP ne doivent pas apparaître.
+6. Si une liste reste vide ou une micro-animation apparaît,
+   envoyer le journal : le système indique maintenant
+   explicitement si l'interception pré-rendu a pu être
+   installée. Les tests CI ne remplacent pas l'essai Unity.
 
 ## v0.7.7 — Ordre stable, sous-menus réactivés et chargement des saves
 
