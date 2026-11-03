@@ -143,7 +143,22 @@ namespace CastleStoryArchipelago
                 UnityEngine.Object.Destroy(cloned);
                 return null;
             }
+            bool hasNativeHover = false;
+            foreach (Component item in cloned.GetComponentsInChildren<Component>(true))
+                if (item != null &&
+                    (item.GetType().Name == "LegacyButtonPanelComponent" ||
+                     item.GetType().Name == "BrixButtonPanelComponent"))
+                {
+                    hasNativeHover = true;
+                    break;
+                }
+            // When Castle Story's actual Play control was cloned, retain
+            // its pointer-enter/exit animation. For the emergency synthetic
+            // template, use a visible Unity ColorTint hover and pressed fade.
+            if (!hasNativeHover) ConfigureFallbackPrimaryHover(cloned);
             cloned.SetActive(true);
+            Logger.LogInfo("[AP NATIVE UI] Action '" + caption +
+                "' hover=" + (hasNativeHover ? "native Brix" : "Unity ColorTint"));
             return cloned;
         }
 
