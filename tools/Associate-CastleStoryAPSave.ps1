@@ -116,6 +116,11 @@ if ($byFolder.ContainsKey($SaveName)) {
     if ([string]$existingTag.token -ne [string]$session.token -or
         [string]$existingTag.mission -ne [string]$mission.id -or
         [string]$existingTag.mode -ne [string]$session.mode -or
+        ([string]$existingTag.seed -ne [string]$session.seed) -or
+        ([string]$existingTag.slot -ne [string]$session.slot_name) -or
+        ($existingTag.has_slot_identity -and
+            ([int]$existingTag.team -ne [int]$session.team -or
+             [int]$existingTag.slot_id -ne [int]$session.slot)) -or
         (-not [string]::IsNullOrWhiteSpace([string]$existingTag.map_id) -and
          [string]$existingTag.map_id -ne $missionMap)) {
         throw "Cette sauvegarde est deja associee a une autre seed, mission, carte ou mode. Aucun ecrasement autorise."
@@ -147,6 +152,9 @@ if (-not $alreadyAssociated) { $registry.saves += @{
     token = [string]$session.token
     seed = [string]$session.seed
     slot = [string]$session.slot_name
+    team = [int]$session.team
+    slot_id = [int]$session.slot
+    has_slot_identity = $true
     mode = [string]$session.mode
     mission = [string]$mission.id
     map_id = $missionMap
