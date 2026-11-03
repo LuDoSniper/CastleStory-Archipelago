@@ -33,6 +33,8 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('token = token, seed = seed,', SAVE)
         self.assertIn('slot = loginSlot, mode = mode,', SAVE)
         self.assertIn('mission = startedMission,', SAVE)
+        self.assertIn('map_id = active == null ? "" : MissionMapId(active)', SAVE)
+        self.assertIn('!String.Equals(tag.map_id, MissionMapId(mission)', SAVE)
         self.assertIn('InitializeApSaveRegistry();', PLUGIN)
         self.assertIn('UpdateSaveIsolation();', PLUGIN)
 
