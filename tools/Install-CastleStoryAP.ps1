@@ -50,7 +50,9 @@ New-Item -Force -ItemType Directory (Split-Path $dstBridge), $config | Out-Null
 $backup = Join-Path $config ("upgrade-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Path $backup | Out-Null
 foreach ($path in @($dstDll, $dstBridge,
-    (Join-Path $config "session.json"), (Join-Path $config "bridge_status.json"))) {
+    (Join-Path $config "session.json"), (Join-Path $config "bridge_status.json"),
+    (Join-Path $config "save_tags.json"),
+    (Join-Path $config "connection_preferences.json"))) {
     if (Test-Path -LiteralPath $path) {
         Copy-Item -LiteralPath $path -Destination $backup -Force
     }
