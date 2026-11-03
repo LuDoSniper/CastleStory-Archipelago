@@ -133,6 +133,10 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP SAVE] Registry loaded tags=" + apSaveTags.Count +
                 " saveRoot=" + (apSaveRoot == null ? "not-found" :
                     Path.GetFileName(apSaveRoot)));
+            if (apSaveTags.Count == 0 && apSaveRoot != null)
+                Logger.LogWarning("[AP SAVE] No AP tags found. Old saves " +
+                    "cannot be assigned a seed without explicit confirmation; " +
+                    "the kit includes Associate-CastleStoryAPSave.ps1.");
             if (apSaveRoot != null) SnapshotNativeSaveFolders();
             // Reconstruct the primary index if it was removed by reinstalling
             // BepInEx but a durable sidecar or upgrade backup survived.
@@ -425,9 +429,30 @@ namespace CastleStoryArchipelago
                             folder + " / " + card.name);
                 }
             }
-            if (matched == 0 && known.Count > 0 && lastSaveMenuDiagnosticCount < 3)
-                Logger.LogWarning("[AP SAVE UI] Save folder labels not exposed " +
-                    "as native Text; filtering needs the real load-menu hierarchy.");
+            if (matched == 0 && known.Count > 0 && lastSaveMenuDiagnosticCount < 2)
+            {
+                Logger.LogWarning("[AP SAVE UI] No exact folder labels detected. " +
+                    "Sampling displayed load menu labels to map Brix cards.");
+                GameObject library = GameObject.Find(
+                    "Menu: SpLoadGameLibraryMenu");
+                if (library != null)
+                {
+                    int count = 0;
+                    foreach (Component text in library.GetComponentsInChildren(
+                        textType, true))
+                    {
+                        string value = GetUiProperty(text, "text") as string;
+                        if (String.IsNullOrEmpty(value)) continue;
+                        Logger.LogInfo("[AP SAVE UI PROBE] caption=" +
+                            value.Replace("\n", " ").Replace("\r", " ") +
+                            " parent=" + (text.transform.parent == null ?
+                                "root" : text.transform.parent.name));
+                        if (++count == 20) break;
+                    }
+                }
+                else Logger.LogInfo("[AP SAVE UI PROBE] Native load library " +
+                    "GameObject not active by standard Brix name.");
+            }
             if (matched > 0 || lastSaveMenuDiagnosticCount++ < 2)
                 Logger.LogInfo("[AP SAVE UI] matched=" + matched +
                     " hidden=" + hidden + " noCard=" + unknown +
