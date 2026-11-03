@@ -868,22 +868,26 @@ namespace CastleStoryArchipelago
             Type textType = FindRuntimeType("UnityEngine.UI.Text");
             if (textType == null) return 0;
             int hidden = 0;
+            // The previous "hide everything not recognised" policy disabled
+            // New Game, Load and Multiplayer when the caption differed by
+            // one word. Only known unwanted actions are removed.
             foreach (Component label in group.GetComponentsInChildren(textType, true))
             {
                 if (label == null || !label.gameObject.activeInHierarchy)
                     continue;
                 string value = GetUiProperty(label, "text") as string;
-                if (String.IsNullOrEmpty(value) || value.Length > 55 ||
+                if (String.IsNullOrEmpty(value) ||
                     IsAllowedPlaySubmenuEntry(value) ||
-                    IsPlayLabel(value) || IsOptionsLabel(value))
+                    !IsForbiddenPlaySubmenuEntry(value))
                     continue;
                 GameObject card = FindNativeChoiceRoot(label);
                 if (card == null || hiddenNativeEntries.ContainsKey(card) ||
-                    card == group.gameObject || !card.activeInHierarchy)
+                    card == group.gameObject || !card.activeInHierarchy ||
+                    CountDistinctNativeChoices(card.transform) > 1)
                     continue;
                 HideNativeEntry(card);
                 hidden++;
-                Logger.LogInfo("[AP PLAY MENU] Removed native option: " +
+                Logger.LogInfo("[AP PLAY MENU] Removed explicit unwanted choice: " +
                     value + " card=" + card.name);
             }
             return hidden;
@@ -936,8 +940,10 @@ namespace CastleStoryArchipelago
                 bool forbidden = false;
                 foreach (string label in names)
                     if (IsAllowedPlaySubmenuEntry(label)) allowedPlay = true;
-                if (inPlaySubmenu && !allowedPlay)
-                    forbidden = true;
+                // Never hide by absence from a whitelist: translated captions,
+                // prefab names, and parent wrappers contain other text.
+                // It previously blanked the entire Play menu, including Load.
+                if (allowedPlay) continue;
                 foreach (string label in names)
                 {
                     string namedMode = NativeModeFromLabel(label);
@@ -947,7 +953,7 @@ namespace CastleStoryArchipelago
                         (nativeMapLabels.TryGetValue(
                              NormalizeNativeLabel(label), out mapId) &&
                          !AllowedSeedMap(mapId, selectedNativeMode)) ||
-                        IsForbiddenPlaySubmenuEntry(label))
+                        (inPlaySubmenu && IsForbiddenPlaySubmenuEntry(label)))
                     {
                         forbidden = true;
                         break;
@@ -975,9 +981,11 @@ namespace CastleStoryArchipelago
             switch (NormalizeNativeLabel(label))
             {
                 case "new game": case "new game...": case "nouvelle partie":
-                case "new": case "nouveau jeu":
+                case "nouvelle partie...": case "nouveau jeu":
                 case "load": case "load game": case "load game...":
-                case "charger": case "charger une partie": case "continuer":
+                case "charger": case "charger partie": case "charger une partie":
+                case "charger une sauvegarde": case "reprendre une partie":
+                case "continuer": case "continue":
                 case "multiplayer": case "multijoueur":
                 case "back": case "retour": case "previous":
                     return true;
@@ -990,6 +998,7 @@ namespace CastleStoryArchipelago
             string value = NormalizeNativeLabel(label);
             return value == "new game" || value == "nouvelle partie" ||
                 value == "load game" || value == "charger une partie" ||
+                value == "charger partie" || value == "load" ||
                 value == "multiplayer" || value == "multijoueur";
         }
 
