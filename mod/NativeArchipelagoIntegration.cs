@@ -12,6 +12,9 @@ namespace CastleStoryArchipelago
         // IMGUI control drawn over the main menu.
         private GameObject nativeArchipelagoButton;
         private Font nativeMenuFont;
+        private RectTransform titlePlayControl;
+        private RectTransform titleOptionsControl;
+        private RectTransform titleArchipelagoControl;
         private readonly Dictionary<RectTransform, Vector2> shiftedMenuEntries =
             new Dictionary<RectTransform, Vector2>();
         private readonly Dictionary<GameObject, bool> hiddenNativeEntries =
@@ -356,37 +359,71 @@ namespace CastleStoryArchipelago
             return fallback;
         }
 
-        private void ShiftTitleOptionsBelow(RectTransform play, RectTransform inserted)
+        private RectTransform FindTitleOptionsRect()
         {
-            if (play == null || inserted == null) return;
             Type textType = FindRuntimeType("UnityEngine.UI.Text");
-            if (textType == null) return;
-            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(textType))
+            if (textType == null) return null;
+            foreach (UnityEngine.Object value in
+                UnityEngine.Object.FindObjectsOfType(textType))
             {
                 Component label = value as Component;
-                if (label == null || !label.gameObject.activeInHierarchy)
+                if (label == null || !label.gameObject.activeInHierarchy ||
+                    !IsOptionsLabel(GetUiProperty(label, "text") as string))
                     continue;
-                if (!IsOptionsLabel(GetUiProperty(label, "text") as string))
-                    continue;
-                RectTransform option = FindTitleChoiceRect(label);
-                if (option == null || option == play ||
-                    shiftedMenuEntries.ContainsKey(option) ||
-                    option == inserted ||
-                    option.IsChildOf(inserted))
-                    continue;
-                // Options may be under a DIFFERENT layout container.
-                // Shift its own rect instead of only Play's sibling list.
-                float shift = Mathf.Max(58f, play.rect.height + 16f);
-                shiftedMenuEntries[option] = option.anchoredPosition;
-                option.anchoredPosition += new Vector2(0, -shift);
-                Logger.LogInfo("[AP TITLE] Moved Options down by " + shift +
-                    " UI units. optionsParent=" +
-                    (option.parent == null ? "root" : option.parent.name) +
-                    " playParent=" +
-                    (play.parent == null ? "root" : play.parent.name));
+                GameObject root = FindNativeChoiceRoot(label);
+                RectTransform rect = root == null ? null :
+                    root.transform as RectTransform;
+                return rect != null ? rect : FindTitleChoiceRect(label);
+            }
+            return null;
+        }
+
+        private static void MoveRectVerticallyToTop(RectTransform rect,
+                                                     float desiredWorldTop)
+        {
+            if (rect == null) return;
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            float delta = desiredWorldTop - corners[1].y;
+            if (Mathf.Abs(delta) <= .8f) return;
+            // World-space displacement handles Options having a different
+            // parent, anchor, pivot, scale or layout from the Play button.
+            rect.position += new Vector3(0f, delta, 0f);
+        }
+
+        private void MaintainTitleButtonSpacing()
+        {
+            if (titlePlayControl == null || titleOptionsControl == null ||
+                titleArchipelagoControl == null || !titleSceneSeen)
+                return;
+            var play = new Vector3[4];
+            var archipelago = new Vector3[4];
+            titlePlayControl.GetWorldCorners(play);
+            MoveRectVerticallyToTop(titleArchipelagoControl, play[0].y - 10f);
+            titleArchipelagoControl.GetWorldCorners(archipelago);
+            MoveRectVerticallyToTop(titleOptionsControl,
+                archipelago[0].y - 10f);
+        }
+
+        private void ShiftTitleOptionsBelow(RectTransform play,
+                                            RectTransform inserted)
+        {
+            if (play == null || inserted == null) return;
+            RectTransform options = FindTitleOptionsRect();
+            if (options == null || options == play ||
+                options == inserted || options.IsChildOf(inserted))
+            {
+                Logger.LogWarning("[AP TITLE] Could not locate Options card geometry.");
                 return;
             }
-            Logger.LogWarning("[AP TITLE] Options control not found; unable to reposition.");
+            if (!shiftedMenuEntries.ContainsKey(options))
+                shiftedMenuEntries[options] = options.anchoredPosition;
+            titlePlayControl = play;
+            titleOptionsControl = options;
+            titleArchipelagoControl = inserted;
+            MaintainTitleButtonSpacing();
+            Logger.LogInfo("[AP TITLE] Adjusted full Play/Archipelago/Options " +
+                "cards with world geometry, separate parents supported.");
         }
 
         private void MatchTitlePrimaryVisual(RectTransform nativePlay, GameObject target)
@@ -594,6 +631,7 @@ namespace CastleStoryArchipelago
 
         private void RestoreNativeMenuLayout()
         {
+            titlePlayControl = titleArchipelagoControl = titleOptionsControl = null;
             foreach (var item in shiftedMenuEntries)
                 if (item.Key != null) item.Key.anchoredPosition = item.Value;
             shiftedMenuEntries.Clear();
@@ -1160,6 +1198,10 @@ namespace CastleStoryArchipelago
                 nextTitleReadyProbeAt = now + .20f;
                 BeginOwnIntroCredit();
             }
+            // Layout groups may reposition the native Options card after
+            // each frame. Reassert non-overlapping positions without scanning
+            // the scene or shifting anything that is already aligned.
+            MaintainTitleButtonSpacing();
             if (introCreditActive && now - introCreditStart >= 3.5f)
             {
                 introCreditActive = false;
