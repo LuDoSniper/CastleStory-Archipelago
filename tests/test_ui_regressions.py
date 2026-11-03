@@ -167,6 +167,39 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn('plugin.lastLuaTitleFilterAt > .65f', hooks)
         self.assertIn('if (plugin.titleSceneSeen || plugin.nativeStarterMenu != null)', hooks)
 
+    def test_ui_policies_are_prepared_on_connection_and_rendered_atomically(self):
+        native = INTEGRATION.read_text(encoding="utf-8")
+        hooks = NATIVE.read_text(encoding="utf-8")
+        plugin = PLUGIN.read_text(encoding="utf-8")
+        saves = (ROOT / "mod/SaveIsolation.cs").read_text(encoding="utf-8")
+        pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("InstallNativePreRenderHooks();", plugin)
+        self.assertIn("OnApAuthenticationChanged(bridgeConnected);", plugin)
+        self.assertIn("ApplyPrecomputedPolicyToVisibleTitles();", plugin)
+        self.assertIn("PropertySetter(textType, \"text\")", pre)
+        self.assertIn("Canvas.willRenderCanvases +=", pre)
+        self.assertIn("ApplyNativeCaptionBeforeRender(", pre)
+        self.assertIn("IsWithinNativeLoadLibrary(text.transform)", pre)
+        self.assertIn("FindNativeSaveItemFromCaption(text)", pre)
+        self.assertIn("ReconcileKnownNativeSaveCards();", saves)
+        self.assertIn("RebuildSaveVisibilityPolicy(\"connection state changed\")", saves)
+        self.assertIn("if (nativeCaptionHookInstalled)", native)
+        self.assertIn("if (!Instance.nativeCaptionHookInstalled)", hooks)
+        self.assertNotIn('ScheduleNativeSaveFilter("native title UI refreshed")', native)
+        self.assertIn("if (!nativeCaptionHookInstalled &&", native)
+        self.assertIn("if (!nativeCaptionHookInstalled &&", saves)
+
+    def test_save_tag_registry_accepts_empty_index_and_hot_reload(self):
+        saves = (ROOT / "mod/SaveIsolation.cs").read_text(encoding="utf-8")
+        self.assertIn("if (registry.saves == null)", saves)
+        self.assertIn("Empty valid index", saves)
+        self.assertIn("RefreshSaveRegistryWhenModified()", saves)
+        self.assertIn("GetLastWriteTimeUtc(path)", saves)
+        self.assertNotIn("File.Replace(", saves.replace(
+            '// throws "path not in legal form"', ''))
+        self.assertIn("authenticatedApSaveSession && !disconnectPending", saves)
+        self.assertIn("lastPrimaryTagStamp", saves)
+
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
         native = NATIVE.read_text(encoding="utf-8")
