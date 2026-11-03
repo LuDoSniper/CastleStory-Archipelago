@@ -18,6 +18,20 @@ namespace CastleStoryArchipelago
         private bool observedSaveCardWithoutTag;
         private readonly Dictionary<GameObject, string> nativeSaveCardFolders =
             new Dictionary<GameObject, string>();
+        private readonly HashSet<Component> pendingNativeCaptions =
+            new HashSet<Component>();
+        private sealed class NativeCardMask
+        {
+            public CanvasGroup group;
+            public float initialAlpha;
+            public bool initialInteractable;
+            public bool initialBlocksRaycasts;
+            public Component layout;
+            public bool initialIgnoreLayout;
+        }
+        private readonly Dictionary<GameObject, NativeCardMask> maskedNativeCards =
+            new Dictionary<GameObject, NativeCardMask>();
+        private int nativeCardMasksApplied;
 
         private void InstallNativePreRenderHooks()
         {
@@ -74,7 +88,7 @@ namespace CastleStoryArchipelago
         {
             if (Instance == null || !Instance.nativeCaptionHookInstalled)
                 return;
-            Instance.ApplyNativeCaptionBeforeRender(__instance as Component);
+            Instance.QueueNativeCaption(__instance as Component);
         }
 
         private static void ObserveNativeTextEnabled(object __instance)
@@ -82,6 +96,76 @@ namespace CastleStoryArchipelago
             if (Instance == null || !Instance.nativeCaptionHookInstalled)
                 return;
             Instance.ApplyNativeCaptionBeforeRender(__instance as Component);
+        }
+
+        private void QueueNativeCaption(Component caption)
+        {
+            if (caption == null || !titleSceneSeen) return;
+            pendingNativeCaptions.Add(caption);
+            // Apply immediately for a native visual result, but never call
+            // SetActive(false) while Brix is constructing a pooled card.
+            ApplyNativeCaptionBeforeRender(caption);
+        }
+
+        private void HidePreRenderCard(GameObject card)
+        {
+            if (card == null || card.name.StartsWith("Archipelago_",
+                StringComparison.Ordinal)) return;
+            NativeCardMask state;
+            if (!maskedNativeCards.TryGetValue(card, out state))
+            {
+                CanvasGroup group = card.GetComponent<CanvasGroup>();
+                if (group == null) group = card.AddComponent<CanvasGroup>();
+                Type layoutType = FindRuntimeType("UnityEngine.UI.LayoutElement");
+                Component layout = layoutType == null ? null :
+                    card.GetComponent(layoutType);
+                state = new NativeCardMask {
+                    group = group,
+                    initialAlpha = group.alpha,
+                    initialInteractable = group.interactable,
+                    initialBlocksRaycasts = group.blocksRaycasts,
+                    layout = layout,
+                    initialIgnoreLayout = layout != null &&
+                        GetUiProperty(layout, "ignoreLayout") is bool &&
+                        (bool)GetUiProperty(layout, "ignoreLayout")
+                };
+                maskedNativeCards[card] = state;
+                nativeCardMasksApplied++;
+            }
+            if (state.group != null)
+            {
+                state.group.alpha = 0f;
+                state.group.interactable = false;
+                state.group.blocksRaycasts = false;
+            }
+            if (state.layout != null)
+                SetUiProperty(state.layout, "ignoreLayout", true);
+        }
+
+        private void ShowPreRenderCard(GameObject card)
+        {
+            if (card == null) return;
+            NativeCardMask state;
+            if (!maskedNativeCards.TryGetValue(card, out state)) return;
+            if (state.group != null)
+            {
+                state.group.alpha = state.initialAlpha;
+                state.group.interactable = state.initialInteractable;
+                state.group.blocksRaycasts = state.initialBlocksRaycasts;
+            }
+            if (state.layout != null)
+                SetUiProperty(state.layout, "ignoreLayout",
+                    state.initialIgnoreLayout);
+            maskedNativeCards.Remove(card);
+        }
+
+        private void ClearPreRenderCardPolicy()
+        {
+            foreach (var card in new List<GameObject>(maskedNativeCards.Keys))
+                ShowPreRenderCard(card);
+            maskedNativeCards.Clear();
+            pendingNativeCaptions.Clear();
+            nativeSaveCardFolders.Clear();
         }
 
         private void ReconcileKnownNativeSaveCards()
@@ -94,21 +178,31 @@ namespace CastleStoryArchipelago
                 GameObject card = pair.Key;
                 if (card == null) continue;
                 bool allowed = cachedAllowedSaveNames.Contains(pair.Value);
-                if (allowed)
-                {
-                    bool wasHidden = hiddenNativeEntries.ContainsKey(card);
-                    hiddenNativeEntries.Remove(card);
-                    if (wasHidden && !card.activeSelf) card.SetActive(true);
-                }
-                else HideNativeEntry(card);
+                if (allowed) ShowPreRenderCard(card);
+                else HidePreRenderCard(card);
             }
         }
 
         private void ApplyKnownNativeRestrictionsBeforeRender()
         {
-            // Constant work proportional to the small set of disallowed cards,
-            // not to the total Unity UI. No FindObjectsOfType or reflection.
-            EnforceHiddenNativeEntries();
+            // Unity invokes this before drawing a canvas. Re-evaluate captions
+            // after the game's Brix builder has finished assigning all
+            // labels; no deferred frame, no full-scene scan.
+            if (pendingNativeCaptions.Count > 0)
+            {
+                var pending = new List<Component>(pendingNativeCaptions);
+                pendingNativeCaptions.Clear();
+                foreach (Component caption in pending)
+                    if (caption != null) ApplyNativeCaptionBeforeRender(caption);
+            }
+            foreach (var entry in maskedNativeCards)
+            {
+                if (entry.Key == null || entry.Value.group == null) continue;
+                entry.Value.group.alpha = 0f;
+                entry.Value.group.interactable = false;
+                entry.Value.group.blocksRaycasts = false;
+            }
+            if (!nativeCaptionHookInstalled) EnforceHiddenNativeEntries();
         }
 
         private static bool IsWithinNativeLoadLibrary(Transform node)
@@ -137,6 +231,43 @@ namespace CastleStoryArchipelago
             return null;
         }
 
+        private static GameObject FindIndividualNativeChoice(Component caption,
+                                                             bool isMap)
+        {
+            if (caption == null) return null;
+            for (Transform node = caption.transform; node != null;
+                node = node.parent)
+            {
+                string name = node.name ?? "";
+                // Only actual native Brix card prefabs may be masked.
+                // FindNativeChoiceRoot() previously climbed into a shared
+                // parent before all sibling labels existed, hiding the entire
+                // mode/map library permanently.
+                if (name.IndexOf("GamemodeButton",
+                        StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf("Btn_DblTxt_RightIcon",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                    return node.gameObject;
+                if (isMap &&
+                    name.IndexOf("ThumbnailListItem",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    IsWithinNativeNewGameLibrary(node))
+                    return node.gameObject;
+                if (node.GetComponent<Canvas>() != null) break;
+            }
+            return null;
+        }
+
+        private static bool IsWithinNativeNewGameLibrary(Transform node)
+        {
+            for (int depth = 0; node != null && depth < 14;
+                 depth++, node = node.parent)
+                if (node.name.IndexOf("NewGameLibraryMenu",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
+        }
+
         private void ApplyNativeCaptionBeforeRender(Component text)
         {
             if (!titleSceneSeen || evaluatingNativeCaption ||
@@ -151,10 +282,8 @@ namespace CastleStoryArchipelago
             {
                 if (IsWithinNativeLoadLibrary(text.transform))
                 {
-                    // The save policy was computed when the seed became ready.
-                    // The load screen is populated later: classify each card
-                    // at the instant Brix assigns its native title.
-                    string folder = SaveFolderForCaption(caption, cachedSaveFolderNames);
+                    string folder = SaveFolderForCaption(caption,
+                        cachedSaveFolderNames);
                     if (folder == null) return;
                     GameObject card = FindNativeSaveItemFromCaption(text);
                     if (card == null)
@@ -163,39 +292,76 @@ namespace CastleStoryArchipelago
                         {
                             observedSaveCardWithoutTag = true;
                             Logger.LogWarning("[AP UI NATIVE] Save caption has no " +
-                                "native ThumbnailListItem parent: " + folder);
+                                "ThumbnailListItem card: " + folder);
                         }
                         return;
                     }
+                    // On pooled cards the label may change from a forbidden
+                    // save to an allowed one without ever changing Active.
+                    // Use CanvasGroup instead of SetActive(false): Brix must
+                    // be free to finish constructing/recycling the card.
                     nativeSaveCardFolders[card] = folder;
-                    if (!cachedAllowedSaveNames.Contains(folder))
+                    if (cachedAllowedSaveNames.Contains(folder))
                     {
-                        HideNativeEntry(card);
-                        if (nativeCaptionDecisions++ < 16)
+                        ShowPreRenderCard(card);
+                        if (nativeCaptionDecisions++ < 20)
+                            Logger.LogInfo("[AP UI PRE-RENDER] Allowed save: " + folder);
+                    }
+                    else
+                    {
+                        HidePreRenderCard(card);
+                        if (nativeCaptionDecisions++ < 20)
                             Logger.LogInfo("[AP UI PRE-RENDER] Off-seed save hidden: " +
                                 folder);
                     }
                     return;
                 }
+
                 if (!IsArchipelagoSaveSessionActive()) return;
 
                 string selectedMode = SelectedNativeGamemode();
                 string nativeMode = NativeModeFromLabel(caption);
                 string mapId;
-                bool forbidden = IsSandboxLabel(caption) ||
-                    IsForbiddenPlaySubmenuEntry(caption) ||
-                    (nativeMode != null && mode != "Hybrid" && nativeMode != mode) ||
-                    (nativeMapLabels.TryGetValue(
-                        NormalizeNativeLabel(caption), out mapId) &&
-                     !AllowedSeedMap(mapId, selectedMode));
-                if (!forbidden || IsAllowedPlaySubmenuEntry(caption))
-                    return;
-                GameObject choice = FindNativeChoiceRoot(text);
-                if (choice == null) return;
-                HideNativeEntry(choice);
-                if (nativeCaptionDecisions++ < 16)
-                    Logger.LogInfo("[AP UI PRE-RENDER] Native choice hidden: " +
-                        NormalizeNativeLabel(caption));
+                bool isMap = nativeMapLabels.TryGetValue(
+                    NormalizeNativeLabel(caption), out mapId);
+                bool forbiddenMode = IsSandboxLabel(caption) ||
+                    (nativeMode != null && mode != "Hybrid" &&
+                     nativeMode != mode);
+                bool forbiddenPlay = IsForbiddenPlaySubmenuEntry(caption);
+                bool forbiddenMap = isMap &&
+                    !AllowedSeedMap(mapId, selectedMode);
+                if (IsAllowedPlaySubmenuEntry(caption)) return;
+
+                if (!forbiddenMode && !forbiddenPlay && !isMap) return;
+                GameObject cardRoot = FindIndividualNativeChoice(text, isMap);
+                if (cardRoot == null) return;
+
+                // Do not evaluate gamemode labels on an unrelated shared
+                // parent or map card. An unknown/incomplete label is never
+                // grounds for masking the menu as a whole.
+                string cardName = cardRoot.name ?? "";
+                bool isModeCard = cardName.IndexOf("GamemodeButton",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isPlayCard = cardName.IndexOf("Btn_DblTxt_RightIcon",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isMapCard = isMap &&
+                    IsWithinNativeNewGameLibrary(cardRoot.transform) &&
+                    !isModeCard;
+                bool shouldHide =
+                    (isModeCard && forbiddenMode) ||
+                    (isPlayCard && forbiddenPlay) ||
+                    (isMapCard && forbiddenMap);
+                if (shouldHide)
+                {
+                    HidePreRenderCard(cardRoot);
+                    if (nativeCaptionDecisions++ < 20)
+                        Logger.LogInfo("[AP UI PRE-RENDER] Individual card hidden: " +
+                            NormalizeNativeLabel(caption) + " / " + cardName);
+                }
+                else if ((isModeCard && nativeMode != null) ||
+                         (isMapCard && isMap) ||
+                         (isPlayCard && forbiddenPlay == false))
+                    ShowPreRenderCard(cardRoot);
             }
             catch (Exception error)
             {
