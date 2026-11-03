@@ -145,7 +145,7 @@ namespace CastleStoryArchipelago
                     try
                     {
                         ApSaveTag tag = JsonUtility.FromJson<ApSaveTag>(
-                            File.ReadAllText(path).TrimStart('\\uFEFF', ' ', '\\r', '\\n', '\\t'));
+                            File.ReadAllText(path).TrimStart('\uFEFF', ' ', '\r', '\n', '\t'));
                         if (tag == null || String.IsNullOrEmpty(tag.folder) ||
                             String.IsNullOrEmpty(tag.seed) ||
                             String.IsNullOrEmpty(tag.mission) ||
