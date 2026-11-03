@@ -217,7 +217,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertNotIn("HideNativeEntry(card);", pre)
         self.assertNotIn("HideNativeEntry(choice);", pre)
         self.assertNotIn("FindNativeChoiceRoot(text)", pre)
-        self.assertNotIn("SetActive(false)", pre)
+        self.assertNotRegex(pre, r"\.\s*SetActive\s*\(\s*false\s*\)\s*;")
 
     def test_native_card_subtitles_cannot_unmask_forbidden_action(self):
         pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
