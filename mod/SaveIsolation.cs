@@ -419,99 +419,151 @@ namespace CastleStoryArchipelago
             return Instance.ValidateNativeLoad(__instance);
         }
 
-        private bool ValidateNativeLoad(object menu)
+        private static string NativeSaveFolderFromHeightmap(object selectedMap)
         {
-            if (menu == null || apSaveRoot == null) return true;
+            if (selectedMap == null) return null;
             try
             {
-                // Never guess selected saves from visible labels. Only an
-                // explicit native selection property can authorize loading.
-                object chosen = null;
+                MethodInfo getPath = AccessTools.Method(selectedMap.GetType(),
+                    "GetHeightmapPath", Type.EmptyTypes);
+                string heightmap = getPath == null ? null :
+                    getPath.Invoke(selectedMap, new object[0]) as string;
+                if (String.IsNullOrEmpty(heightmap)) return null;
+                string normalized = heightmap.Replace('\\', '/');
+                const string marker = "/Info/Saves/";
+                int index = normalized.IndexOf(marker,
+                    StringComparison.OrdinalIgnoreCase);
+                if (index < 0) return null;
+                string rest = normalized.Substring(index + marker.Length);
+                int slash = rest.IndexOf('/');
+                if (slash <= 0) return null;
+                string folder = rest.Substring(0, slash);
+                if (folder == "." || folder == ".." ||
+                    folder.IndexOfAny(new [] { ':', '/', '\\' }) >= 0)
+                    return null;
+                return folder;
+            }
+            catch (Exception) { return null; }
+        }
+
+        private bool ValidateNativeLoadStarter(object starter)
+        {
+            // SpLoadGameStarterMenu derives from BaseMapStarterMenu; its
+            // inherited OnOk was intercepted by our NEW-GAME guard,
+            // incorrectly demanding a map/mode from a save heightmap.
+            object selectedMap = null;
+            if (starter != null)
+            {
+                PropertyInfo property = AccessTools.Property(starter.GetType(),
+                    "SelectedMap");
+                if (property != null && property.CanRead)
+                    selectedMap = property.GetValue(starter, null);
+            }
+            string folder = NativeSaveFolderFromHeightmap(selectedMap);
+            if (String.IsNullOrEmpty(folder))
+            {
+                Logger.LogWarning("[AP SAVE LOAD] Cannot resolve save folder from " +
+                    "SpLoadGameStarterMenu.SelectedMap.GetHeightmapPath.");
+                // Never allow an unverified save into a live AP session.
+                return !bridgeConnected;
+            }
+            return ValidateTaggedSaveFolder(folder);
+        }
+
+        private bool ValidateTaggedSaveFolder(string folder)
+        {
+            folder = NormalizeSaveFolder(folder);
+            if (String.IsNullOrEmpty(folder)) return !bridgeConnected;
+            if (!IsAllowedNativeSave(folder))
+            {
+                Logger.LogWarning("[AP SAVE LOAD] Rejected nonmatching or untagged " +
+                    "save: " + folder + " AP=" + bridgeConnected);
+                statusLine = bridgeConnected ?
+                    "Cette sauvegarde n'appartient pas à la seed Archipelago active." :
+                    "Une sauvegarde Archipelago exige une connexion à sa seed.";
+                return false;
+            }
+
+            ApSaveTag tag;
+            if (!apSaveTags.TryGetValue(folder, out tag))
+            {
+                Logger.LogInfo("[AP SAVE LOAD] Starting ordinary Castle Story save: " +
+                    folder);
+                return true;
+            }
+            if (!bridgeConnected || String.IsNullOrEmpty(token) ||
+                tag.token != token || campaign == null || !campaign.ready ||
+                campaign.missions == null)
+                return false;
+            MissionFile mission = campaign.missions.FirstOrDefault(item =>
+                item != null && item.id == tag.mission);
+            if (mission == null ||
+                !String.Equals(tag.mode, mode, StringComparison.Ordinal) ||
+                (!String.IsNullOrEmpty(tag.map_id) &&
+                 !String.Equals(tag.map_id, MissionMapId(mission),
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                Logger.LogWarning("[AP SAVE LOAD] Saved mission/map/mode differs " +
+                    "from the active campaign: " + folder);
+                return false;
+            }
+            SelectMission(mission);
+            startedMission = mission.id;
+            PrepareNativeSaveTracking();
+            Logger.LogInfo("[AP SAVE LOAD] Resuming mission=" + mission.id +
+                " save=" + folder);
+            return true;
+        }
+
+        private bool ValidateNativeLoad(object menu)
+        {
+            if (menu == null || String.IsNullOrEmpty(apSaveRoot)) return true;
+            try
+            {
+                // The inherited native starter exposes the *save map*
+                // as SelectedMap (its heightmap lies under /Info/Saves/).
+                if (menu.GetType().Name.IndexOf("LoadGameStarter",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                    return ValidateNativeLoadStarter(menu);
+
+                object selected = null;
                 foreach (string name in new [] {
                     "SelectedSave", "SelectedSaveGame", "SelectedGame",
                     "SelectedItem", "SelectedEntry" })
                 {
-                    PropertyInfo p = AccessTools.Property(menu.GetType(), name);
-                    if (p == null || !p.CanRead ||
-                        p.GetIndexParameters().Length > 0) continue;
-                    chosen = p.GetValue(menu, null);
-                    if (chosen != null) break;
+                    PropertyInfo property = AccessTools.Property(menu.GetType(), name);
+                    if (property == null || !property.CanRead ||
+                        property.GetIndexParameters().Length > 0) continue;
+                    selected = property.GetValue(menu, null);
+                    if (selected != null) break;
                 }
-                if (chosen == null)
-                {
-                    Logger.LogWarning("[AP SAVE] Native load selection unknown; " +
-                        "cannot verify seed.");
-                    // Never load an unidentifiable game into an active
-                    // multiworld: it may silently send incorrect checks.
-                    return !bridgeConnected;
-                }
-                string folder = chosen as string;
-                if (folder == null)
+                if (selected == null) return !bridgeConnected;
+                string path = selected as string;
+                if (path == null)
                     foreach (string prop in new [] {
                         "FolderName", "SaveName", "Name", "Path", "Directory" })
                     {
-                        PropertyInfo info = AccessTools.Property(chosen.GetType(), prop);
-                        if (info == null || !info.CanRead ||
-                            info.GetIndexParameters().Length > 0) continue;
-                        folder = info.GetValue(chosen, null) as string;
-                        if (!String.IsNullOrEmpty(folder)) break;
+                        PropertyInfo value = AccessTools.Property(
+                            selected.GetType(), prop);
+                        if (value == null || !value.CanRead ||
+                            value.GetIndexParameters().Length != 0) continue;
+                        path = value.GetValue(selected, null) as string;
+                        if (!String.IsNullOrEmpty(path)) break;
                     }
-                if (String.IsNullOrEmpty(folder))
+                if (String.IsNullOrEmpty(path)) return !bridgeConnected;
+                string folder = NormalizeSaveFolder(path);
+                if (Path.HasExtension(folder))
                 {
-                    Logger.LogWarning("[AP SAVE] Native selected-save folder unavailable.");
-                    return !bridgeConnected;
-                }
-                // Selection may be the save directory OR a file inside
-                // it (for example gameobjects.json). Resolve its parent
-                // against actual known save folders, not arbitrary text.
-                string normalized = NormalizeSaveFolder(folder);
-                if (Path.HasExtension(normalized))
-                {
-                    string parent = Path.GetDirectoryName(folder);
+                    string parent = Path.GetDirectoryName(path);
                     if (!String.IsNullOrEmpty(parent))
-                        normalized = NormalizeSaveFolder(parent);
+                        folder = NormalizeSaveFolder(parent);
                 }
-                folder = normalized;
-                if (IsAllowedNativeSave(folder))
-                {
-                    ApSaveTag tag;
-                    if (apSaveTags.TryGetValue(folder, out tag) &&
-                        tag.token == token)
-                    {
-                        MissionFile mission = campaign == null ||
-                            campaign.missions == null ? null :
-                            campaign.missions.FirstOrDefault(item =>
-                                item != null && item.id == tag.mission);
-                        if (mission == null ||
-                            !String.Equals(tag.mode, mode, StringComparison.Ordinal) ||
-                            (!String.IsNullOrEmpty(tag.map_id) &&
-                             !String.Equals(tag.map_id, MissionMapId(mission),
-                                            StringComparison.OrdinalIgnoreCase)))
-                        {
-                            Logger.LogWarning("[AP SAVE] Save mission, mode or map " +
-                                "does not match active campaign.");
-                            return false;
-                        }
-                        // Restores the same mission selection that normal
-                        // native New Game starts use, enabling wave checks on
-                        // a resumed save as well.
-                        SelectMission(mission);
-                        startedMission = mission.id;
-                        Logger.LogInfo("[AP SAVE] Resume validated for mission=" +
-                            startedMission);
-                    }
-                    return true;
-                }
-                Logger.LogWarning("[AP SAVE] Blocked cross-mode/foreign-seed load '" +
-                    folder + "'.");
-                return false;
+                return ValidateTaggedSaveFolder(folder);
             }
             catch (Exception error)
             {
-                Logger.LogWarning("[AP SAVE] Load guard probe failed: " +
+                Logger.LogWarning("[AP SAVE LOAD] Guard exception: " +
                     error.GetType().Name);
-                // Never load an unverified save into a live AP multiworld.
-                // Vanilla loading remains unaffected when disconnected.
                 return !bridgeConnected;
             }
         }
