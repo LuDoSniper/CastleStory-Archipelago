@@ -372,8 +372,8 @@ namespace CastleStoryArchipelago
             else if (becameConnected) authenticatedApSaveSession = true;
             RefreshSaveRegistryWhenModified();
             bool after = IsArchipelagoSaveSessionActive();
-            if (before != after || lastSavePolicyToken != token ||
-                !apSavePolicyPrepared)
+            if (before != after || lastSavePolicyActive != after ||
+                lastSavePolicyToken != token || !apSavePolicyPrepared)
             {
                 RestoreNativeEntries();
                 RebuildSaveVisibilityPolicy("connection state changed");
