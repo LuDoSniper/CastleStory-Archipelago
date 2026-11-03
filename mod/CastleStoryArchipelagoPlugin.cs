@@ -651,10 +651,7 @@ namespace CastleStoryArchipelago
                 bridgeConnected = session.connected && freshHeartbeat &&
                     !disconnectPending;
                 if (seedChanged || previouslyConnected != bridgeConnected)
-                {
                     OnApAuthenticationChanged(bridgeConnected);
-                    ApplyPrecomputedPolicyToVisibleTitles();
-                }
                 if (previouslyConnected != bridgeConnected)
                 {
                     Logger.LogInfo("[AP SESSION] Connection " +
