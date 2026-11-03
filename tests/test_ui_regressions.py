@@ -102,7 +102,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("CountDistinctNativeChoices(node) > 1", code)
         self.assertIn("HideTextBasedPlaySubmenuChoices();", code)
         self.assertIn("FindTextBasedPlaySubmenu()", code)
-        self.assertIn("if (target == null || hiddenNativeEntries.ContainsKey(target))", code)
+        self.assertIn("(hiddenNativeEntries.ContainsKey(target) && !target.activeSelf)", code)
         self.assertIn("HideNativeEntry(target);", code)
         self.assertIn("Hidden entire native choice:", code)
 
