@@ -79,6 +79,16 @@ try {
         if ($added.Count -ne 1 -or $added[0].token -ne "test-token-001" -or
             $added[0].mission -ne "inv-one") { throw "Saved association invalid: $path" }
     }
+    # A retry after a partial write must be idempotent, not reject the same
+    # seed or duplicate its tag. This reproduces the user's failed Replace.
+    Check-Validate 2
+    function global:Read-Host { param([string]$Prompt) return "ASSOCIER" }
+    try { & $script -GameDirectory $game -SaveName $save | Out-Null }
+    finally { Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue }
+    foreach ($path in @($tag, $mirror)) {
+        $data = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))
+        if (@($data.saves).Count -ne 2) { throw "Retry duplicated/lost a tag: $path" }
+    }
     if (([IO.File]::ReadAllText($heightmap)) -ne "dummy-heightmap-do-not-modify") {
         throw "Native game save was modified"
     }
