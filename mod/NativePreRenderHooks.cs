@@ -32,6 +32,7 @@ namespace CastleStoryArchipelago
         private readonly Dictionary<GameObject, NativeCardMask> maskedNativeCards =
             new Dictionary<GameObject, NativeCardMask>();
         private int nativeCardMasksApplied;
+        private int nativeMapCardDiagnostics;
 
         private void InstallNativePreRenderHooks()
         {
@@ -231,10 +232,18 @@ namespace CastleStoryArchipelago
             return null;
         }
 
-        private static GameObject FindIndividualNativeChoice(Component caption,
-                                                             bool isMap)
+        private GameObject FindIndividualNativeChoice(Component caption,
+                                                      bool isMap)
         {
             if (caption == null) return null;
+            // Maps are not always ThumbnailListItem prefabs. In the actual
+            // SpNewGameStarterMenu they can be reskinned clickable entries.
+            // Resolve the FIRST card-owned input surface, never a shared list.
+            if (isMap)
+            {
+                GameObject mapCard = FindNativeMapCardFromCaption(caption);
+                if (mapCard != null) return mapCard;
+            }
             for (Transform node = caption.transform; node != null;
                 node = node.parent)
             {
@@ -258,12 +267,61 @@ namespace CastleStoryArchipelago
             return null;
         }
 
+        private GameObject FindNativeMapCardFromCaption(Component caption)
+        {
+            if (caption == null ||
+                !IsWithinNativeNewGameLibrary(caption.transform)) return null;
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return null;
+            for (Transform node = caption.transform.parent; node != null;
+                 node = node.parent)
+            {
+                if (node.GetComponent<Canvas>() != null) break;
+                RectTransform rect = node as RectTransform;
+                if (rect == null || rect.rect.height > 520f) break;
+
+                // A shared library/list might have only one child populated
+                // at this precise Text.text callback. Do not identify a
+                // shared container by absence of sibling captions. Instead
+                // require an interactive component OWNED by the item itself.
+                bool ownsInput = false;
+                foreach (Component own in node.GetComponents<Component>())
+                {
+                    if (own == null) continue;
+                    string type = own.GetType().Name.ToLowerInvariant();
+                    if (type.Contains("button") || type.Contains("toggle") ||
+                        type.Contains("eventtrigger") || type.Contains("click"))
+                    {
+                        ownsInput = true;
+                        break;
+                    }
+                }
+                if (!ownsInput) continue;
+                // Even if prefab naming changes, a map caption must map to
+                // only this one native asset within its own interactive card.
+                var maps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (Component label in node.GetComponentsInChildren(textType, true))
+                {
+                    string value = GetUiProperty(label, "text") as string;
+                    string mapId;
+                    if (nativeMapLabels.TryGetValue(NormalizeNativeLabel(value), out mapId))
+                        maps.Add(mapId);
+                    if (maps.Count > 1) break;
+                }
+                if (maps.Count <= 1) return node.gameObject;
+                break;
+            }
+            return null;
+        }
+
         private static bool IsWithinNativeNewGameLibrary(Transform node)
         {
             for (int depth = 0; node != null && depth < 14;
                  depth++, node = node.parent)
                 if (node.name.IndexOf("NewGameLibraryMenu",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
+                        StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    node.name.IndexOf("NewGameStarterMenu",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
             return false;
         }
@@ -344,6 +402,11 @@ namespace CastleStoryArchipelago
 
                 if (!forbiddenMode && !forbiddenPlay && !isMap) return;
                 GameObject cardRoot = FindIndividualNativeChoice(text, isMap);
+                if (isMap && nativeMapCardDiagnostics++ < 24)
+                    Logger.LogInfo("[AP MAP UI] id=" + mapId +
+                        " allowed=" + !forbiddenMap +
+                        " item=" + (cardRoot == null ? "not-found" : cardRoot.name) +
+                        " context=" + IsWithinNativeNewGameLibrary(text.transform));
                 if (cardRoot == null) return;
 
                 // Do not evaluate gamemode labels on an unrelated shared
