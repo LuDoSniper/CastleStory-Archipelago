@@ -347,6 +347,7 @@ namespace CastleStoryArchipelago
             lastSavePolicyToken = token;
             lastSavePolicyActive = active;
             apSavePolicyPrepared = true;
+            ReconcileKnownNativeSaveCards();
             Logger.LogInfo("[AP UI PREPARED] " + reason +
                 ": AP=" + active + " saves=" + cachedSaveFolderNames.Count +
                 " allowed=" + cachedAllowedSaveNames.Count +
