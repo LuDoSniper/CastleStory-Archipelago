@@ -69,7 +69,11 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("nativeStarterMenu != null ||", ui)
         self.assertIn("observedMapAssets.Count > 0", ui)
         self.assertIn('String.Equals(name, "SceneMenu"', ui)
-        self.assertIn("now - titleSceneReadyAt >= 4.0f", ui)
+        self.assertIn("if (titleSceneSeen && !introCreditShown", ui)
+        self.assertIn("IsNativeTitleReady()", ui)
+        self.assertNotIn("now - titleSceneReadyAt >= 4.0f", ui)
+        self.assertIn("ShiftTitleOptionsBelow(playRect", ui)
+        self.assertIn("MatchTitlePrimaryVisual(playRect, copy)", ui)
         self.assertIn("ProbeTitleScreenHierarchy()", ui)
 
     def test_login_uses_clean_text_layout_and_warm_game_palette(self):
@@ -93,15 +97,31 @@ class NativeUiIntegrationTests(unittest.TestCase):
         code = INTEGRATION.read_text(encoding="utf-8")
         self.assertIn("HideNativeNonSelectableChoices(selectedNativeMode)", code)
         self.assertIn("private GameObject FindNativeChoiceRoot(", code)
-        self.assertIn("type.Contains(\"menuchoice\")", code)
+        self.assertIn("HasNativeInteractiveSurface", code)
+        self.assertIn("CountDistinctNativeChoices(node) > 1", code)
+        self.assertIn("HideTextBasedPlaySubmenuChoices();", code)
+        self.assertIn("FindTextBasedPlaySubmenu()", code)
         self.assertIn("if (target == null || hiddenNativeEntries.ContainsKey(target))", code)
-        self.assertIn("if (selectable != null && current.GetComponent(selectable)", code)
+        self.assertIn("HideNativeEntry(target);", code)
+        self.assertIn("Hidden entire native choice:", code)
 
     def test_f7_never_falls_back_to_old_popup_only_due_to_missing_title_button(self):
         code = (ROOT / "mod/NativeConnectionPanel.cs").read_text(encoding="utf-8")
         self.assertIn("EnsureNativeConnectionTemplate()", code)
         self.assertIn("AP_NativeConnectionButtonTemplate", code)
         self.assertIn("Resources.GetBuiltinResource<Font>", code)
+
+    def test_connection_command_is_acked_and_retried_in_memory(self):
+        ui = UI.read_text(encoding="utf-8")
+        plugin = PLUGIN.read_text(encoding="utf-8")
+        bridge = (ROOT / "client/bridge.py").read_text(encoding="utf-8")
+        self.assertIn("pendingBridgePassword", ui)
+        self.assertIn("pendingBridgeRequestId", ui)
+        self.assertIn("private void MaintainBridgeHandshake()", ui)
+        self.assertIn("MaintainBridgeHandshake();", plugin)
+        self.assertIn("bridge_command_ack.json", bridge)
+        self.assertIn('"request_id": request_id', bridge)
+        self.assertNotIn('save_json(self.directory / "connection.json"', bridge)
 
     def test_native_map_selection_binds_seed_mission_and_protects_checks(self):
         ui = UI.read_text(encoding="utf-8")
@@ -131,7 +151,7 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertIn("Texture2D.whiteTexture", native)
         self.assertIn("HasNativeOptionsSibling", native)
         self.assertIn("BeginOwnIntroCredit();", native)
-        self.assertIn('Logger.LogInfo("[AP CREDITS] Dedicated', native)
+        self.assertIn('Logger.LogInfo("[AP CREDITS] Title Play+Options detected', native)
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("archipelago-logo.png", workflow)
 
