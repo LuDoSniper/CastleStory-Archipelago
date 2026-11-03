@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using BepInEx;
 using UnityEngine;
 
 namespace CastleStoryArchipelago
@@ -141,9 +142,17 @@ namespace CastleStoryArchipelago
 
         private void ScanNewNativeSaves()
         {
-            if (!IsSeedGameplayActive() || !saveBaselineReady ||
-                String.IsNullOrEmpty(apSaveRoot) ||
-                !Directory.Exists(apSaveRoot)) return;
+            if (!IsSeedGameplayActive()) return;
+            if (String.IsNullOrEmpty(apSaveRoot) ||
+                !Directory.Exists(apSaveRoot))
+            {
+                apSaveRoot = FindCastleStorySaveRoot();
+                if (String.IsNullOrEmpty(apSaveRoot)) return;
+                // The first save may create the root itself. Treat folders
+                // that appear after validated start as new AP saves.
+                saveBaselineReady = true;
+            }
+            if (!saveBaselineReady) return;
             try
             {
                 foreach (string folder in Directory.GetDirectories(apSaveRoot))
@@ -201,8 +210,7 @@ namespace CastleStoryArchipelago
             ApSaveTag tag;
             bool tagged = apSaveTags.TryGetValue(folder, out tag);
             // With AP connected only saves tagged for THIS seed/slot are allowed.
-            if (bridgeConnected || (!disconnectPending &&
-                !String.IsNullOrEmpty(token) && campaign != null && campaign.ready))
+            if (bridgeConnected)
                 return tagged && String.Equals(tag.token, token,
                     StringComparison.Ordinal);
             // Vanilla mode must not expose Archipelago-tagged saves.
