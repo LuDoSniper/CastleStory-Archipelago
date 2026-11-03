@@ -16,7 +16,7 @@ function Expect-Throws([scriptblock]$action, [string]$why) {
     if (-not $failed) { throw "Expected refusal: $why" }
 }
 function Check-Validate([int]$expected) {
-    $result = & $script -GameDirectory $game -SaveName $save -ValidateOnly 3>&1 | Out-String
+    $result = & $script -GameDirectory $game -SaveName $save -ValidateOnly 3>&1 6>&1 | Out-String
     if ($result -notmatch "Verification reussie : $expected tag") {
         throw "Expected $expected existing tags. Got: $result"
     }
