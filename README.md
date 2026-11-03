@@ -1,6 +1,38 @@
-# Castle Story × Archipelago — v0.8.0 (sauvegardes persistantes et arrêt automatique du bridge)
+# Castle Story × Archipelago — v0.8.1 (checks persistants et livrés au bridge)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.8.1 — Fiabilisation de l'envoi des checks
+
+Retour de test : les sauvegardes v0.8.0 restent visibles après redémarrage,
+mais certains nouveaux checks ne sont plus reçus par ArchiLAN.
+
+- `checks.json` était encore remplacé avec `File.Replace(..., null)` :
+  le même appel problématique sous Windows que nous avions déjà corrigé
+  pour les registres de sauvegarde. Désormais le remplacement utilise un
+  chemin de backup valide, puis une copie compatible de secours en cas
+  d'échec. Les écritures sont retentées sans perdre l'événement.
+- Les checks et la progression sont conservés **par token déterministe
+  de seed/équipe/slot** dans `BepInEx/config/castle_story_archipelago/checks_by_run/`.
+  Cela évite qu'une reconnexion à une autre run écrase l'historique de
+  la précédente. Les anciens `checks.json` sont repris si leur token
+  correspond, sans fusionner deux seeds différentes.
+- Quand le bridge se reconnecte à la même run, le mod republie le ledger
+  vers le fichier live `checks.json` afin de rejouer les événements non
+  encore consommés par le serveur. En quittant le jeu, un ledger sale est
+  écrit avant l'arrêt du bridge.
+- Dans le log, `[AP CHECK LEDGER]` indique la restauration, `[AP CHECK FILE]`
+  confirme l'écriture et `[AP CHECK]` distingue un nouveau check d'une vague
+  **déjà enregistrée**. Une location Archipelago ne peut être cochée qu'une
+  seule fois pour la même seed ; rejouer la vague 1 après l'avoir cochée ne
+  doit donc pas recréer un check. Le bridge refait ses envois au réseau sur
+  chaque reconnexion.
+
+**Test :** conserver la seed et le slot, charger sa sauvegarde, avancer
+jusqu'à une vague *pas encore cochée* dans cette run, puis vérifier le check
+sur ArchiLAN. En cas d'échec, transmettre le nouveau `LogOutput.log` et
+le statut des locations côté serveur. Il n'est pas nécessaire de relancer
+le script d'association des sauvegardes.
 
 ## v0.8.0 — Sauvegardes par seed/équipe/slot et bridge attaché au jeu
 
