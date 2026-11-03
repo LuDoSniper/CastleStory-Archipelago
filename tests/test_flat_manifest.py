@@ -33,7 +33,7 @@ class FlatManifestContractTests(unittest.TestCase):
             self.assertEqual(flat["mission_count"], 1)
             self.assertEqual(session["campaign_mission_count"], 1)
             self.assertEqual(flat["missions"][0]["map_id"], "official:KnownMap")
-            self.assertEqual(flat["bridge_client_version"], "0.7.4")
+            self.assertEqual(flat["bridge_client_version"], "0.7.5")
 
     def test_invalid_campaign_gets_explicit_zero_missions(self):
         with tempfile.TemporaryDirectory() as td:
