@@ -273,13 +273,22 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private bool IsArchipelagoSaveSessionActive()
+        {
+            // The ArchiLAN bridge drops its heartbeat for ~0.7s several times
+            // in the supplied logs. That MUST NOT temporarily show vanilla
+            // saves or disable seed validation. Only explicit disconnect or
+            // loss of a valid manifest leaves Archipelago save mode.
+            return !disconnectPending && !String.IsNullOrEmpty(token) &&
+                campaign != null && campaign.ready;
+        }
+
         private bool IsAllowedNativeSave(string folder)
         {
             folder = NormalizeSaveFolder(folder);
             ApSaveTag tag;
             bool tagged = apSaveTags.TryGetValue(folder, out tag);
-            // With AP connected only saves tagged for THIS seed/slot are allowed.
-            if (bridgeConnected)
+            if (IsArchipelagoSaveSessionActive())
                 return tagged && String.Equals(tag.token, token,
                     StringComparison.Ordinal);
             // Vanilla mode must not expose Archipelago-tagged saves.
@@ -319,7 +328,8 @@ namespace CastleStoryArchipelago
 
         private void ScheduleNativeSaveFilter(string source)
         {
-            if (!titleSceneSeen || (!bridgeConnected && apSaveTags.Count == 0))
+            if (!titleSceneSeen ||
+                (!IsArchipelagoSaveSessionActive() && apSaveTags.Count == 0))
                 return;
             if (String.IsNullOrEmpty(apSaveRoot))
                 apSaveRoot = FindCastleStorySaveRoot();
@@ -422,7 +432,7 @@ namespace CastleStoryArchipelago
                 Logger.LogInfo("[AP SAVE UI] matched=" + matched +
                     " hidden=" + hidden + " noCard=" + unknown +
                     " tagged=" + apSaveTags.Count +
-                    " AP=" + bridgeConnected +
+                    " AP=" + IsArchipelagoSaveSessionActive() +
                     " currentSeed=" + (!String.IsNullOrEmpty(token)));
         }
 
@@ -554,7 +564,7 @@ namespace CastleStoryArchipelago
                 Logger.LogWarning("[AP SAVE LOAD] Cannot resolve save folder from " +
                     "SpLoadGameStarterMenu.SelectedMap.GetHeightmapPath.");
                 // Never allow an unverified save into a live AP session.
-                return !bridgeConnected;
+                return !IsArchipelagoSaveSessionActive();
             }
             return ValidateTaggedSaveFolder(folder);
         }
@@ -562,12 +572,12 @@ namespace CastleStoryArchipelago
         private bool ValidateTaggedSaveFolder(string folder)
         {
             folder = NormalizeSaveFolder(folder);
-            if (String.IsNullOrEmpty(folder)) return !bridgeConnected;
+            if (String.IsNullOrEmpty(folder)) return !IsArchipelagoSaveSessionActive();
             if (!IsAllowedNativeSave(folder))
             {
                 Logger.LogWarning("[AP SAVE LOAD] Rejected nonmatching or untagged " +
-                    "save: " + folder + " AP=" + bridgeConnected);
-                statusLine = bridgeConnected ?
+                    "save: " + folder + " AP=" + IsArchipelagoSaveSessionActive());
+                statusLine = IsArchipelagoSaveSessionActive() ?
                     "Cette sauvegarde n'appartient pas à la seed Archipelago active." :
                     "Une sauvegarde Archipelago exige une connexion à sa seed.";
                 return false;
@@ -580,8 +590,8 @@ namespace CastleStoryArchipelago
                     folder);
                 return true;
             }
-            if (!bridgeConnected || String.IsNullOrEmpty(token) ||
-                tag.token != token || campaign == null || !campaign.ready ||
+            if (!IsArchipelagoSaveSessionActive() ||
+                tag.token != token ||
                 campaign.missions == null)
                 return false;
             MissionFile mission = campaign.missions.FirstOrDefault(item =>
@@ -626,7 +636,7 @@ namespace CastleStoryArchipelago
                     selected = property.GetValue(menu, null);
                     if (selected != null) break;
                 }
-                if (selected == null) return !bridgeConnected;
+                if (selected == null) return !IsArchipelagoSaveSessionActive();
                 string path = selected as string;
                 if (path == null)
                     foreach (string prop in new [] {
@@ -639,7 +649,7 @@ namespace CastleStoryArchipelago
                         path = value.GetValue(selected, null) as string;
                         if (!String.IsNullOrEmpty(path)) break;
                     }
-                if (String.IsNullOrEmpty(path)) return !bridgeConnected;
+                if (String.IsNullOrEmpty(path)) return !IsArchipelagoSaveSessionActive();
                 string folder = NormalizeSaveFolder(path);
                 if (Path.HasExtension(folder))
                 {
@@ -653,7 +663,7 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogWarning("[AP SAVE LOAD] Guard exception: " +
                     error.GetType().Name);
-                return !bridgeConnected;
+                return !IsArchipelagoSaveSessionActive();
             }
         }
     }
