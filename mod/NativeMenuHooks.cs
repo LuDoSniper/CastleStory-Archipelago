@@ -663,6 +663,14 @@ namespace CastleStoryArchipelago
 
         private bool CanStartNativeMap(object menuInstance)
         {
+            // LoadGameStarter inherits BaseMapStarterMenu.OnOk. Route to the
+            // dedicated save validator BEFORE the new-map identity guard,
+            // otherwise /Info/Saves/<folder>/Heightmap.png is rejected as
+            // an unknown map and saved games can never be resumed.
+            if (menuInstance != null &&
+                menuInstance.GetType().Name.IndexOf("LoadGameStarter",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+                return ValidateNativeLoadStarter(menuInstance);
             // Only an explicit disconnect or absent session restores vanilla
             // starts. Short bridge drops must not bypass seed restrictions.
             if (disconnectPending || String.IsNullOrEmpty(token)) return true;
