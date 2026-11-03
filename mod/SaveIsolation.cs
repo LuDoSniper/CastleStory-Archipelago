@@ -258,6 +258,9 @@ namespace CastleStoryArchipelago
                     hidden++;
                 }
             }
+            if (matched == 0 && known.Count > 0 && lastSaveMenuDiagnosticCount < 3)
+                Logger.LogWarning("[AP SAVE UI] Save folder labels not exposed " +
+                    "as native Text; filtering needs the real load-menu hierarchy.");
             if (matched > 0 || lastSaveMenuDiagnosticCount++ < 2)
                 Logger.LogInfo("[AP SAVE UI] matched=" + matched +
                     " hidden=" + hidden + " noCard=" + unknown +
@@ -289,8 +292,16 @@ namespace CastleStoryArchipelago
             Type baseMenu = AccessTools.TypeByName("Brix.UI.Builder.Menu.BaseMenu");
             if (baseMenu == null) return;
             int found = 0, patched = 0;
-            foreach (Type candidate in baseMenu.Assembly.GetTypes())
+            Type[] candidates;
+            try { candidates = baseMenu.Assembly.GetTypes(); }
+            catch (ReflectionTypeLoadException error)
             {
+                candidates = error.Types;
+                Logger.LogWarning("[AP SAVE API] Partial type discovery.");
+            }
+            foreach (Type candidate in candidates)
+            {
+                if (candidate == null) continue;
                 string typeName = candidate.Name.ToLowerInvariant();
                 if (!(typeName.Contains("load") || typeName.Contains("save")) ||
                     !baseMenu.IsAssignableFrom(candidate) ||
@@ -360,7 +371,17 @@ namespace CastleStoryArchipelago
                         if (!String.IsNullOrEmpty(folder)) break;
                     }
                 if (String.IsNullOrEmpty(folder)) return true;
-                folder = NormalizeSaveFolder(folder);
+                // Selection may be the save directory OR a file inside
+                // it (for example gameobjects.json). Resolve its parent
+                // against actual known save folders, not arbitrary text.
+                string normalized = NormalizeSaveFolder(folder);
+                if (Path.HasExtension(normalized))
+                {
+                    string parent = Path.GetDirectoryName(folder);
+                    if (!String.IsNullOrEmpty(parent))
+                        normalized = NormalizeSaveFolder(parent);
+                }
+                folder = normalized;
                 if (IsAllowedNativeSave(folder))
                 {
                     ApSaveTag tag;
