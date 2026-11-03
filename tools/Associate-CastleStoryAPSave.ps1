@@ -110,8 +110,18 @@ foreach ($path in @($mirrorPath, $tagPath)) {
         $byFolder[$key] = $entry
     }
 }
+$alreadyAssociated = $false
 if ($byFolder.ContainsKey($SaveName)) {
-    throw "Cette sauvegarde a deja un tag. Aucun remplacement automatique n'est autorise."
+    $existingTag = $byFolder[$SaveName]
+    if ([string]$existingTag.token -ne [string]$session.token -or
+        [string]$existingTag.mission -ne [string]$mission.id -or
+        [string]$existingTag.mode -ne [string]$session.mode -or
+        (-not [string]::IsNullOrWhiteSpace([string]$existingTag.map_id) -and
+         [string]$existingTag.map_id -ne $missionMap)) {
+        throw "Cette sauvegarde est deja associee a une autre seed, mission, carte ou mode. Aucun ecrasement autorise."
+    }
+    $alreadyAssociated = $true
+    Write-Warning "Association identique deja presente : verification et synchronisation des index uniquement."
 }
 $registry = @{ schema = 1; saves = @() }
 foreach ($entry in $byFolder.Values) { $registry.saves += $entry }
@@ -132,7 +142,7 @@ if ($confirmation -cne "ASSOCIER") {
     Write-Host "Annule sans modification."
     return
 }
-$registry.saves += @{
+if (-not $alreadyAssociated) { $registry.saves += @{
     folder = $SaveName
     token = [string]$session.token
     seed = [string]$session.seed
@@ -141,17 +151,33 @@ $registry.saves += @{
     mission = [string]$mission.id
     map_id = $missionMap
     created_utc = (Get-Date).ToUniversalTime().ToString("o")
-}
+} }
 $json = ConvertTo-Json -InputObject $registry -Depth 12
-New-Item -Force -ItemType Directory $config | Out-Null
-foreach ($target in @($tagPath, $mirrorPath)) {
-    if (Test-Path -LiteralPath $target) {
-        Copy-Item -LiteralPath $target -Destination ($target + ".bak-" + (Get-Date -Format "yyyyMMdd-HHmmss")) -Force
-    }
-    $temp = $target + ".tmp"
+# Stage both files and create durable backups BEFORE modifying either index.
+# File.Replace(source,destination,$null) failed under Windows PowerShell 5.1
+# with "Le chemin d'acces n'a pas une forme conforme." Use ordinary
+# absolute-path file copies instead; they are recoverable from backups.
+# Write the durable mirror FIRST so a failed primary copy can be repaired
+# on the next invocation by merging both registries.
+[void](New-Item -Force -ItemType Directory -Path $config)
+$targets = @($mirrorPath, $tagPath)
+$transactionId = [guid]::NewGuid().ToString("N")
+$staged = @{}
+foreach ($target in $targets) {
+    $temp = "$target.tmp-$transactionId"
     [System.IO.File]::WriteAllText($temp, $json, [System.Text.Encoding]::UTF8)
-    if (Test-Path -LiteralPath $target) {
-        [System.IO.File]::Replace($temp, $target, $null)
-    } else { Move-Item -LiteralPath $temp -Destination $target }
+    $staged[$target] = $temp
+    if ([System.IO.File]::Exists($target)) {
+        $backup = "$target.bak-$transactionId"
+        [System.IO.File]::Copy($target, $backup, $false)
+    }
 }
-Write-Host "Association enregistree sans modifier la sauvegarde du jeu."
+foreach ($target in $targets) {
+    $temp = [string]$staged[$target]
+    [System.IO.File]::Copy($temp, $target, $true)
+    if ([System.IO.File]::ReadAllText($target, [System.Text.Encoding]::UTF8) -cne $json) {
+        throw "Verification du registre echouee : $target. Restaurer la sauvegarde .bak-$transactionId."
+    }
+    [System.IO.File]::Delete($temp)
+}
+Write-Host "Association enregistree et index synchronises sans modifier la sauvegarde du jeu."
