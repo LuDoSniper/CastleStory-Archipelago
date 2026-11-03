@@ -1,6 +1,54 @@
-# Castle Story × Archipelago — v0.7.9 (cartes sélectionnables, contrôles natifs préfiltrés)
+# Castle Story × Archipelago — v0.8.0 (sauvegardes persistantes et arrêt automatique du bridge)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.8.0 — Sauvegardes par seed/équipe/slot et bridge attaché au jeu
+
+Retour du test en jeu : la carte de la seed est maintenant sélectionnable.
+Après avoir créé une sauvegarde Invasion, celle-ci apparaît dans Charger
+partie jusqu'au redémarrage de Castle Story ; elle disparaît ensuite malgré
+la reconnexion à la même seed. Le bridge reste également actif après la sortie
+du jeu. Ces deux défauts sont traités indépendamment.
+
+- **Identité stable** : une sauvegarde nouvellement créée en session AP est
+  identifiée par la seed Archipelago, l'équipe et le numéro/nom du slot.
+  L'identifiant du processus du bridge n'intervient pas dans ce marquage.
+  Les anciens enregistrements v0.7.x conservent leur compatibilité, avec un
+  contrôle strict du token déterministe lorsque la donnée d'équipe manque.
+- **Métadonnées indépendantes** : en plus de `save_tags.json` et
+  `Info/Saves/.archipelago-save-tags.json`, chaque sauvegarde reçoit deux
+  petits fichiers de métadonnées **hors des dossiers natifs de sauvegarde** :
+  `Info/ArchipelagoSaveTags/<hash>.json` et
+  `BepInEx/config/castle_story_archipelago/save_tags.d/<hash>.json`.
+  Ils sont relus au démarrage. Les écritures ratées sont retentées ; les
+  preuves contradictoires sont bloquées, jamais attribuées par devinette.
+  Aucun fichier de sauvegarde du jeu n'est modifié.
+- **Fin de processus bridge** : le plugin envoie un ordre d'arrêt dès
+  `OnApplicationQuit`, suivi d'une terminaison de secours de son propre
+  processus. Le bridge s'arrête aussi lorsque son canal stdin est fermé,
+  ou lorsque le processus Windows parent surveillé disparaît brutalement.
+  Un bridge lancé manuellement sans `--parent-pid` reste indépendant.
+- **Le lancement et les checks restent protégés** par les règles de la seed,
+  et le préfiltrage UI de la v0.7.9 n'est pas modifié.
+
+### Test de non-régression
+
+Fermer le jeu, extraire entièrement le dernier
+`castle-story-archipelago-test-kit`, exécuter
+`Install-CastleStoryAP.ps1` et reconnecter à la **même seed**. Sans régénérer
+la run : lancer Invasion sur la carte autorisée, sauvegarder, revenir à Charger,
+fermer complètement Castle Story, contrôler que le bridge n'est plus dans le
+Gestionnaire des tâches, puis rouvrir le jeu et reconnecter le **même slot**
+de la **même seed**. La sauvegarde doit rester visible. Déconnecter puis
+connecter une autre seed/slot doit la rendre invisible ; revenir à la seed
+originale doit la faire réapparaître. Si le résultat diverge, transmettre
+`BepInEx/LogOutput.log`, en particulier `[AP RUN ID]`,
+`[AP SAVE SIDECAR]`, `[AP SAVE POLICY]` et `[AP BRIDGE]`.
+
+**Remarque de migration :** les sauvegardes anciennes dépourvues de toute
+preuve d'appartenance (index et backups perdus) ne peuvent pas être réattribuées
+automatiquement ; le script manuel existant reste disponible pour les
+associer explicitement, sans modifier la save elle-même.
 
 ## Correctif après le retour en jeu du 3 novembre 2026
 
