@@ -63,6 +63,22 @@ class InMemoryBridgeCredentials(unittest.TestCase):
         self.assertEqual(control.drain(),
                          ("ws://localhost:38281", "Élise", "mot de passe 한글"))
 
+    def test_stdin_shutdown_stops_active_bridge_and_discards_request(self):
+        control = bridge.StdinControl(start_reader=False)
+        control.apply({"cmd": "connect", "server": "localhost:38281",
+                       "slot": "Tester", "password": "secret"})
+        self.assertFalse(control.closed.is_set())
+        control.apply({"cmd": "shutdown"})
+        self.assertTrue(control.closed.is_set())
+        self.assertIsNone(control.drain())
+
+    def test_stdin_eof_marks_game_owned_bridge_as_closed(self):
+        control = bridge.StdinControl(start_reader=False)
+        with patch.object(bridge.sys, "stdin", io.StringIO("")):
+            control._read()
+        self.assertTrue(control.closed.is_set())
+        self.assertIsNone(control.drain())
+
     def test_unity_never_writes_password_to_persistent_json(self):
         menu = (ROOT / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
         plugin = (ROOT / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8")
