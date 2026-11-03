@@ -344,6 +344,7 @@ namespace CastleStoryArchipelago
             catch (Exception) { /* No legacy installer backups. */ }
             MergeSaveTagsFrom(SaveTagsPath, true);
             int recoveredTags = RecoverApSaveTagsFromBackups();
+            int sidecarTags = RestoreIndividualTags();
             Logger.LogInfo("[AP SAVE] Registry loaded tags=" + apSaveTags.Count +
                 " saveRoot=" + (apSaveRoot == null ? "not-found" :
                     Path.GetFileName(apSaveRoot)));
@@ -357,9 +358,11 @@ namespace CastleStoryArchipelago
             lastMirrorTagStamp = GetTagTimestamp(SaveTagsMirrorPath);
             // Reconstruct the primary index if it was removed by reinstalling
             // BepInEx but a durable sidecar or upgrade backup survived.
-            if (recoveredTags > 0 ||
+            if (recoveredTags > 0 || sidecarTags > 0 ||
                 (!File.Exists(SaveTagsPath) && apSaveTags.Count > 0))
                 PersistApSaveRegistry();
+            else if (apSaveTags.Count > 0)
+                PersistIndividualTags(); // Upgrade existing live tags to durable records.
         }
 
         private void SnapshotNativeSaveFolders()
@@ -424,11 +427,12 @@ namespace CastleStoryArchipelago
                     // the new directory. Avoid tagging empty folders created
                     // manually or by unrelated tools.
                     if (Directory.GetFiles(folder).Length == 0) continue;
-                    if (!knownSaveFolders.Add(name)) continue;
+                    if (knownSaveFolders.Contains(name)) continue;
                     if (apSaveTags.ContainsKey(name))
                     {
                         // An existing known AP save must never be silently
                         // reassigned to a different multiworld.
+                        knownSaveFolders.Add(name);
                         Logger.LogInfo("[AP SAVE] Existing tagged folder unchanged: " + name);
                         continue;
                     }
@@ -438,15 +442,27 @@ namespace CastleStoryArchipelago
                             item != null && item.id == startedMission);
                     var tag = new ApSaveTag {
                         folder = name, token = token, seed = seed,
-                        slot = loginSlot, mode = mode,
-                        mission = startedMission,
+                        slot = currentApSlotName, team = currentApTeam,
+                        slot_id = currentApSlotNumber, has_slot_identity = true,
+                        mode = mode, mission = startedMission,
                         map_id = active == null ? "" : MissionMapId(active),
                         created_utc = DateTime.UtcNow.ToString("o")
                     };
                     apSaveTags[name] = tag;
-                    PersistApSaveRegistry();
-                    Logger.LogInfo("[AP SAVE] Tagged newly created Castle Story save '" +
-                        name + "' for current Archipelago seed.");
+                    if (PersistApSaveRegistry())
+                    {
+                        knownSaveFolders.Add(name);
+                        Logger.LogInfo("[AP SAVE] Tagged newly created Castle Story save '" +
+                            name + "' for seed=" + seed +
+                            " team=" + currentApTeam +
+                            " slot=" + currentApSlotName);
+                    }
+                    else
+                    {
+                        apSaveTags.Remove(name);
+                        Logger.LogWarning("[AP SAVE] Tag could not be persisted for " +
+                            name + "; retry on next scan.");
+                    }
                 }
             }
             catch (Exception error)
@@ -463,18 +479,26 @@ namespace CastleStoryArchipelago
             catch (Exception) { return DateTime.MinValue; }
         }
 
-        private void PersistApSaveRegistry()
+        private bool PersistApSaveRegistry()
         {
-            if (!saveRegistryWritable) return;
+            // Each save gets its own durable metadata on disk. The original
+            // shared registry is retained for backwards compatibility.
+            bool sidecarsWritten = PersistIndividualTags();
+            if (!saveRegistryWritable)
+            {
+                Logger.LogWarning("[AP SAVE] Primary index invalid; durable " +
+                    "individual tags preserved without overwriting it.");
+                return sidecarsWritten;
+            }
+            bool written = false;
             try
             {
                 string contents = JsonUtility.ToJson(new ApSaveRegistry {
                     schema = 1, saves = apSaveTags.Values.OrderBy(
                         entry => entry.folder, StringComparer.OrdinalIgnoreCase).ToArray()
                 }, true);
-                // Write durable mirror first. File.Replace(source, dest, null)
-                // throws "path not in legal form" on the user's Windows build.
-                // Use validated absolute-path copies and keep backup files.
+                // Do not replace native save files. Mirror the index in
+                // Info/Saves, with recovery files before any overwrite.
                 foreach (string target in new [] { SaveTagsMirrorPath, SaveTagsPath })
                 {
                     if (String.IsNullOrEmpty(target)) continue;
@@ -486,6 +510,7 @@ namespace CastleStoryArchipelago
                         if (File.Exists(target)) File.Copy(target, backup, true);
                         File.Copy(temp, target, true);
                         File.Delete(temp);
+                        written = true;
                     }
                     catch (Exception error)
                     {
@@ -501,6 +526,7 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogError("[AP SAVE] Cannot persist save tags: " + error.Message);
             }
+            return sidecarsWritten || written;
         }
 
         private void RefreshSaveRegistryWhenModified(bool force = false)
@@ -516,6 +542,7 @@ namespace CastleStoryArchipelago
             // change, never on each navigation. Primary remains authoritative.
             MergeSaveTagsFrom(SaveTagsMirrorPath, false);
             MergeSaveTagsFrom(SaveTagsPath, true);
+            RestoreIndividualTags();
             RebuildSaveVisibilityPolicy("save index updated");
             Logger.LogInfo("[AP SAVE] Refreshed registry from disk, tagged=" +
                 apSaveTags.Count + ".");
@@ -553,6 +580,10 @@ namespace CastleStoryArchipelago
                     " present=" + cachedSaveFolderNames.Contains(pair.Key) +
                     " seedMatch=" + String.Equals(pair.Value.seed, seed,
                         StringComparison.Ordinal) +
+                    " slotMatch=" + String.Equals(pair.Value.slot,
+                        currentApSlotName, StringComparison.OrdinalIgnoreCase) +
+                    " teamMatch=" + (!pair.Value.has_slot_identity ||
+                        pair.Value.team == currentApTeam) +
                     " tokenMatch=" + String.Equals(pair.Value.token, token,
                         StringComparison.Ordinal) +
                     " allowed=" + cachedAllowedSaveNames.Contains(pair.Key));
@@ -589,14 +620,36 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private bool TagBelongsToCurrentRun(ApSaveTag tag)
+        {
+            if (tag == null || !IsArchipelagoSaveSessionActive() ||
+                String.IsNullOrEmpty(tag.seed) || String.IsNullOrEmpty(seed) ||
+                !String.Equals(tag.seed, seed, StringComparison.Ordinal))
+                return false;
+            // Seed alone would expose another player's saves in the SAME
+            // multiworld. Always scope to the slot identity as well.
+            if (!String.IsNullOrEmpty(tag.slot) &&
+                !String.Equals(tag.slot, currentApSlotName,
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (tag.has_slot_identity)
+                return !String.IsNullOrEmpty(tag.slot) &&
+                    tag.team == currentApTeam && tag.slot_id == currentApSlotNumber;
+            // v0.7.x tags contain seed + slot name + deterministic token.
+            // An old tag without a slot name remains token-only, so it can
+            // never be assigned to an unrelated player by guessing.
+            return !String.IsNullOrEmpty(tag.slot) ||
+                String.Equals(tag.token, token, StringComparison.Ordinal);
+        }
+
         private bool IsAllowedNativeSave(string folder)
         {
             folder = NormalizeSaveFolder(folder);
+            if (conflictingSaveTags.Contains(folder)) return false;
             ApSaveTag tag;
             bool tagged = apSaveTags.TryGetValue(folder, out tag);
             if (IsArchipelagoSaveSessionActive())
-                return tagged && String.Equals(tag.token, token,
-                    StringComparison.Ordinal);
+                return tagged && TagBelongsToCurrentRun(tag);
             // Vanilla mode must not expose Archipelago-tagged saves.
             return !tagged;
         }
@@ -933,7 +986,7 @@ namespace CastleStoryArchipelago
                 return true;
             }
             if (!IsArchipelagoSaveSessionActive() ||
-                tag.token != token ||
+                !TagBelongsToCurrentRun(tag) ||
                 campaign.missions == null)
                 return false;
             MissionFile mission = campaign.missions.FirstOrDefault(item =>
