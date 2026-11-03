@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using HarmonyLib;
 using BepInEx;
 using UnityEngine;
@@ -19,6 +21,10 @@ namespace CastleStoryArchipelago
             public string token;
             public string seed;
             public string slot;
+            // Persist the real AP slot/team, not a transient bridge process ID.
+            public bool has_slot_identity;
+            public int team;
+            public int slot_id;
             public string mode;
             public string mission;
             public string map_id;
@@ -33,6 +39,8 @@ namespace CastleStoryArchipelago
 
         private readonly Dictionary<string, ApSaveTag> apSaveTags =
             new Dictionary<string, ApSaveTag>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> conflictingSaveTags =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> knownSaveFolders =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private string apSaveRoot;
@@ -65,6 +73,113 @@ namespace CastleStoryArchipelago
         {
             get { return String.IsNullOrEmpty(apSaveRoot) ? null :
                 Path.Combine(apSaveRoot, ".archipelago-save-tags.json"); }
+        }
+
+        private string IndividualSaveTagPath(string folder, bool durable)
+        {
+            string root = durable ?
+                Path.Combine(Path.Combine(Paths.GameRootPath, "Info"),
+                    "ArchipelagoSaveTags") :
+                Path.Combine(directory, "save_tags.d");
+            // An external per-save file is not dependent on one shared index.
+            // Hash folder names so they cannot escape this dedicated directory.
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(
+                    NormalizeSaveFolder(folder).ToLowerInvariant()));
+                var file = new StringBuilder(hash.Length * 2);
+                foreach (byte value in hash) file.Append(value.ToString("x2"));
+                return Path.Combine(root, file + ".json");
+            }
+        }
+
+        private bool SaveIndividualTag(ApSaveTag tag, bool durable)
+        {
+            string path = IndividualSaveTagPath(tag.folder, durable);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                string contents = JsonUtility.ToJson(tag, true);
+                if (File.Exists(path) && File.ReadAllText(path) == contents)
+                    return true;
+                string temp = path + ".tmp";
+                File.WriteAllText(temp, contents);
+                if (File.Exists(path)) File.Copy(path, path + ".bak", true);
+                File.Copy(temp, path, true);
+                File.Delete(temp);
+                return true;
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP SAVE SIDECAR] Cannot persist " +
+                    (durable ? "durable" : "config") + " tag: " +
+                    error.GetType().Name);
+                return false;
+            }
+        }
+
+        private bool PersistIndividualTags()
+        {
+            bool allSaved = true;
+            foreach (ApSaveTag tag in apSaveTags.Values)
+            {
+                if (tag == null || String.IsNullOrEmpty(tag.folder) ||
+                    String.IsNullOrEmpty(tag.seed)) continue;
+                bool durable = SaveIndividualTag(tag, true);
+                bool config = SaveIndividualTag(tag, false);
+                if (!durable && !config) allSaved = false;
+            }
+            return allSaved;
+        }
+
+        private int RestoreIndividualTags()
+        {
+            int restored = 0;
+            foreach (bool durable in new [] { true, false })
+            {
+                string folder = Path.GetDirectoryName(
+                    IndividualSaveTagPath("__probe__", durable));
+                if (!Directory.Exists(folder)) continue;
+                foreach (string path in Directory.GetFiles(folder, "*.json"))
+                {
+                    try
+                    {
+                        ApSaveTag tag = JsonUtility.FromJson<ApSaveTag>(
+                            File.ReadAllText(path).TrimStart('\\uFEFF', ' ', '\\r', '\\n', '\\t'));
+                        if (tag == null || String.IsNullOrEmpty(tag.folder) ||
+                            String.IsNullOrEmpty(tag.seed) ||
+                            String.IsNullOrEmpty(tag.mission) ||
+                            String.IsNullOrEmpty(tag.token)) continue;
+                        string name = NormalizeSaveFolder(tag.folder);
+                        if (!String.Equals(Path.GetFileName(path),
+                            Path.GetFileName(IndividualSaveTagPath(name, durable)),
+                            StringComparison.OrdinalIgnoreCase)) continue;
+                        ApSaveTag existing;
+                        if (apSaveTags.TryGetValue(name, out existing))
+                        {
+                            if (!String.Equals(existing.seed, tag.seed, StringComparison.Ordinal) ||
+                                !String.Equals(existing.slot, tag.slot, StringComparison.Ordinal) ||
+                                !String.Equals(existing.mission, tag.mission, StringComparison.Ordinal))
+                            {
+                                conflictingSaveTags.Add(name);
+                                Logger.LogWarning("[AP SAVE SIDECAR] Conflicting identities for " +
+                                    name + "; blocked until manually resolved.");
+                            }
+                            continue;
+                        }
+                        apSaveTags[name] = tag;
+                        restored++;
+                    }
+                    catch (Exception error)
+                    {
+                        Logger.LogWarning("[AP SAVE SIDECAR] Invalid tag " +
+                            Path.GetFileName(path) + ": " + error.GetType().Name);
+                    }
+                }
+            }
+            Logger.LogInfo("[AP SAVE SIDECAR] recovered=" + restored +
+                " conflicts=" + conflictingSaveTags.Count);
+            return restored;
         }
 
         private void MergeSaveTagsFrom(string path, bool primary)
