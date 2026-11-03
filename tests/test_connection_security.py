@@ -24,6 +24,24 @@ class InMemoryBridgeCredentials(unittest.TestCase):
         control.apply({"cmd": "disconnect"})
         self.assertIsNone(control.request)
 
+    def test_bridge_ack_never_persists_credentials(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            control = bridge.StdinControl(start_reader=False, directory=tmp)
+            command = {
+                "cmd": "connect", "server": "test.example:38281",
+                "slot": "private-slot", "password": "unique-secret-value",
+                "request_id": "test-request-001"
+            }
+            control.apply(command)
+            ack = (Path(tmp) / "bridge_command_ack.json").read_text(
+                encoding="utf-8")
+            self.assertIn("test-request-001", ack)
+            self.assertIn("connect", ack)
+            self.assertNotIn("private-slot", ack)
+            self.assertNotIn("unique-secret-value", ack)
+            self.assertNotIn("test.example", ack)
+
     def test_stdin_control_drains_new_commands_atomically(self):
         control = bridge.StdinControl(start_reader=False)
         control.queue.put({"cmd": "connect", "server": "localhost:1",
