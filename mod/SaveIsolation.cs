@@ -319,12 +319,33 @@ namespace CastleStoryArchipelago
 
         private void ScheduleNativeSaveFilter(string source)
         {
+            if (!titleSceneSeen || (!bridgeConnected && apSaveTags.Count == 0))
+                return;
             if (String.IsNullOrEmpty(apSaveRoot))
                 apSaveRoot = FindCastleStorySaveRoot();
             if (apSaveRoot == null) return;
-            pendingLoadFilterPasses = 3;
-            nextLoadMenuFilterAt = Time.realtimeSinceStartup;
+            // Native Brix load libraries can populate cards after OpenSelf.
+            pendingLoadFilterPasses = 4;
+            nextLoadMenuFilterAt = Time.realtimeSinceStartup + .03f;
             Logger.LogInfo("[AP SAVE UI] Filter scheduled from " + source);
+        }
+
+        private static string SaveFolderForCaption(string caption,
+                                                   HashSet<string> saveNames)
+        {
+            if (String.IsNullOrEmpty(caption)) return null;
+            string normalized = caption.Trim();
+            if (saveNames.Contains(normalized)) return normalized;
+            // Some native Brix cards display a save name followed by a
+            // separate timestamp line; match the ENTIRE first line, never
+            // arbitrary substring matches that could hide a different save.
+            int newline = normalized.IndexOfAny(new [] { '\\n', '\\r' });
+            if (newline > 0)
+            {
+                string first = normalized.Substring(0, newline).Trim();
+                if (saveNames.Contains(first)) return first;
+            }
+            return null;
         }
 
         private GameObject FindNativeSaveCardRoot(Component label,
@@ -346,7 +367,7 @@ namespace CastleStoryArchipelago
                 foreach (Component text in node.GetComponentsInChildren(textType, true))
                 {
                     string value = GetUiProperty(text, "text") as string;
-                    if (saveNames.Contains(NormalizeSaveFolder(value)))
+                    if (SaveFolderForCaption(value, saveNames) != null)
                         folderCaptions++;
                     if (folderCaptions > 1) break;
                 }
@@ -375,10 +396,11 @@ namespace CastleStoryArchipelago
                 if (label == null || !label.gameObject.activeInHierarchy)
                     continue;
                 string caption = GetUiProperty(label, "text") as string;
-                string folder = NormalizeSaveFolder(caption);
-                if (!known.Contains(folder)) continue;
+                string folder = SaveFolderForCaption(caption, known);
+                if (String.IsNullOrEmpty(folder)) continue;
                 GameObject card = FindNativeSaveCardRoot(label, known);
-                if (card == null || hiddenNativeEntries.ContainsKey(card))
+                if (card == null ||
+                    (hiddenNativeEntries.ContainsKey(card) && !card.activeSelf))
                 {
                     unknown++;
                     continue;
@@ -388,6 +410,9 @@ namespace CastleStoryArchipelago
                 {
                     HideNativeEntry(card);
                     hidden++;
+                    if (hidden <= 6)
+                        Logger.LogInfo("[AP SAVE UI] Hidden off-seed save card: " +
+                            folder + " / " + card.name);
                 }
             }
             if (matched == 0 && known.Count > 0 && lastSaveMenuDiagnosticCount < 3)
@@ -417,13 +442,23 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static void ObserveNativeLoadLibraryOpened(object __instance)
+        {
+            if (Instance == null || __instance == null) return;
+            string name = __instance.GetType().Name;
+            if (name.IndexOf("LoadGame", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+            Instance.Logger.LogInfo("[AP SAVE UI] Native save library opened: " + name);
+            Instance.ProbeNativeSaveSelection(__instance);
+            Instance.ScheduleNativeSaveFilter(name + ".OpenSelf");
+        }
+
         private void InstallNativeSaveMenuHooks()
         {
-            // Discover real load menus by their type, never patch game save
-            // serialization or modify proprietary files.
             Type baseMenu = AccessTools.TypeByName("Brix.UI.Builder.Menu.BaseMenu");
             if (baseMenu == null) return;
-            int found = 0, patched = 0;
+            int discovered = 0, patchedLibraries = 0;
+            var patched = new HashSet<MethodInfo>();
             Type[] candidates;
             try { candidates = baseMenu.Assembly.GetTypes(); }
             catch (ReflectionTypeLoadException error)
@@ -433,34 +468,38 @@ namespace CastleStoryArchipelago
             }
             foreach (Type candidate in candidates)
             {
-                if (candidate == null) continue;
-                string typeName = candidate.Name.ToLowerInvariant();
-                if (!(typeName.Contains("load") || typeName.Contains("save")) ||
+                if (candidate == null || candidate.IsAbstract ||
                     !baseMenu.IsAssignableFrom(candidate) ||
-                    candidate.IsAbstract) continue;
-                found++;
-                Logger.LogInfo("[AP SAVE API] Native menu " + candidate.FullName);
-                MethodInfo onOk = candidate.GetMethod("OnOk",
+                    candidate.Name.IndexOf("LoadGame", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                discovered++;
+                Logger.LogInfo("[AP SAVE API] Native load menu " + candidate.FullName);
+                // The real Castle Story build inherits OpenSelf and OnOk.
+                // DeclaredOnly returned 0 load hooks in v0.7.6. Patch each
+                // concrete/inherited OpenSelf method once and check the
+                // runtime instance type in the callback.
+                MethodInfo open = candidate.GetMethod("OpenSelf",
                     BindingFlags.Instance | BindingFlags.Public |
-                    BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
-                    null, Type.EmptyTypes, null);
-                // Save As / overwrite dialogs must never be intercepted here.
-                // Only load-oriented menus are candidates for a load guard.
-                if (onOk == null || !typeName.Contains("load")) continue;
-                try
+                    BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (open != null && patched.Add(open))
                 {
-                    harmony.Patch(onOk, prefix: new HarmonyMethod(
-                        AccessTools.Method(typeof(CastleStoryArchipelagoPlugin),
-                            "BeforeNativeLoadConfirmed")));
-                    patched++;
-                }
-                catch (Exception e)
-                {
-                    Logger.LogWarning("[AP SAVE API] Load hook: " + e.GetType().Name);
+                    try
+                    {
+                        harmony.Patch(open, postfix: new HarmonyMethod(
+                            AccessTools.Method(typeof(CastleStoryArchipelagoPlugin),
+                                "ObserveNativeLoadLibraryOpened")));
+                        patchedLibraries++;
+                    }
+                    catch (Exception error)
+                    {
+                        Logger.LogWarning("[AP SAVE API] OpenSelf hook: " +
+                            error.GetType().Name);
+                    }
                 }
             }
-            Logger.LogInfo("[AP SAVE API] Candidate menus=" + found +
-                " guarded OnOk methods=" + patched);
+            Logger.LogInfo("[AP SAVE API] Native load menus=" + discovered +
+                " OpenSelf hooks=" + patchedLibraries +
+                "; native starter load guard uses BaseMapStarterMenu.OnOk.");
         }
 
         private static bool BeforeNativeLoadConfirmed(object __instance)
