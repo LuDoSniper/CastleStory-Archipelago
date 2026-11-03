@@ -1,6 +1,61 @@
-# Castle Story × Archipelago — v0.7.3 (corrections basées sur le test Unity)
+# Castle Story × Archipelago — v0.7.4 (menus complets, accueil et connexion au premier clic)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.4 — Ajustements du dernier retour de jeu
+
+La v0.7.3 a permis de rapprocher le crédit de l'introduction et
+de placer Archipelago sur l'accueil, mais trois défauts subsistaient :
+le crédit était encore tardif, Options et Archipelago se chevauchaient,
+et les cadres de modes supprimés restaient cliquables. Des éléments
+indésirables étaient également visibles dans le sous-menu Jouer.
+La connexion pouvait nécessiter un deuxième essai.
+
+- **Crédits :** suppression du délai fixe de quatre secondes. Le
+  crédit supplémentaire se déclenche quand le véritable écran
+  d'accueil affiche **Jouer ET Options**, avec une trace du délai
+  observé depuis `SceneMenu`. Nous ne possédons pas les assets/scripts
+  originaux de la séquence de studios : ce signal de transition est
+  meilleur qu'un délai arbitraire, mais sa synchronisation exacte
+  devra être contrôlée en jeu.
+- **Accueil :** repositionnement du vrai contrôle Options même s'il
+  appartient à un autre parent Unity. L'entrée Archipelago reprend
+  la couleur/le sprite de l'Image du bouton Jouer si elle est exposée,
+  sinon conserve un doré primaire de secours.
+- **Modes :** le filtre recherche le **cadre interactif complet**
+  contenant le texte d'un mode interdit, et le désactive, pas seulement
+  l'objet texte. Il refuse de masquer un parent contenant plusieurs
+  choix distincts. Le garde-fou natif du lancement continue de
+  refuser les cartes/modes hors seed.
+- **Jouer :** ajout d'une recherche du groupe des trois choix autorisés
+  (Nouvelle partie, Charger, Multijoueur), y compris si le jeu utilise
+  des cartes personnalisées au lieu de `UnityEngine.UI.Selectable`,
+  pour masquer les autres entrées de ce groupe.
+- **Connexion :** les commandes du jeu au bridge incluent maintenant
+  un identifiant de requête, et le bridge écrit seulement cet identifiant
+  dans `bridge_command_ack.json` (sans serveur, slot ni mot de passe).
+  Si le premier message n'a pas été reçu, le jeu retente automatiquement
+  jusqu'à trois transmissions. Le secret est conservé seulement
+  quelques secondes en mémoire, jusqu'à l'accusé de réception, puis
+  effacé ; il n'est jamais sauvegardé.
+- **Stabilité :** filtrage uniquement sur ouverture/action de menu,
+  avec caches et sans les recherches TextMeshPro inutiles identifiées
+  dans les logs précédents.
+
+**Périmètre de validation :** les tests CI compilent le plugin et
+valident les protocoles et règles statiques ; ils ne peuvent pas
+certifier le résultat visuel des contrôles internes de Castle Story.
+Il faudra vérifier la séquence d'introduction, l'espacement de l'accueil,
+les cadres de mode et l'ouverture de la session depuis le vrai jeu.
+
+**Test court :** fermer puis relancer Castle Story après installation
+du kit 0.7.4. Observer l'introduction, l'accueil (ordre Jouer /
+Archipelago / Options), ouvrir le panneau, cliquer **une seule fois**
+sur Connexion et vérifier l'état. Dans Jouer puis Nouvelle partie,
+tenter de cliquer à l'ancien emplacement de Conquête ou Construction
+libre pour vérifier que le **cadre entier** est supprimé. Le nouveau
+LogOutput.log peut aider si une de ces interfaces utilise des
+composants non identifiés.
 
 ## v0.7.3 — Correctifs depuis la capture et le journal du jeu
 
