@@ -83,6 +83,9 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('if (button.activeSelf)', UI)
         self.assertIn('titleArchipelagoControl.SetSiblingIndex(', UI)
         self.assertIn('MaintainTitleButtonSpacing();', PLUGIN)
+        self.assertIn('EnforceHiddenNativeEntries();', PLUGIN)
+        self.assertIn('private void EnforceHiddenNativeEntries()', UI)
+        self.assertIn('pair.Key.activeSelf', UI)
         self.assertIn('ScheduleNativeSaveFilter("native title UI refreshed")', UI)
 
     def test_play_menu_never_uses_destructive_unknown_control_whitelist(self):
