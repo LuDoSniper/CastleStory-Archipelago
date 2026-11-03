@@ -386,8 +386,13 @@ namespace CastleStoryArchipelago
             if (before != after || lastSavePolicyActive != after ||
                 lastSavePolicyToken != token || !apSavePolicyPrepared)
             {
+                // All Brix cards remain alive. Clear visual masks from the
+                // previous connection and reclassify the existing screen
+                // under the new policy in the same frame, before render.
+                ClearPreRenderCardPolicy();
                 RestoreNativeEntries();
                 RebuildSaveVisibilityPolicy("connection state changed");
+                ApplyPrecomputedPolicyToVisibleTitles();
             }
         }
 
