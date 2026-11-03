@@ -396,6 +396,16 @@ namespace CastleStoryArchipelago
             if (titlePlayControl == null || titleOptionsControl == null ||
                 titleArchipelagoControl == null || !titleSceneSeen)
                 return;
+            // The Brix menu can rebuild its child ordering after Play/Back.
+            // Keep our clone directly after the REAL title Play prefab.
+            if (titleArchipelagoControl.parent == titlePlayControl.parent &&
+                titleArchipelagoControl.GetSiblingIndex() !=
+                    titlePlayControl.GetSiblingIndex() + 1)
+            {
+                titleArchipelagoControl.SetSiblingIndex(
+                    titlePlayControl.GetSiblingIndex() + 1);
+                Logger.LogInfo("[AP TITLE] Restored Play -> Archipelago sibling order.");
+            }
             var play = new Vector3[4];
             var archipelago = new Vector3[4];
             titlePlayControl.GetWorldCorners(play);
@@ -810,7 +820,20 @@ namespace CastleStoryArchipelago
 
         private void HideNativeEntry(GameObject button)
         {
-            if (button == null || hiddenNativeEntries.ContainsKey(button)) return;
+            if (button == null) return;
+            if (hiddenNativeEntries.ContainsKey(button))
+            {
+                // Brix reuses pooled cards and calls SetActive(true) when
+                // revisiting Play/New Game. Reapply the restriction even if
+                // the SAME GameObject is already in our hidden registry.
+                if (button.activeSelf)
+                {
+                    button.SetActive(false);
+                    Logger.LogInfo("[AP NATIVE UI] Re-hidden pooled choice: " +
+                        button.name);
+                }
+                return;
+            }
             hiddenNativeEntries[button] = button.activeSelf;
             button.SetActive(false);
         }
@@ -1004,7 +1027,9 @@ namespace CastleStoryArchipelago
                     (nativeMode != null && mode != "Hybrid" && nativeMode != mode);
                 if (!forbidden) continue;
                 GameObject target = FindNativeChoiceRoot(caption);
-                if (target == null || hiddenNativeEntries.ContainsKey(target)) continue;
+                if (target == null ||
+                    (hiddenNativeEntries.ContainsKey(target) && !target.activeSelf))
+                    continue;
                 HideNativeEntry(target);
                 count++;
                 Logger.LogInfo("[AP NATIVE UI] Hidden entire native choice: " +
@@ -1080,7 +1105,8 @@ namespace CastleStoryArchipelago
                     !IsForbiddenPlaySubmenuEntry(value))
                     continue;
                 GameObject card = FindNativeChoiceRoot(label);
-                if (card == null || hiddenNativeEntries.ContainsKey(card) ||
+                if (card == null ||
+                    (hiddenNativeEntries.ContainsKey(card) && !card.activeSelf) ||
                     card == group.gameObject || !card.activeInHierarchy ||
                     CountDistinctNativeChoices(card.transform) > 1)
                     continue;
@@ -1121,7 +1147,8 @@ namespace CastleStoryArchipelago
             {
                 Component item = value as Component;
                 if (item == null || item.gameObject == null ||
-                    hiddenNativeEntries.ContainsKey(item.gameObject)) continue;
+                    (hiddenNativeEntries.ContainsKey(item.gameObject) &&
+                     !item.gameObject.activeSelf)) continue;
                 controls.Add(item);
                 labels[item.gameObject] = CachedNativeUiLabels(item.gameObject);
             }
@@ -1164,6 +1191,9 @@ namespace CastleStoryArchipelago
             }
             hidden += HideNativeNonSelectableChoices(selectedNativeMode);
             hidden += HideTextBasedPlaySubmenuChoices();
+            // Always redo save filtering after a title navigation that may
+            // rebuild the Load list (Brix menus use inherited OpenSelf).
+            ScheduleNativeSaveFilter("native title UI refreshed");
             watch.Stop();
             if (hidden > 0 && nativeRestrictionLogCount++ < 12)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
