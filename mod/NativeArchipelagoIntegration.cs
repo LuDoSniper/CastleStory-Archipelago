@@ -1390,6 +1390,7 @@ namespace CastleStoryArchipelago
             // remained cached after Save & Quit, causing the title button
             // and native menu restrictions to silently stop reappearing.
             hiddenNativeEntries.Clear();
+            nativeSaveCardFolders.Clear();
             cachedNativeLabels.Clear();
             lastNativeFilterKey = null;
             lastFilterMenu = null;
