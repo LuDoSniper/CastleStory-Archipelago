@@ -113,6 +113,7 @@ namespace CastleStoryArchipelago
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
             LoadRememberedConnection();
+            InitializeApSaveRegistry();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
                 "Castle Story Archipelago v0.7.4 Awake() OK." + Environment.NewLine);
             Logger.LogInfo("Castle Story Archipelago v0.7.4 initialised.");
@@ -130,6 +131,7 @@ namespace CastleStoryArchipelago
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
+            InstallNativeSaveMenuHooks();
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged +=
                 OnArchipelagoSceneChanged;
             InstallBonusSpawnHooks();
@@ -758,6 +760,7 @@ namespace CastleStoryArchipelago
             ProcessPendingNativeBonus();
             HandleModalRawInput();
             UpdateNativeArchipelagoIntegration();
+            UpdateSaveIsolation();
             UpdateNativeInputShield();
             UpdateNativePanelStatus();
             if (Input.GetKeyDown(KeyCode.F7))
