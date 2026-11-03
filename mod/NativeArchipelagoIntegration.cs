@@ -306,8 +306,7 @@ namespace CastleStoryArchipelago
 
         private bool IsNativeTitleReady()
         {
-            if (!titleSceneSeen || nativeStarterMenu != null ||
-                observedMapAssets.Count > 0) return false;
+            if (!titleSceneSeen || nativeStarterMenu != null) return false;
             // The proprietary studio splash animation length is not in this
             // repository. Detect the transition to the actual title choices,
             // rather than guessing "4 seconds after SceneMenu".
@@ -526,8 +525,7 @@ namespace CastleStoryArchipelago
                 RectTransform playRect = FindTitleChoiceRect(label);
                 if (playRect == null || playRect.parent == null) continue;
                 // Do not insert when a map editor/starter is on screen.
-                if (nativeStarterMenu != null || observedMapAssets.Count > 0)
-                    return false;
+                if (nativeStarterMenu != null) return false;
                 GameObject copy = NewNativeUiObject(
                     "Archipelago_NativeTitleEntry", playRect.parent,
                     new Vector2(Mathf.Max(230f, playRect.rect.width),
@@ -572,8 +570,7 @@ namespace CastleStoryArchipelago
             // Never clone the Play control from map selection. Runtime logs
             // prove the previous injection happened only after entering
             // SpNewGameStarterMenu, which created an entry in the wrong menu.
-            if (!titleSceneSeen || nativeStarterMenu != null ||
-                observedMapAssets.Count > 0) return;
+            if (!titleSceneSeen || nativeStarterMenu != null) return;
             if (TryInstallTitleEntryFromText()) return;
             Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
             if (buttonType == null) return;
@@ -1209,12 +1206,39 @@ namespace CastleStoryArchipelago
             if (name == "SceneMenu" && previous.name != "SceneMenu")
                 ScanNewNativeSaves(true);
             Logger.LogInfo("[AP NATIVE SCREEN] Scene changed: " + name);
-            if (String.Equals(name, "SceneMenu", StringComparison.OrdinalIgnoreCase))
+            bool returningToTitle = String.Equals(name, "SceneMenu",
+                StringComparison.OrdinalIgnoreCase);
+            // Native Unity objects belong to the outgoing scene. Clearing
+            // these references is essential: a previously selected map
+            // remained cached after Save & Quit, causing the title button
+            // and native menu restrictions to silently stop reappearing.
+            hiddenNativeEntries.Clear();
+            cachedNativeLabels.Clear();
+            lastNativeFilterKey = null;
+            lastFilterMenu = null;
+            lastFilterMode = null;
+            shiftedMenuEntries.Clear();
+            titlePlayControl = titleOptionsControl = titleArchipelagoControl = null;
+            nativeArchipelagoButton = null;
+            nativeStarterMenu = null;
+            mainMenuPlayTemplate = null;
+            mainMenuOptionsTemplate = null;
+            observedMapAssets.Clear();
+            mapRegistrationCount = 0;
+            nativeButtonMissingLogged = false;
+            nativeRestrictionLogCount = 0;
+            pendingFilterPasses = 0;
+            // The connection modal is independent of scene-owned buttons.
+            // Hide it on scene transitions without clearing server/slot/session.
+            HideNativeConnectionPanel();
+            if (returningToTitle)
             {
                 titleSceneSeen = true;
                 titleSceneReadyAt = Time.realtimeSinceStartup;
                 titleSceneEvidenceLogged = false;
-                Logger.LogInfo("[AP CREDITS] SceneMenu loaded; startup credit is scheduled before the player opens New Game.");
+                nextTitleReadyProbeAt = Time.realtimeSinceStartup;
+                Logger.LogInfo("[AP NATIVE UI] Rebuilding Archipelago title UI and " +
+                    "seed restrictions after returning to SceneMenu.");
             }
             else
             {
