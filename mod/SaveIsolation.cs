@@ -124,7 +124,9 @@ namespace CastleStoryArchipelago
             foreach (ApSaveTag tag in apSaveTags.Values)
             {
                 if (tag == null || String.IsNullOrEmpty(tag.folder) ||
-                    String.IsNullOrEmpty(tag.seed)) continue;
+                    String.IsNullOrEmpty(tag.seed) ||
+                    conflictingSaveTags.Contains(NormalizeSaveFolder(tag.folder)))
+                    continue;
                 bool durable = SaveIndividualTag(tag, true);
                 bool config = SaveIndividualTag(tag, false);
                 if (!durable && !config) allSaved = false;
@@ -635,11 +637,10 @@ namespace CastleStoryArchipelago
             if (tag.has_slot_identity)
                 return !String.IsNullOrEmpty(tag.slot) &&
                     tag.team == currentApTeam && tag.slot_id == currentApSlotNumber;
-            // v0.7.x tags contain seed + slot name + deterministic token.
-            // An old tag without a slot name remains token-only, so it can
-            // never be assigned to an unrelated player by guessing.
-            return !String.IsNullOrEmpty(tag.slot) ||
-                String.Equals(tag.token, token, StringComparison.Ordinal);
+            // Legacy v0.7.x records lack team/slot number. Their token was
+            // already deterministic for seed/team/slot, so require it too:
+            // never leak a teammate's save when their name is reused.
+            return String.Equals(tag.token, token, StringComparison.Ordinal);
         }
 
         private bool IsAllowedNativeSave(string folder)
