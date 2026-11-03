@@ -310,12 +310,13 @@ namespace CastleStoryArchipelago
             string payload = JsonUtility.ToJson(new ConnectionFile {
                 enabled = enable, server = enable ? loginServer.Trim() : "",
                 slot = enable ? loginSlot.Trim() : "",
-                password = enable ? loginPassword : ""
+                password = enable ? pendingBridgePassword : ""
             });
             // Bridge protocol uses cmd=connect/disconnect, not enabled.
             string command = enable ? "connect" : "disconnect";
             payload = payload.Substring(0, payload.Length - 1) +
-                ",\"cmd\":\"" + command + "\"}";
+                ",\"cmd\":\"" + command + "\",\"request_id\":\"" +
+                (enable ? pendingBridgeRequestId : "") + "\"}";
             // Use ASCII-safe framed base64 to preserve Unicode passwords and
             // slot names regardless of the Windows console code page.
             string wire = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
@@ -336,7 +337,15 @@ namespace CastleStoryArchipelago
                 if (enable)
                 {
                     SaveRememberedConnection();
-                    if (!StartLocalBridge()) return;
+                    pendingBridgePassword = loginPassword;
+                    pendingBridgeRequestId = Guid.NewGuid().ToString("N");
+                    pendingBridgeSendCount = 0;
+                    if (!StartLocalBridge())
+                    {
+                        ClearPendingBridgeHandshake();
+                        loginPassword = "";
+                        return;
+                    }
                 }
                 else if (localBridge == null || localBridge.HasExited)
                 {
@@ -349,6 +358,12 @@ namespace CastleStoryArchipelago
                 }
                 try { SendBridgeControl(enable); }
                 finally { loginPassword = ""; }
+                if (enable)
+                {
+                    pendingBridgeSentAt = Time.realtimeSinceStartup;
+                    pendingBridgeSendCount = 1;
+                }
+                else ClearPendingBridgeHandshake();
                 statusLine = enable ? "Connexion en cours…" : "Déconnexion demandée…";
                 campaignNotice = "";
                 if (enable)
@@ -369,6 +384,7 @@ namespace CastleStoryArchipelago
             catch (Exception error)
             {
                 loginPassword = "";
+                ClearPendingBridgeHandshake();
                 statusLine = "Connexion au bridge impossible : " + error.Message;
                 Logger.LogWarning("[AP BRIDGE] Control channel: " +
                     error.GetType().Name);
@@ -412,6 +428,76 @@ namespace CastleStoryArchipelago
         }
 
         private string lastBridgeStatusState = "";
+        // Credentials are kept in memory only until bridge acknowledges stdin.
+        private string pendingBridgePassword = "";
+        private string pendingBridgeRequestId = "";
+        private float pendingBridgeSentAt;
+        private int pendingBridgeSendCount;
+
+        [Serializable] private sealed class BridgeCommandAck
+        {
+            public string request_id;
+            public string cmd;
+        }
+
+        private void ClearPendingBridgeHandshake()
+        {
+            pendingBridgePassword = "";
+            pendingBridgeRequestId = "";
+            pendingBridgeSendCount = 0;
+        }
+
+        private void MaintainBridgeHandshake()
+        {
+            if (String.IsNullOrEmpty(pendingBridgeRequestId)) return;
+            if (bridgeConnected)
+            {
+                ClearPendingBridgeHandshake();
+                return;
+            }
+            try
+            {
+                string path = Path.Combine(directory, "bridge_command_ack.json");
+                if (File.Exists(path))
+                {
+                    var ack = JsonUtility.FromJson<BridgeCommandAck>(
+                        File.ReadAllText(path));
+                    if (ack != null && ack.cmd == "connect" &&
+                        ack.request_id == pendingBridgeRequestId)
+                    {
+                        Logger.LogInfo("[AP LOGIN] Bridge acknowledged initial connection command.");
+                        ClearPendingBridgeHandshake();
+                        return;
+                    }
+                }
+                float elapsed = Time.realtimeSinceStartup - pendingBridgeSentAt;
+                if (elapsed < 2.5f) return;
+                if (pendingBridgeSendCount >= 3)
+                {
+                    if (elapsed >= 5f)
+                    {
+                        statusLine = "Le bridge n'a pas confirmé la connexion. Réessaie.";
+                        Logger.LogWarning("[AP LOGIN] Bridge IPC failed after three tries.");
+                        ClearPendingBridgeHandshake();
+                    }
+                    return;
+                }
+                if (StartLocalBridge())
+                {
+                    SendBridgeControl(true);
+                    pendingBridgeSendCount++;
+                    pendingBridgeSentAt = Time.realtimeSinceStartup;
+                    Logger.LogWarning("[AP LOGIN] Re-sent private connection command " +
+                        "after missing bridge acknowledgement; try=" +
+                        pendingBridgeSendCount);
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP LOGIN] Bridge handshake: " +
+                    error.GetType().Name);
+            }
+        }
 
         private void ReadLocalBridgeStatus()
         {
