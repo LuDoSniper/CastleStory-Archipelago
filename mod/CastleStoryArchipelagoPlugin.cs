@@ -839,7 +839,7 @@ namespace CastleStoryArchipelago
         {
             // Catch a save created just before closing the game, without
             // modifying the native game data.
-            ScanNewNativeSaves();
+            ScanNewNativeSaves(true);
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged -=
                 OnArchipelagoSceneChanged;
             if (harmony != null) harmony.UnpatchSelf();
