@@ -267,6 +267,48 @@ namespace CastleStoryArchipelago
             return null;
         }
 
+        private static string NormalizeNativeMapCaption(string value)
+        {
+            if (String.IsNullOrEmpty(value)) return "";
+            var result = new System.Text.StringBuilder(value.Length);
+            foreach (char ch in value.ToLowerInvariant().Normalize(
+                System.Text.NormalizationForm.FormD))
+            {
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) ==
+                    System.Globalization.UnicodeCategory.NonSpacingMark) continue;
+                if (Char.IsLetterOrDigit(ch)) result.Append(ch);
+            }
+            return result.ToString();
+        }
+
+        private bool TryResolveNativeMapCaption(string caption, out string mapId)
+        {
+            if (nativeMapLabels.TryGetValue(NormalizeNativeLabel(caption), out mapId))
+                return true;
+            // Older Brix screens may display a beautified asset folder title
+            // rather than the GetAssetLabel translation. Match ONLY against
+            // the catalog of paths actually verified in this native session.
+            string title = NormalizeNativeMapCaption(caption);
+            if (title.Length < 4) { mapId = null; return false; }
+            string found = null;
+            foreach (string key in observedMapAssets.Keys)
+            {
+                int colon = key.IndexOf(':');
+                string folder = colon < 0 ? key : key.Substring(colon + 1);
+                if (!String.Equals(title, NormalizeNativeMapCaption(folder),
+                    StringComparison.Ordinal)) continue;
+                if (found != null && !String.Equals(found, key,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    mapId = null;
+                    return false;
+                }
+                found = key;
+            }
+            mapId = found;
+            return found != null;
+        }
+
         private GameObject FindNativeMapCardFromCaption(Component caption)
         {
             if (caption == null ||
@@ -304,7 +346,7 @@ namespace CastleStoryArchipelago
                 {
                     string value = GetUiProperty(label, "text") as string;
                     string mapId;
-                    if (nativeMapLabels.TryGetValue(NormalizeNativeLabel(value), out mapId))
+                    if (TryResolveNativeMapCaption(value, out mapId))
                         maps.Add(mapId);
                     if (maps.Count > 1) break;
                 }
@@ -380,8 +422,7 @@ namespace CastleStoryArchipelago
                 string selectedMode = SelectedNativeGamemode();
                 string nativeMode = NativeModeFromLabel(caption);
                 string mapId;
-                bool isMap = nativeMapLabels.TryGetValue(
-                    NormalizeNativeLabel(caption), out mapId);
+                bool isMap = TryResolveNativeMapCaption(caption, out mapId);
                 bool forbiddenMode = IsSandboxLabel(caption) ||
                     (nativeMode != null && mode != "Hybrid" &&
                      nativeMode != mode);
