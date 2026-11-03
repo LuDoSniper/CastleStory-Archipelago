@@ -377,17 +377,19 @@ namespace CastleStoryArchipelago
                 if (node.GetComponent<Canvas>() != null ||
                     rect == null || rect.rect.height > 450f)
                     break;
-                int folderCaptions = 0;
+                var distinctFolders = new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase);
                 foreach (Component text in node.GetComponentsInChildren(textType, true))
                 {
                     string value = GetUiProperty(text, "text") as string;
-                    if (SaveFolderForCaption(value, saveNames) != null)
-                        folderCaptions++;
-                    if (folderCaptions > 1) break;
+                    string folder = SaveFolderForCaption(value, saveNames);
+                    if (folder != null) distinctFolders.Add(folder);
+                    if (distinctFolders.Count > 1) break;
                 }
-                // Stop before the whole list or menu: only one save folder's
-                // entry may be hidden, never all the user's save games.
-                if (folderCaptions > 1) break;
+                // A card may repeat its own save title (e.g. name and
+                // thumbnail caption). Only TWO DISTINCT saves mean we
+                // climbed into the whole list and must stop.
+                if (distinctFolders.Count > 1) break;
                 if (HasNativeInteractiveSurface(node))
                     card = node.gameObject;
             }
