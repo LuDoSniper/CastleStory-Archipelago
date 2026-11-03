@@ -506,6 +506,87 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP TITLE] Applied native-style white/bordered primary fallback.");
         }
 
+        private static GameObject FindRealTitlePlayButton(Component label)
+        {
+            if (label == null) return null;
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            if (buttonType == null) return null;
+            Transform ancestor = label.transform;
+            for (int depth = 0; ancestor != null && depth < 9; depth++,
+                ancestor = ancestor.parent)
+            {
+                // Search only upward from the real "JOUER" text in SceneMenu.
+                // This avoids cloning the unrelated Play button on the map
+                // selection screen (a previous bug).
+                if (ancestor.GetComponent(buttonType) != null)
+                    return ancestor.gameObject;
+                if (ancestor.GetComponent<Canvas>() != null) break;
+            }
+            return null;
+        }
+
+        private static void RemoveOriginalTitleClickTriggers(GameObject clone)
+        {
+            Type type = FindRuntimeType("UnityEngine.EventSystems.EventTrigger");
+            if (clone == null || type == null) return;
+            PropertyInfo triggersProp = type.GetProperty("triggers");
+            if (triggersProp == null) return;
+            foreach (Component component in clone.GetComponentsInChildren(type, true))
+            {
+                var entries = triggersProp.GetValue(component, null) as
+                    System.Collections.IList;
+                if (entries == null) continue;
+                for (int i = entries.Count - 1; i >= 0; i--)
+                {
+                    object entry = entries[i];
+                    FieldInfo eventId = entry == null ? null :
+                        entry.GetType().GetField("eventID");
+                    string name = eventId == null ? "" :
+                        Convert.ToString(eventId.GetValue(entry));
+                    // Preserve PointerEnter/PointerExit for the title's
+                    // original hover animation, remove native Play actions.
+                    if (name == "PointerClick" || name == "Submit" ||
+                        name == "PointerDown" || name == "PointerUp")
+                        entries.RemoveAt(i);
+                }
+            }
+        }
+
+        private void ConfigureFallbackPrimaryHover(GameObject obj)
+        {
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (buttonType == null || imageType == null || obj == null) return;
+            Component button = obj.GetComponent(buttonType);
+            Component image = obj.GetComponent(imageType);
+            if (button == null || image == null) return;
+            try
+            {
+                SetUiProperty(button, "targetGraphic", image);
+                PropertyInfo transition = buttonType.GetProperty("transition");
+                if (transition != null && transition.CanWrite)
+                    transition.SetValue(button,
+                        Enum.Parse(transition.PropertyType, "ColorTint"), null);
+                PropertyInfo colorsProp = buttonType.GetProperty("colors");
+                if (colorsProp == null || !colorsProp.CanWrite) return;
+                object colors = colorsProp.GetValue(button, null);
+                Type block = colors.GetType();
+                block.GetProperty("normalColor").SetValue(colors,
+                    Color.white, null);
+                block.GetProperty("highlightedColor").SetValue(colors,
+                    new Color(.99f, .87f, .54f, 1f), null);
+                block.GetProperty("pressedColor").SetValue(colors,
+                    new Color(.87f, .71f, .36f, 1f), null);
+                block.GetProperty("fadeDuration").SetValue(colors, .14f, null);
+                colorsProp.SetValue(button, colors, null);
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP TITLE] ColorTint hover fallback: " +
+                    error.GetType().Name);
+            }
+        }
+
         private bool TryInstallTitleEntryFromText()
         {
             // SceneMenu's initial two controls do not expose the UGUI Button
@@ -522,43 +603,79 @@ namespace CastleStoryArchipelago
                     continue;
                 string caption = GetUiProperty(label, "text") as string;
                 if (!IsPlayLabel(caption)) continue;
-                RectTransform playRect = FindTitleChoiceRect(label);
+                GameObject realPlay = FindRealTitlePlayButton(label);
+                RectTransform playRect = realPlay == null ?
+                    FindTitleChoiceRect(label) :
+                    realPlay.transform as RectTransform;
                 if (playRect == null || playRect.parent == null) continue;
-                // Do not insert when a map editor/starter is on screen.
                 if (nativeStarterMenu != null) return false;
-                GameObject copy = NewNativeUiObject(
-                    "Archipelago_NativeTitleEntry", playRect.parent,
-                    new Vector2(Mathf.Max(230f, playRect.rect.width),
-                                Mathf.Max(48f, playRect.rect.height)),
-                    playRect.anchoredPosition +
-                        new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f)));
-                AddUiImage(copy, new Color(.94f, .76f, .25f, 1f), true);
-                MatchTitlePrimaryVisual(playRect, copy);
-                Component button = copy.AddComponent(buttonType);
-                if (!InstallNativeButtonListener(button, buttonType,
+                bool nativeClone = realPlay != null;
+                GameObject copy = nativeClone ?
+                    UnityEngine.Object.Instantiate(realPlay) as GameObject : null;
+                if (copy != null)
+                {
+                    copy.SetActive(false);
+                    copy.transform.SetParent(playRect.parent, false);
+                    RectTransform dst = copy.transform as RectTransform;
+                    if (dst != null)
+                        dst.anchoredPosition = playRect.anchoredPosition +
+                            new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f));
+                    RemoveOriginalTitleClickTriggers(copy);
+                }
+                else
+                {
+                    nativeClone = false;
+                    copy = NewNativeUiObject(
+                        "Archipelago_NativeTitleEntry", playRect.parent,
+                        new Vector2(Mathf.Max(230f, playRect.rect.width),
+                                    Mathf.Max(48f, playRect.rect.height)),
+                        playRect.anchoredPosition +
+                            new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f)));
+                    AddUiImage(copy, new Color(.94f, .76f, .25f, 1f), true);
+                    MatchTitlePrimaryVisual(playRect, copy);
+                    copy.AddComponent(buttonType);
+                    ConfigureFallbackPrimaryHover(copy);
+                }
+                copy.name = "Archipelago_NativeTitleEntry";
+                Component button = copy.GetComponent(buttonType);
+                if (button == null ||
+                    !InstallNativeButtonListener(button, buttonType,
                         "OpenArchipelagoFromNativeMenu"))
                 {
                     UnityEngine.Object.Destroy(copy);
-                    return false;
+                    continue;
                 }
-                Component text = CloneNativeText(label.gameObject,
-                    copy.transform, "ARCHIPELAGO",
-                    new Vector2(Mathf.Max(210f, playRect.rect.width - 24f), 44),
-                    Vector2.zero, 23);
-                if (text == null)
+                if (nativeClone)
                 {
-                    UnityEngine.Object.Destroy(copy);
-                    return false;
+                    if (!SetNativeUiLabel(copy, "ARCHIPELAGO"))
+                    {
+                        UnityEngine.Object.Destroy(copy);
+                        continue;
+                    }
                 }
-                SetUiProperty(text, "alignment", TextAnchor.MiddleCenter);
+                else
+                {
+                    Component text = CloneNativeText(label.gameObject,
+                        copy.transform, "ARCHIPELAGO",
+                        new Vector2(Mathf.Max(210f, playRect.rect.width - 24f), 44),
+                        Vector2.zero, 23);
+                    if (text == null)
+                    {
+                        UnityEngine.Object.Destroy(copy);
+                        continue;
+                    }
+                    SetUiProperty(text, "alignment", TextAnchor.MiddleCenter);
+                }
                 copy.transform.SetSiblingIndex(playRect.GetSiblingIndex() + 1);
                 // Move the real Options control, even if nested elsewhere.
                 ShiftTitleOptionsBelow(playRect, (RectTransform)copy.transform);
+                copy.SetActive(true);
                 nativeArchipelagoButton = copy;
                 mainMenuPlayTemplate = copy;
                 nativeMenuFont = GetUiProperty(label, "font") as Font;
-                Logger.LogInfo("[AP TITLE] Inserted primary Archipelago option under " +
-                    "the actual SceneMenu Play label; synthetic UGUI button with native font.");
+                Logger.LogInfo("[AP TITLE] Inserted title Archipelago button, " +
+                    (nativeClone ? "native Play clone with hover/events" :
+                        "color-tint primary fallback") + ".");
                 return true;
             }
             return false;
