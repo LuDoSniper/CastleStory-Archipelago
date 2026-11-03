@@ -744,6 +744,7 @@ namespace CastleStoryArchipelago
             {
                 nextRead = Time.realtimeSinceStartup + 0.7f;
                 ReadBridge();
+                MaintainBridgeHandshake();
                 FlushNativeMapCatalogIfIdle();
                 // Retry a temporarily locked ledger without depending on
                 // further InvasionWave callbacks.
@@ -848,6 +849,7 @@ namespace CastleStoryArchipelago
             DestroyNativeInputShield();
             RestoreNativeEntries();
             RestoreNativeMenuLayout();
+            ClearPendingBridgeHandshake();
             DestroyNativeConnectionPanel();
             if (nativeArchipelagoButton != null)
                 UnityEngine.Object.Destroy(nativeArchipelagoButton);
