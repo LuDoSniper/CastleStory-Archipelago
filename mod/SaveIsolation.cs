@@ -339,7 +339,7 @@ namespace CastleStoryArchipelago
             // Some native Brix cards display a save name followed by a
             // separate timestamp line; match the ENTIRE first line, never
             // arbitrary substring matches that could hide a different save.
-            int newline = normalized.IndexOfAny(new [] { '\\n', '\\r' });
+            int newline = normalized.IndexOfAny(new [] { '\n', '\r' });
             if (newline > 0)
             {
                 string first = normalized.Substring(0, newline).Trim();
