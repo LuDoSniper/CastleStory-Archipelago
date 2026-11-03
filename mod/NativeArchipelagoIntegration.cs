@@ -28,6 +28,7 @@ namespace CastleStoryArchipelago
         private int mainMenuProbeCount;
         private int pendingFilterPasses;
         private float nextFilterPassAt;
+        private float lastLuaTitleFilterAt = -100f;
         private bool nativeButtonMissingLogged;
         private int nativeRestrictionLogCount;
         private string lastNativeFilterKey;
@@ -559,6 +560,9 @@ namespace CastleStoryArchipelago
             if (buttonType == null || imageType == null || obj == null) return;
             Component button = obj.GetComponent(buttonType);
             Component image = obj.GetComponent(imageType);
+            Transform body = obj.transform.Find("AP_PrimaryBody");
+            if (body != null && body.GetComponent(imageType) != null)
+                image = body.GetComponent(imageType);
             if (button == null || image == null) return;
             try
             {
