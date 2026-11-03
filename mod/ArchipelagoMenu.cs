@@ -449,7 +449,7 @@ namespace CastleStoryArchipelago
                     try
                     {
                         string command = Convert.ToBase64String(
-                            System.Text.Encoding.UTF8.GetBytes("{\\"cmd\\":\\"shutdown\\"}"));
+                            System.Text.Encoding.UTF8.GetBytes("{\"cmd\":\"shutdown\"}"));
                         localBridge.StandardInput.WriteLine("APIPC1:" + command);
                         localBridge.StandardInput.Flush();
                         localBridge.StandardInput.Close();
