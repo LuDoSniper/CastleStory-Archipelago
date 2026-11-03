@@ -146,9 +146,12 @@ namespace CastleStoryArchipelago
                     "SceneMenu";
         }
 
-        private void ScanNewNativeSaves()
+        private void ScanNewNativeSaves(bool finishingRun = false)
         {
-            if (!IsSeedGameplayActive()) return;
+            if (!finishingRun && !IsSeedGameplayActive()) return;
+            if (finishingRun && (String.IsNullOrEmpty(startedMission) ||
+                String.IsNullOrEmpty(token) || disconnectPending))
+                return;
             if (String.IsNullOrEmpty(apSaveRoot) ||
                 !Directory.Exists(apSaveRoot))
             {
@@ -507,8 +510,9 @@ namespace CastleStoryArchipelago
             {
                 Logger.LogWarning("[AP SAVE] Load guard probe failed: " +
                     error.GetType().Name);
-                // Unknown game internals must not break vanilla loading.
-                return true;
+                // Never load an unverified save into a live AP multiworld.
+                // Vanilla loading remains unaffected when disconnected.
+                return !bridgeConnected;
             }
         }
     }
