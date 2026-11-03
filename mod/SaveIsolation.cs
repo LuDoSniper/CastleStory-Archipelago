@@ -160,8 +160,12 @@ namespace CastleStoryArchipelago
                         if (apSaveTags.TryGetValue(name, out existing))
                         {
                             if (!String.Equals(existing.seed, tag.seed, StringComparison.Ordinal) ||
-                                !String.Equals(existing.slot, tag.slot, StringComparison.Ordinal) ||
-                                !String.Equals(existing.mission, tag.mission, StringComparison.Ordinal))
+                                !String.Equals(existing.slot, tag.slot, StringComparison.OrdinalIgnoreCase) ||
+                                !String.Equals(existing.mode, tag.mode, StringComparison.Ordinal) ||
+                                !String.Equals(existing.map_id, tag.map_id, StringComparison.OrdinalIgnoreCase) ||
+                                !String.Equals(existing.mission, tag.mission, StringComparison.Ordinal) ||
+                                (existing.has_slot_identity && tag.has_slot_identity &&
+                                 (existing.team != tag.team || existing.slot_id != tag.slot_id)))
                             {
                                 conflictingSaveTags.Add(name);
                                 Logger.LogWarning("[AP SAVE SIDECAR] Conflicting identities for " +
