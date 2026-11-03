@@ -312,6 +312,94 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP CREDITS] Dedicated Archipelago credit after studio splashes.");
         }
 
+        private RectTransform FindTitleChoiceRect(Component label)
+        {
+            if (label == null) return null;
+            RectTransform fallback = label.transform.parent as RectTransform;
+            Transform ancestor = label.transform.parent;
+            for (int depth = 0; ancestor != null && depth < 4; depth++,
+                 ancestor = ancestor.parent)
+            {
+                RectTransform rect = ancestor as RectTransform;
+                if (rect == null) continue;
+                if (rect.rect.width >= 150f && rect.rect.height >= 32f &&
+                    rect.rect.height <= 170f)
+                    return rect;
+            }
+            return fallback;
+        }
+
+        private void ShiftTitleOptionsBelow(RectTransform play, RectTransform inserted)
+        {
+            if (play == null || inserted == null) return;
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return;
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = value as Component;
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                if (!IsOptionsLabel(GetUiProperty(label, "text") as string))
+                    continue;
+                RectTransform option = FindTitleChoiceRect(label);
+                if (option == null || option == play ||
+                    shiftedMenuEntries.ContainsKey(option) ||
+                    option == inserted ||
+                    option.IsChildOf(inserted))
+                    continue;
+                // Options may be under a DIFFERENT layout container.
+                // Shift its own rect instead of only Play's sibling list.
+                float shift = Mathf.Max(58f, play.rect.height + 16f);
+                shiftedMenuEntries[option] = option.anchoredPosition;
+                option.anchoredPosition += new Vector2(0, -shift);
+                Logger.LogInfo("[AP TITLE] Moved Options down by " + shift +
+                    " UI units. optionsParent=" +
+                    (option.parent == null ? "root" : option.parent.name) +
+                    " playParent=" +
+                    (play.parent == null ? "root" : play.parent.name));
+                return;
+            }
+            Logger.LogWarning("[AP TITLE] Options control not found; unable to reposition.");
+        }
+
+        private void MatchTitlePrimaryVisual(RectTransform nativePlay, GameObject target)
+        {
+            if (nativePlay == null || target == null) return;
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (imageType == null) return;
+            Component targetImage = target.GetComponent(imageType);
+            if (targetImage == null) return;
+            Transform node = nativePlay;
+            for (int depth = 0; node != null && depth < 3; depth++,
+                 node = node.parent)
+            {
+                Component source = node.GetComponent(imageType);
+                if (source == null) continue;
+                try
+                {
+                    foreach (string prop in new [] {
+                        "sprite", "color", "type", "fillCenter", "material" })
+                    {
+                        PropertyInfo property = imageType.GetProperty(prop);
+                        if (property != null && property.CanRead &&
+                            property.CanWrite)
+                            property.SetValue(targetImage,
+                                property.GetValue(source, null), null);
+                    }
+                    Logger.LogInfo("[AP TITLE] Cloned primary Play visual from " +
+                        node.name);
+                    return;
+                }
+                catch (Exception error)
+                {
+                    Logger.LogWarning("[AP TITLE] Primary visual fallback: " +
+                        error.GetType().Name);
+                    break;
+                }
+            }
+            Logger.LogInfo("[AP TITLE] No native UGUI primary Image; using warm gold fallback.");
+        }
+
         private bool TryInstallTitleEntryFromText()
         {
             // SceneMenu's initial two controls do not expose the UGUI Button
@@ -328,7 +416,7 @@ namespace CastleStoryArchipelago
                     continue;
                 string caption = GetUiProperty(label, "text") as string;
                 if (!IsPlayLabel(caption)) continue;
-                RectTransform playRect = label.transform.parent as RectTransform;
+                RectTransform playRect = FindTitleChoiceRect(label);
                 if (playRect == null || playRect.parent == null) continue;
                 // Do not insert when a map editor/starter is on screen.
                 if (nativeStarterMenu != null || observedMapAssets.Count > 0)
@@ -340,6 +428,7 @@ namespace CastleStoryArchipelago
                     playRect.anchoredPosition +
                         new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f)));
                 AddUiImage(copy, new Color(.94f, .76f, .25f, 1f), true);
+                MatchTitlePrimaryVisual(playRect, copy);
                 Component button = copy.AddComponent(buttonType);
                 if (!InstallNativeButtonListener(button, buttonType,
                         "OpenArchipelagoFromNativeMenu"))
@@ -358,20 +447,8 @@ namespace CastleStoryArchipelago
                 }
                 SetUiProperty(text, "alignment", TextAnchor.MiddleCenter);
                 copy.transform.SetSiblingIndex(playRect.GetSiblingIndex() + 1);
-                // Do not overlay Options in fixed-position title menus.
-                Transform parent = playRect.parent;
-                for (int i = 0; i < parent.childCount; i++)
-                {
-                    var other = parent.GetChild(i) as RectTransform;
-                    if (other == null || other == playRect ||
-                        other == copy.transform || other.GetSiblingIndex() <=
-                        playRect.GetSiblingIndex() + 1) continue;
-                    if (other.anchoredPosition.y < playRect.anchoredPosition.y)
-                    {
-                        shiftedMenuEntries[other] = other.anchoredPosition;
-                        other.anchoredPosition += new Vector2(0, -58f);
-                    }
-                }
+                // Move the real Options control, even if nested elsewhere.
+                ShiftTitleOptionsBelow(playRect, (RectTransform)copy.transform);
                 nativeArchipelagoButton = copy;
                 mainMenuPlayTemplate = copy;
                 nativeMenuFont = GetUiProperty(label, "font") as Font;
