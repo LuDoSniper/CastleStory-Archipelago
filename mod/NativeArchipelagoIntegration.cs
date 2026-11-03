@@ -716,36 +716,72 @@ namespace CastleStoryArchipelago
             return best;
         }
 
+        private static bool IsKnownNativeChoice(string label)
+        {
+            return IsSandboxLabel(label) || NativeModeFromLabel(label) != null ||
+                IsForbiddenPlaySubmenuEntry(label) ||
+                IsAllowedPlaySubmenuEntry(label);
+        }
+
+        private static int CountDistinctNativeChoices(Transform node)
+        {
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (node == null || textType == null) return 0;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Component text in node.GetComponentsInChildren(textType, true))
+            {
+                string value = GetUiProperty(text, "text") as string;
+                if (IsKnownNativeChoice(value))
+                {
+                    seen.Add(NormalizeNativeLabel(value));
+                    if (seen.Count >= 2) break;
+                }
+            }
+            return seen.Count;
+        }
+
+        private static bool HasNativeInteractiveSurface(Transform node)
+        {
+            if (node == null) return false;
+            foreach (Component component in node.GetComponentsInChildren<Component>(true))
+            {
+                if (component == null) continue;
+                string name = component.GetType().Name.ToLowerInvariant();
+                if (name.Contains("button") || name.Contains("toggle") ||
+                    name.Contains("pointer") || name.Contains("click") ||
+                    name.Contains("selectable") || name.Contains("collider") ||
+                    name.Contains("eventtrigger") || name.Contains("interact"))
+                    return true;
+                if (name == "image" &&
+                    (GetUiProperty(component, "raycastTarget") is bool) &&
+                    (bool)GetUiProperty(component, "raycastTarget"))
+                    return true;
+            }
+            return false;
+        }
+
         private GameObject FindNativeChoiceRoot(Component label)
         {
             if (label == null) return null;
-            Type selectable = FindRuntimeType("UnityEngine.UI.Selectable");
-            Type image = FindRuntimeType("UnityEngine.UI.Image");
-            Transform current = label.transform;
-            for (int depth = 0; current != null && depth <= 3; depth++,
-                current = current.parent)
+            GameObject best = null;
+            Transform node = label.transform.parent;
+            // Seek the highest *individual card* containing its text and
+            // click target. Hiding just the caption left a clickable empty
+            // rectangle in the previous build.
+            for (int depth = 0; node != null && depth < 6; depth++,
+                 node = node.parent)
             {
-                if (current.gameObject == nativeConnectionPanel ||
-                    current.gameObject.name.StartsWith("AP_", StringComparison.Ordinal))
-                    return null;
-                if (selectable != null && current.GetComponent(selectable) != null)
-                    return current.gameObject;
-                foreach (Component component in current.GetComponents<Component>())
-                {
-                    if (component == null) continue;
-                    string type = component.GetType().Name.ToLowerInvariant();
-                    if (type.Contains("button") || type.Contains("toggle") ||
-                        type.Contains("menuchoice") || type.Contains("menuitem"))
-                        return current.gameObject;
-                }
-                // A title or description often lacks a clickable wrapper.
-                // Do not deactivate its entire parent menu by guessing.
-                if (depth > 0 && image != null &&
-                    current.GetComponent(image) != null &&
-                    current.GetComponent<RectTransform>() != null)
-                    return current.gameObject;
+                if (node.GetComponent<Canvas>() != null ||
+                    node.name.StartsWith("AP_", StringComparison.Ordinal) ||
+                    node.name.StartsWith("Archipelago_", StringComparison.Ordinal))
+                    break;
+                RectTransform rect = node as RectTransform;
+                if (rect == null || rect.rect.height > 560f) break;
+                if (CountDistinctNativeChoices(node) > 1) break;
+                if (HasNativeInteractiveSurface(node))
+                    best = node.gameObject;
             }
-            return null;
+            return best;
         }
 
         private int HideNativeNonSelectableChoices(string selectedNativeMode)
@@ -771,8 +807,11 @@ namespace CastleStoryArchipelago
                 if (target == null || hiddenNativeEntries.ContainsKey(target)) continue;
                 HideNativeEntry(target);
                 count++;
-                Logger.LogInfo("[AP NATIVE UI] Hidden native non-Selectable choice: " +
-                    (nativeMode ?? NormalizeNativeLabel(text)));
+                Logger.LogInfo("[AP NATIVE UI] Hidden entire native choice: " +
+                    (nativeMode ?? NormalizeNativeLabel(text)) +
+                    " root=" + target.name + " parent=" +
+                    (target.transform.parent == null ? "root" :
+                        target.transform.parent.name));
             }
             return count;
         }
