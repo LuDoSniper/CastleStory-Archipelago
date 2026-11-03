@@ -740,6 +740,14 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private void LateUpdate()
+        {
+            // Brix rebuilds title layout at the end of the frame on Back.
+            // Reapply the real primary button's relative sibling order and
+            // position after that rebuild, without touching hover handlers.
+            MaintainTitleButtonSpacing();
+        }
+
         private void Update()
         {
             if (Time.realtimeSinceStartup >= nextRead)
