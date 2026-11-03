@@ -44,22 +44,28 @@ namespace CastleStoryArchipelago
 
         private void PreservePreviousCheckLedger()
         {
-            // Migrate the last v0.7.x checks.json on the first run switch.
-            // Never overwrite an existing per-run record with an older copy.
-            string archive = CheckLedgerPath(token);
-            if (String.IsNullOrEmpty(archive) || File.Exists(archive)) return;
-            CheckFile previous = ReadCheckLedgerFile(
-                Path.Combine(directory, "checks.json"), token, mode);
-            if (previous == null) return;
+            // On the first v0.8.1 launch token is still empty, but the old
+            // checks.json already knows its owner. Archive it BEFORE the
+            // first different run can replace the shared bridge inbox.
+            string livePath = Path.Combine(directory, "checks.json");
+            if (!File.Exists(livePath)) return;
             try
             {
+                CheckFile previous = JsonUtility.FromJson<CheckFile>(
+                    File.ReadAllText(livePath).TrimStart('\uFEFF', ' ', '\r', '\n', '\t'));
+                if (previous == null || String.IsNullOrEmpty(previous.mode))
+                    return;
+                string archive = CheckLedgerPath(previous.token);
+                if (String.IsNullOrEmpty(archive) || File.Exists(archive))
+                    return;
                 Directory.CreateDirectory(Path.GetDirectoryName(archive));
                 File.WriteAllText(archive, JsonUtility.ToJson(previous));
-                Logger.LogInfo("[AP CHECK LEDGER] Migrated previous run checks.");
+                Logger.LogInfo("[AP CHECK LEDGER] Archived legacy shared inbox " +
+                    "before run selection.");
             }
             catch (Exception error)
             {
-                Logger.LogWarning("[AP CHECK LEDGER] Previous run backup failed: " +
+                Logger.LogWarning("[AP CHECK LEDGER] Legacy inbox migration failed: " +
                     error.GetType().Name);
             }
         }
