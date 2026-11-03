@@ -219,6 +219,27 @@ class NativeUiIntegrationTests(unittest.TestCase):
         self.assertNotIn("FindNativeChoiceRoot(text)", pre)
         self.assertNotRegex(pre, r"\.\s*SetActive\s*\(\s*false\s*\)\s*;")
 
+    def test_map_cards_are_resolved_from_verified_native_catalog(self):
+        pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
+        self.assertIn("TryResolveNativeMapCaption(caption, out mapId)", pre)
+        self.assertIn("observedMapAssets.Keys", pre)
+        self.assertIn("FindNativeMapCardFromCaption(caption)", pre)
+        self.assertIn("IsWithinNativeNewGameLibrary(caption.transform)", pre)
+        self.assertIn('name.IndexOf("NewGameStarterMenu"', pre)
+        self.assertIn('Logger.LogInfo("[AP MAP UI] id="', pre)
+        self.assertIn("GetComponents<Component>()", pre)
+        self.assertNotIn("FindNativeChoiceRoot(text)", pre)
+
+    def test_save_registry_can_restore_proven_ownership_from_backups(self):
+        saves = (ROOT / "mod/SaveIsolation.cs").read_text(encoding="utf-8")
+        self.assertIn("RecoverApSaveTagsFromBackups()", saves)
+        self.assertIn('"save_tags.json.bak*"', saves)
+        self.assertIn('"upgrade-backup-*"', saves)
+        self.assertIn('".archipelago-save-tags.json.bak*"', saves)
+        self.assertIn("conflicting.Add(folder)", saves)
+        self.assertIn("recoveredTags > 0", saves)
+        self.assertIn("[AP SAVE RECOVERY]", saves)
+
     def test_native_card_subtitles_cannot_unmask_forbidden_action(self):
         pre = (ROOT / "mod/NativePreRenderHooks.cs").read_text(encoding="utf-8")
         self.assertIn("if (IsAllowedPlaySubmenuEntry(caption))", pre)
