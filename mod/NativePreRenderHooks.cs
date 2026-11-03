@@ -330,7 +330,17 @@ namespace CastleStoryArchipelago
                 bool forbiddenPlay = IsForbiddenPlaySubmenuEntry(caption);
                 bool forbiddenMap = isMap &&
                     !AllowedSeedMap(mapId, selectedMode);
-                if (IsAllowedPlaySubmenuEntry(caption)) return;
+                if (IsAllowedPlaySubmenuEntry(caption))
+                {
+                    // A recycled editor/wonders card may become the native
+                    // New Game / Load / Multiplayer control. Restore only
+                    // on a known permitted ACTION label, never on arbitrary
+                    // subtitle text from a forbidden card.
+                    GameObject allowedAction =
+                        FindIndividualNativeChoice(text, false);
+                    if (allowedAction != null) ShowPreRenderCard(allowedAction);
+                    return;
+                }
 
                 if (!forbiddenMode && !forbiddenPlay && !isMap) return;
                 GameObject cardRoot = FindIndividualNativeChoice(text, isMap);
@@ -359,8 +369,7 @@ namespace CastleStoryArchipelago
                             NormalizeNativeLabel(caption) + " / " + cardName);
                 }
                 else if ((isModeCard && nativeMode != null) ||
-                         (isMapCard && isMap) ||
-                         (isPlayCard && forbiddenPlay == false))
+                         (isMapCard && isMap))
                     ShowPreRenderCard(cardRoot);
             }
             catch (Exception error)
