@@ -426,6 +426,38 @@ namespace CastleStoryArchipelago
                 "cards with world geometry, separate parents supported.");
         }
 
+        private void DrawPrimaryTitleFallback(GameObject target)
+        {
+            // Visual fallback matching the white/dark-bordered action controls
+            // used by Castle Story's native map menu, with blue bottom accent.
+            // Used only when the title Play card has no UGUI Image sprite.
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (imageType == null || target == null) return;
+            Component baseImage = target.GetComponent(imageType);
+            SetUiProperty(baseImage, "color", new Color(.04f, .05f, .06f, 1f));
+
+            var body = NewNativeUiObject("AP_PrimaryBody", target.transform,
+                Vector2.zero, Vector2.zero);
+            RectTransform rect = (RectTransform)body.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(4, 6);
+            rect.offsetMax = new Vector2(-4, -4);
+            AddUiImage(body, new Color(.99f, .99f, .98f, 1f), false);
+            body.transform.SetAsFirstSibling();
+
+            var accent = NewNativeUiObject("AP_PrimaryAccent", target.transform,
+                Vector2.zero, Vector2.zero);
+            rect = (RectTransform)accent.transform;
+            rect.anchorMin = new Vector2(0, 0);
+            rect.anchorMax = new Vector2(1, 0);
+            rect.pivot = new Vector2(.5f, 0);
+            rect.sizeDelta = new Vector2(-8, 7);
+            rect.anchoredPosition = new Vector2(0, 4);
+            AddUiImage(accent, new Color(.10f, .68f, .88f, 1f), false);
+            accent.transform.SetSiblingIndex(1);
+        }
+
         private void MatchTitlePrimaryVisual(RectTransform nativePlay, GameObject target)
         {
             if (nativePlay == null || target == null) return;
@@ -433,12 +465,23 @@ namespace CastleStoryArchipelago
             if (imageType == null) return;
             Component targetImage = target.GetComponent(imageType);
             if (targetImage == null) return;
+
+            // The title card's visual may sit on a child/ancestor rather than
+            // its clickable root. Search both directions for the real sprite.
+            Component source = null;
             Transform node = nativePlay;
-            for (int depth = 0; node != null && depth < 3; depth++,
+            for (int depth = 0; node != null && depth < 5; depth++,
                  node = node.parent)
             {
-                Component source = node.GetComponent(imageType);
-                if (source == null) continue;
+                source = node.GetComponent(imageType);
+                if (source == null)
+                    source = node.GetComponentInChildren(imageType, true);
+                if (source != null && GetUiProperty(source, "sprite") != null)
+                    break;
+                source = null;
+            }
+            if (source != null)
+            {
                 try
                 {
                     foreach (string prop in new [] {
@@ -450,18 +493,18 @@ namespace CastleStoryArchipelago
                             property.SetValue(targetImage,
                                 property.GetValue(source, null), null);
                     }
-                    Logger.LogInfo("[AP TITLE] Cloned primary Play visual from " +
-                        node.name);
+                    Logger.LogInfo("[AP TITLE] Reused native Play primary sprite from " +
+                        source.gameObject.name);
                     return;
                 }
                 catch (Exception error)
                 {
-                    Logger.LogWarning("[AP TITLE] Primary visual fallback: " +
+                    Logger.LogWarning("[AP TITLE] Sprite copy failed: " +
                         error.GetType().Name);
-                    break;
                 }
             }
-            Logger.LogInfo("[AP TITLE] No native UGUI primary Image; using warm gold fallback.");
+            DrawPrimaryTitleFallback(target);
+            Logger.LogInfo("[AP TITLE] Applied native-style white/bordered primary fallback.");
         }
 
         private bool TryInstallTitleEntryFromText()
