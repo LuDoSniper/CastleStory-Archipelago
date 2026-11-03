@@ -110,6 +110,82 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private int RecoverApSaveTagsFromBackups()
+        {
+            // The PowerShell association script and installer retain backups.
+            // An empty but valid live index must not permanently orphan a
+            // previously associated save. NEVER deduce ownership from names.
+            var paths = new List<string>();
+            try
+            {
+                if (Directory.Exists(directory))
+                {
+                    paths.AddRange(Directory.GetFiles(directory, "save_tags.json.bak*"));
+                    foreach (string folder in Directory.GetDirectories(directory,
+                        "upgrade-backup-*"))
+                    {
+                        string backup = Path.Combine(folder, "save_tags.json");
+                        if (File.Exists(backup)) paths.Add(backup);
+                    }
+                }
+                if (!String.IsNullOrEmpty(apSaveRoot) && Directory.Exists(apSaveRoot))
+                    paths.AddRange(Directory.GetFiles(apSaveRoot,
+                        ".archipelago-save-tags.json.bak*"));
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP SAVE RECOVERY] Cannot enumerate backups: " +
+                    error.GetType().Name);
+            }
+            var found = new Dictionary<string, ApSaveTag>(StringComparer.OrdinalIgnoreCase);
+            var conflicting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int scanned = 0;
+            foreach (string backup in paths.OrderByDescending(GetTagTimestamp).Take(80))
+            {
+                scanned++;
+                try
+                {
+                    var data = JsonUtility.FromJson<ApSaveRegistry>(
+                        File.ReadAllText(backup).TrimStart('\uFEFF', ' ', '\r', '\n', '\t'));
+                    if (data == null || data.schema != 1 || data.saves == null)
+                        continue;
+                    foreach (ApSaveTag tag in data.saves)
+                    {
+                        if (tag == null || String.IsNullOrEmpty(tag.folder) ||
+                            String.IsNullOrEmpty(tag.token) ||
+                            String.IsNullOrEmpty(tag.mission)) continue;
+                        string folder = NormalizeSaveFolder(tag.folder);
+                        if (String.IsNullOrEmpty(folder) ||
+                            apSaveTags.ContainsKey(folder) || conflicting.Contains(folder))
+                            continue;
+                        ApSaveTag previous;
+                        if (found.TryGetValue(folder, out previous) &&
+                            (!String.Equals(previous.token, tag.token, StringComparison.Ordinal) ||
+                             !String.Equals(previous.mission, tag.mission, StringComparison.Ordinal) ||
+                             !String.Equals(previous.mode, tag.mode, StringComparison.Ordinal) ||
+                             !String.Equals(previous.map_id, tag.map_id, StringComparison.Ordinal)))
+                        {
+                            found.Remove(folder);
+                            conflicting.Add(folder);
+                            continue;
+                        }
+                        found[folder] = tag;
+                    }
+                }
+                catch (Exception error)
+                {
+                    Logger.LogWarning("[AP SAVE RECOVERY] Invalid backup " +
+                        Path.GetFileName(backup) + ": " + error.GetType().Name);
+                }
+            }
+            foreach (var pair in found)
+                apSaveTags[pair.Key] = pair.Value;
+            Logger.LogInfo("[AP SAVE RECOVERY] backups=" + scanned +
+                " recovered=" + found.Count + " conflicts=" + conflicting.Count +
+                " (ownership never inferred from save names)");
+            return found.Count;
+        }
+
         private static string NormalizeSaveFolder(string value)
         {
             if (String.IsNullOrEmpty(value)) return "";
@@ -152,6 +228,7 @@ namespace CastleStoryArchipelago
             }
             catch (Exception) { /* No legacy installer backups. */ }
             MergeSaveTagsFrom(SaveTagsPath, true);
+            int recoveredTags = RecoverApSaveTagsFromBackups();
             Logger.LogInfo("[AP SAVE] Registry loaded tags=" + apSaveTags.Count +
                 " saveRoot=" + (apSaveRoot == null ? "not-found" :
                     Path.GetFileName(apSaveRoot)));
@@ -165,7 +242,8 @@ namespace CastleStoryArchipelago
             lastMirrorTagStamp = GetTagTimestamp(SaveTagsMirrorPath);
             // Reconstruct the primary index if it was removed by reinstalling
             // BepInEx but a durable sidecar or upgrade backup survived.
-            if (!File.Exists(SaveTagsPath) && apSaveTags.Count > 0)
+            if (recoveredTags > 0 ||
+                (!File.Exists(SaveTagsPath) && apSaveTags.Count > 0))
                 PersistApSaveRegistry();
         }
 
