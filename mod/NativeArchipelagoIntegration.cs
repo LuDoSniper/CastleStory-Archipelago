@@ -1204,6 +1204,10 @@ namespace CastleStoryArchipelago
             UnityEngine.SceneManagement.Scene current)
         {
             string name = current.name ?? "";
+            // Flush the last native save before leaving a seeded gameplay
+            // scene: Save & Quit can return to SceneMenu before the 1s poll.
+            if (name == "SceneMenu" && previous.name != "SceneMenu")
+                ScanNewNativeSaves(true);
             Logger.LogInfo("[AP NATIVE SCREEN] Scene changed: " + name);
             if (String.Equals(name, "SceneMenu", StringComparison.OrdinalIgnoreCase))
             {
