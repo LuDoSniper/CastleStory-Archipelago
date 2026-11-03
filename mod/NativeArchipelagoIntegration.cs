@@ -816,6 +816,78 @@ namespace CastleStoryArchipelago
             return count;
         }
 
+        private Transform FindTextBasedPlaySubmenu()
+        {
+            // Castle Story's Play submenu may contain custom controls rather
+            // than UnityEngine.UI.Selectable. Detect its own cards via the
+            // title text layout: at least two of New Game/Load/Multiplayer.
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return null;
+            var ancestors = new Dictionary<Transform, HashSet<string>>();
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = value as Component;
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string text = GetUiProperty(label, "text") as string;
+                if (!IsSubmenuAnchor(text)) continue;
+                Transform parent = label.transform.parent;
+                for (int depth = 0; parent != null && depth < 8; depth++,
+                     parent = parent.parent)
+                {
+                    HashSet<string> existing;
+                    if (!ancestors.TryGetValue(parent, out existing))
+                    {
+                        existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        ancestors[parent] = existing;
+                    }
+                    existing.Add(NormalizeNativeLabel(text));
+                }
+            }
+            Transform result = null;
+            int depthBest = -1;
+            foreach (var item in ancestors)
+            {
+                if (item.Key == null || item.Value.Count < 2 ||
+                    item.Key.GetComponent<Canvas>() != null) continue;
+                int depth = TransformDepth(item.Key);
+                if (depth > depthBest)
+                {
+                    result = item.Key;
+                    depthBest = depth;
+                }
+            }
+            return result;
+        }
+
+        private int HideTextBasedPlaySubmenuChoices()
+        {
+            Transform group = FindTextBasedPlaySubmenu();
+            if (group == null) return 0;
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return 0;
+            int hidden = 0;
+            foreach (Component label in group.GetComponentsInChildren(textType, true))
+            {
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string value = GetUiProperty(label, "text") as string;
+                if (String.IsNullOrEmpty(value) || value.Length > 55 ||
+                    IsAllowedPlaySubmenuEntry(value) ||
+                    IsPlayLabel(value) || IsOptionsLabel(value))
+                    continue;
+                GameObject card = FindNativeChoiceRoot(label);
+                if (card == null || hiddenNativeEntries.ContainsKey(card) ||
+                    card == group.gameObject || !card.activeInHierarchy)
+                    continue;
+                HideNativeEntry(card);
+                hidden++;
+                Logger.LogInfo("[AP PLAY MENU] Removed native option: " +
+                    value + " card=" + card.name);
+            }
+            return hidden;
+        }
+
         private void RefreshNativeSeedMenu()
         {
             if (disconnectPending || String.IsNullOrEmpty(token) ||
@@ -885,6 +957,7 @@ namespace CastleStoryArchipelago
                 hidden++;
             }
             hidden += HideNativeNonSelectableChoices(selectedNativeMode);
+            hidden += HideTextBasedPlaySubmenuChoices();
             watch.Stop();
             if (hidden > 0 && nativeRestrictionLogCount++ < 12)
                 Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
