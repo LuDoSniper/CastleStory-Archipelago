@@ -163,6 +163,10 @@ namespace CastleStoryArchipelago
                 foreach (string folder in Directory.GetDirectories(apSaveRoot))
                 {
                     string name = NormalizeSaveFolder(folder);
+                    // Wait until Castle Story actually writes data into
+                    // the new directory. Avoid tagging empty folders created
+                    // manually or by unrelated tools.
+                    if (Directory.GetFiles(folder).Length == 0) continue;
                     if (!knownSaveFolders.Add(name)) continue;
                     if (apSaveTags.ContainsKey(name))
                     {
@@ -465,7 +469,21 @@ namespace CastleStoryArchipelago
                     if (apSaveTags.TryGetValue(folder, out tag) &&
                         tag.token == token)
                     {
-                        startedMission = tag.mission ?? "";
+                        MissionFile mission = campaign == null ||
+                            campaign.missions == null ? null :
+                            campaign.missions.FirstOrDefault(item =>
+                                item != null && item.id == tag.mission);
+                        if (mission == null)
+                        {
+                            Logger.LogWarning("[AP SAVE] Current campaign no longer " +
+                                "contains saved mission: " + tag.mission);
+                            return false;
+                        }
+                        // Restores the same mission selection that normal
+                        // native New Game starts use, enabling wave checks on
+                        // a resumed save as well.
+                        SelectMission(mission);
+                        startedMission = mission.id;
                         Logger.LogInfo("[AP SAVE] Resume validated for mission=" +
                             startedMission);
                     }
