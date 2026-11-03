@@ -49,7 +49,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertIn('FindNativeSaveCardRoot(label, known)', SAVE)
 
     def test_never_hide_entire_load_list_or_rewrite_corrupt_metadata(self):
-        self.assertIn('if (folderCaptions > 1) break;', SAVE)
+        self.assertIn('if (distinctFolders.Count > 1) break;', SAVE)
         self.assertIn('if (HasNativeInteractiveSurface(node))', SAVE)
         self.assertIn('saveRegistryWritable = false;', SAVE)
         self.assertIn('if (!saveRegistryWritable) return;', SAVE)
