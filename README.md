@@ -2,6 +2,34 @@
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
 
+## Correctif après le retour en jeu du 3 novembre 2026
+
+Le journal de test de la v0.7.9 montre une authentification valide, une campagne
+Invasion prête et une unique mission, mais **10 cartes affichées** et **0 sauvegarde
+associée parmi 26 dossiers**. Les filtres de mode fonctionnent.
+
+- Les cartes utilisent maintenant le vrai conteneur `SpNewGameStarterMenu`, et
+  non uniquement les objets nommés `NewGameLibraryMenu`. Leur titre est associé
+  soit au libellé Brix connu, soit à un dossier technique **déjà observé** dans
+  le catalogue du jeu. Aucun conteneur commun n'est désactivé ; les cartes
+  individuelles sont masquées avant rendu. Les journaux `[AP MAP UI]`
+  indiquent l'ID, l'autorisation et le nom réel de la carte ou `not-found`.
+- Les associations présentes dans les fichiers `.bak*` ou les archives
+  `upgrade-backup-*` sont récupérées en évitant les conflits. Aucun nom de
+  sauvegarde n'est attribué arbitrairement à la seed. Le diagnostic
+  `[AP SAVE RECOVERY]` précise combien de tags sont récupérés.
+- **Si tous les registres et leurs backups sont vides**, le mod ne peut pas
+  reconstruire de preuve d'appartenance à une seed. Dans ce cas il faut examiner
+  le registre et l'ancien résultat du script d'association avant de réessayer ;
+  aucune sauvegarde native n'est modifiée automatiquement.
+
+Pour tester le dernier kit CI sur la branche de la PR : installer le package
+complet, se reconnecter à **la même seed**, vérifier que seule la carte
+`official:TroubledHeaps` reste disponible en Invasion et contrôler la présence
+de `ARCHILAN-TEST-01` dans Charger partie. Si cette sauvegarde manque encore,
+conserver `BepInEx/LogOutput.log` avec les lignes `[AP SAVE RECOVERY]`,
+`[AP SAVE POLICY]`, `[AP UI PREPARED]` et `[AP MAP UI]`.
+
 ## v0.7.9 — Ne jamais masquer un menu entier pendant sa construction
 
 Le test v0.7.8 a confirmé **l'absence totale de flash visuel**, mais
