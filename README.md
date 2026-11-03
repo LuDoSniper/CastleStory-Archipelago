@@ -1,6 +1,70 @@
-# Castle Story × Archipelago — v0.7.8 (préfiltrage natif, sans flash visuel)
+# Castle Story × Archipelago — v0.7.9 (cartes sélectionnables, contrôles natifs préfiltrés)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.9 — Ne jamais masquer un menu entier pendant sa construction
+
+Le test v0.7.8 a confirmé **l'absence totale de flash visuel**, mais
+a révélé une régression : plus aucune carte ni sauvegarde n'était
+sélectionnable. Aucun nouveau `LogOutput.log` n'accompagnait ce retour,
+donc le diagnostic est basé sur le code exact installé.
+
+Le hook `Text.text` v0.7.8 pouvait appeler
+`FindNativeChoiceRoot` et `SetActive(false)` **pendant que Brix
+construisait encore la carte**. À ce moment, certains libellés frères
+n'existaient pas et la recherche pouvait remonter à un conteneur
+partagé ou désactiver un élément que Brix voulait encore remplir.
+Le module pouvait ainsi rendre tout un écran vide.
+
+### Correctifs
+
+- Remplacement de la désactivation précoce par **CanvasGroup** :
+  `alpha=0`, `interactable=false`, `blocksRaycasts=false`.
+  Lorsqu'un `LayoutElement` existe sur la carte elle-même, son
+  `ignoreLayout` est activé. Brix peut **continuer la construction
+  et la réutilisation de la carte** sans `SetActive(false)`.
+- Un libellé n'est masqué que si son ascendance contient une **carte
+  individuelle de prefab connu** : `GamemodeButton`,
+  `Btn_DblTxt_RightIcon`, ou `ThumbnailListItem` dans la bonne
+  bibliothèque de cartes/sauvegardes. Le mod ne remonte plus à
+  des panneaux parents partagés sur la base de textes incomplets.
+- Les labels **autorisés** (notamment Invasion, carte de la seed et
+  sauvegarde portant le bon tag) restaurent immédiatement le
+  masque s'il provient d'une ancienne utilisation du même objet
+  par le pool Brix. Les sous-titres ne peuvent pas annuler le
+  masquage d'une carte de menu interdite.
+- `Canvas.willRenderCanvases` réévalue les textes candidats
+  une fois que Brix les a renseignés, **avant le dessin** et sans
+  repasser sur tous les contrôles après navigation.
+- Changement de scène, connexion et déconnexion nettoient
+  les masques temporaires et appliquent la politique actualisée
+  dans la même frame. Les contrôles et leurs animations natives
+  restent inchangés.
+- Journal de diagnostic `[AP SAVE POLICY]` par sauvegarde taguée :
+  indique la présence du dossier, la concordance de seed/token
+  et son autorisation, **sans afficher le token**. Lecture du
+  registre tolérante au BOM UTF-8 issu de PowerShell.
+- Les restrictions des modes et des sauvegardes restent
+  **vérifiées aussi au lancement**. Si le nom ou le prefab d'une
+  carte est inconnu, la couche visuelle ne doit jamais désactiver
+  tout son panneau ; la protection du lancement est maintenue.
+
+### Vérification manuelle
+
+Installer la v0.7.9 sans régénérer la seed ni exécuter à nouveau
+le script d'association. Se reconnecter et ouvrir Nouvelle partie :
+au moins le mode Invasion puis `official:TroubledHeaps` doivent être
+sélectionnables ; les modes interdits doivent rester invisibles.
+Dans Charger partie, `ArchiLan-Test-01` doit être visible si le
+log `[AP SAVE POLICY]` indique `present=True tokenMatch=True
+allowed=True`. Tester la reprise, puis le retour au menu et la
+déconnexion. Conserver un nouveau `BepInEx/LogOutput.log` si un
+élément manque encore.
+
+La CI vérifie la compilation et les régressions de code mais
+**ne simule pas la hiérarchie réelle des prefabs Brix** ; seul le
+test en jeu permettra de confirmer la sélection de cartes/saves
+et l'absence de micro-flash.
 
 ## v0.7.8 — Préfiltrage natif au lieu de cacher après affichage
 
