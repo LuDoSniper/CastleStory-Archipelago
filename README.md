@@ -1,6 +1,92 @@
-# Castle Story × Archipelago — v0.7.6 (menus persistants et survol natif)
+# Castle Story × Archipelago — v0.7.7 (ordre des menus, sauvegardes et reprise)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.7 — Ordre stable, sous-menus réactivés et chargement des saves
+
+Le test réel v0.7.6 confirme enfin le **véritable bouton primaire Archipelago**
+et son animation ; ce rendu est conservé. Les checks sont fonctionnels.
+Les problèmes reproduits sont désormais traités séparément :
+
+- **Ordre accueil** : Castle Story réordonne ses éléments via ses
+  layouts Brix après des cycles Jouer → Retour. Le mod maintient
+  `Jouer → Archipelago → Options` dans `LateUpdate`, en remettant
+  la copie du vrai bouton juste après l'original, avec espacement
+  calculé à partir des coins des `RectTransform`.
+- **Options masquées qui reviennent** : Castle Story recycle les
+  mêmes objets de carte et peut rappeler `SetActive(true)`.
+  Le filtre réapplique désormais `SetActive(false)` même lorsque
+  le contrôle figure déjà dans son registre des objets masqués.
+  Les entrées Nouvelle partie, Charger partie et Multijoueur
+  demeurent explicitement autorisées.
+- **Impossible de charger une save** : la vraie classe
+  `SpLoadGameStarterMenu` hérite de `BaseMapStarterMenu.OnOk`.
+  L'ancien garde-fou la traitait comme une nouvelle partie et
+  refusait `Info/Saves/<save>/Heightmap.png` faute de mode/carte.
+  Le correctif fait désormais passer ce cas par
+  `ValidateNativeLoadStarter`, en extrayant le **dossier de sauvegarde**
+  et en vérifiant son tag contre la seed active. En cas de
+  correspondance, `SelectMission` est restauré **avant**
+  le chargement natif. Les anciennes protections de lancement
+  restent en place pour les nouvelles parties.
+- **Filtrage du menu Charger** : le hook observe maintenant les
+  méthodes `OpenSelf` **héritées** des classes Brix
+  `SpLoadGameLibraryMenu`, avec un filtre différé des cartes
+  associées aux vrais dossiers de sauvegarde. Les dossiers sont
+  reconnus par leur libellé complet ou la première ligne avant
+  une date. Un rechargement de menu renouvelle le filtre.
+  Le prochain log indiquera `[AP SAVE UI]` et pourra révéler
+  les textes natifs si la liste ne correspond pas aux dossiers.
+- **Micro-déconnexions** : le jeu ne doit jamais exposer des
+  sauvegardes classiques au milieu d'une session AP à cause
+  d'un heartbeat ArchiLAN momentanément perdu. La politique
+  d'isolation repose sur la seed prête, jusqu'à une déconnexion
+  explicite, et non sur un booléen réseau volatile.
+- **Durabilité** : `save_tags.json` reste dans BepInEx/config,
+  mais une copie non intrusive `.archipelago-save-tags.json`
+  est conservée à la racine du dossier `Info/Saves` (pas dans les
+  fichiers de jeu de chaque sauvegarde). Les deux sont lus au
+  lancement, ainsi que les anciens `upgrade-backup-*` lorsqu'ils
+  existent. L'installateur sauvegarde désormais explicitement le
+  registre et les préférences avant remplacement.
+
+### Une sauvegarde ancienne dont le tag a disparu
+
+Le journal v0.7.5 avait confirmé la création d'une sauvegarde
+Archipelago, mais celui de v0.7.6 indique **0 tags récupérés**.
+Une sauvegarde déjà privée de tag ne peut pas être attribuée
+automatiquement à une seed en se fiant à son nom.
+
+Le kit contient le script facultatif `Associate-CastleStoryAPSave.ps1`.
+Il peut **associer explicitement** une sauvegarde existante à la
+seed présente dans `session.json`, uniquement après confirmation
+et avec une unique mission identifiée (ou `-MissionId` fourni).
+Il ne touche pas à `Heightmap.png` ni aux autres données de jeu,
+sauvegarde les métadonnées précédentes et refuse d'écraser un tag.
+
+Depuis un terminal PowerShell, **jeu fermé après une connexion
+valide à cette seed** :
+
+```powershell
+.\Associate-CastleStoryAPSave.ps1 -GameDirectory "C:\Program Files (x86)\Steam\steamapps\common\Castle Story" -SaveName "NOM-DE-LA-SAUVEGARDE"
+```
+
+Ne faire cette action que sur une sauvegarde dont l'origine
+Archipelago est certaine. **Ne jamais associer une save vanilla
+ou une save d'une autre seed.**
+
+### Test manuel recommandé
+
+Installer 0.7.7 ; vérifier l'ordre en faisant Jouer → Retour
+plusieurs fois ; naviguer entre les sous-menus pour confirmer que
+les cadres interdits ne réapparaissent pas. Puis, sous une seed
+connectée, créer une sauvegarde **sous un nouveau nom** si le
+registre n'a pas été restauré, revenir au menu et ouvrir Charger.
+Seules les sauvegardes de la seed doivent apparaître, et une
+save associée doit être chargeable, avec maintien des checks.
+Déconnecté, seules les sauvegardes normales doivent être visibles.
+Ces points doivent être confirmés dans le jeu : la CI ne charge
+pas les interfaces du jeu ni de sauvegarde propriétaire.
 
 ## v0.7.6 — Retour au menu, libellés natifs et survol
 
