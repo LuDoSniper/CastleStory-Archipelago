@@ -1,6 +1,52 @@
-# Castle Story × Archipelago — v0.7.5 (accueil stable et sauvegardes identifiées par seed)
+# Castle Story × Archipelago — v0.7.6 (menus persistants et survol natif)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.7.6 — Retour au menu, libellés natifs et survol
+
+Cette passe corrige les défauts observés dans `LogOutput(3).log` avec
+Castle Story 0.7.5 : après Save & Quit vers `SceneMenu`, toutes les
+modifications de menu disparaissaient, alors que la session AP et ses
+checks restaient fonctionnels.
+
+- **Retour au menu** : `OnArchipelagoSceneChanged` invalide les
+  références aux objets de la scène précédente, réinitialise les
+  filtres, les caches et la recherche bornée du bouton « Jouer »,
+  puis réapplique l'intégration quand `SceneMenu` redevient actif.
+  Il ne relance **pas** une seconde fois le crédit de démarrage et
+  ne touche ni à la connexion, ni aux checks, ni aux sauvegardes.
+- **Jouer** : ajoute les libellés exacts français « Éditeur de monde »
+  et « Île de la renommée » et leurs variantes à la liste des choix
+  interdits. Le filtre masque l'intégralité de la carte et son
+  clic, tout en conservant Nouvelle partie, Charger partie,
+  Multijoueur et Retour.
+- **Animation de bouton** : recherche maintenant le `Button`
+  réellement ancêtre du texte « JOUER » dans `SceneMenu` pour
+  cloner son *vrai prefab* avec la mise en page et les animations
+  survol. Les actions initiales de clic `EventTrigger` sont supprimées
+  de la copie, sans supprimer `PointerEnter` ni `PointerExit`.
+  Si le bouton natif ne peut être cloné, l'élément de secours a
+  une transition `ColorTint` sur sa surface principale.
+  La popup de connexion réutilise ce modèle : comportement de survol
+  Brix lorsque disponible, sinon fondu au survol.
+- **Performance** : le journal v0.7.5 révélait des centaines de
+  `LuaMenu.OpenSelf` déclenchés pendant la partie, chacun planifiant
+  des filtres inutiles de plus de 100 ms. Le callback ignore désormais
+  `LuaMenu` pendant le gameplay et limite les filtres du menu titre.
+  Les cartes ne sont toujours pas réactivées à chaque passage.
+- **Conservé** : la seed, les checks et le système de tags de sauvegarde.
+  Le journal v0.7.5 confirme le marquage d'une nouvelle sauvegarde
+  Archipelago ; le filtrage visuel et le chargement restent à valider.
+
+**Validation requise en jeu :** démarrer une partie, effectuer un
+check, sauvegarder, revenir au menu principal **sans quitter le jeu**.
+Vérifier que Jouer / Archipelago / Options et les sous-menus filtrés
+sont réinstallés. Survoler ensuite le bouton Archipelago et les
+boutons de la popup pour comparer l'animation au bouton original.
+Tester « Charger partie », qui doit rester visible. En cas de problème,
+`BepInEx/LogOutput.log` indique la source du bouton cloné et le
+rechargement de `SceneMenu`. Ces comportements ne peuvent pas être
+entièrement reproduits par la CI Unity-free.
 
 ## v0.7.5 — Boutons d'accueil et séparation des sauvegardes
 
