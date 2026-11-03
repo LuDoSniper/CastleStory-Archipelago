@@ -242,10 +242,25 @@ namespace CastleStoryArchipelago
         {
             if (Instance == null || __instance == null) return;
             var plugin = Instance;
+            string simple = __instance.GetType().Name.ToLowerInvariant();
+            // Castle Story fires LuaMenu.OpenSelf continuously in gameplay.
+            // The old generic hook scheduled full UI reflection passes
+            // hundreds of times after a map started. Only SceneMenu needs
+            // title-submenu filtering; gameplay Lua menus are untouched.
+            if (simple == "luamenu")
+            {
+                if (plugin.titleSceneSeen && plugin.bridgeConnected &&
+                    Time.realtimeSinceStartup - plugin.lastLuaTitleFilterAt > .65f)
+                {
+                    plugin.lastLuaTitleFilterAt = Time.realtimeSinceStartup;
+                    plugin.ScheduleNativeUiFilter("title LuaMenu");
+                }
+                return;
+            }
             string name = __instance.GetType().FullName;
             plugin.Logger.LogInfo("[AP NATIVE SCREEN] OpenSelf: " + name);
-            plugin.ScheduleNativeUiFilter(name);
-            string simple = __instance.GetType().Name.ToLowerInvariant();
+            if (plugin.titleSceneSeen || plugin.nativeStarterMenu != null)
+                plugin.ScheduleNativeUiFilter(name);
             if (simple.Contains("load") || simple.Contains("save"))
             {
                 plugin.ProbeNativeSaveSelection(__instance);
