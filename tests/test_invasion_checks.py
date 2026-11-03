@@ -86,6 +86,8 @@ class InvasionCheckDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("File.Replace(temp, path, null)", mod)
         self.assertIn("RestoreCheckLedgerForCurrentRun();", mod)
         self.assertIn("PreservePreviousCheckLedger();", mod)
+        self.assertIn("CheckLedgerPath(previous.token)", ledger)
+        self.assertIn("Archived legacy shared inbox", ledger)
         self.assertIn("WriteCheckLedgerFile(archive, contents);", mod)
         self.assertIn('WriteCheckLedgerFile(Path.Combine(directory, "checks.json"), contents);', mod)
         self.assertIn("[AP CHECK] Wave ", mod)
