@@ -41,6 +41,8 @@ namespace CastleStoryArchipelago
         private float nextLoadMenuFilterAt;
         private int pendingLoadFilterPasses;
         private int lastSaveMenuDiagnosticCount;
+        private readonly HashSet<string> probedNativeLoadMenus =
+            new HashSet<string>(StringComparer.Ordinal);
 
         private string SaveTagsPath
         {
@@ -221,6 +223,37 @@ namespace CastleStoryArchipelago
             return !tagged;
         }
 
+        private void ProbeNativeSaveSelection(object menu)
+        {
+            if (menu == null) return;
+            Type type = menu.GetType();
+            if (!probedNativeLoadMenus.Add(type.FullName)) return;
+            int reported = 0;
+            var flags = BindingFlags.Instance | BindingFlags.Public |
+                BindingFlags.NonPublic;
+            foreach (PropertyInfo property in type.GetProperties(flags))
+            {
+                string name = property.Name.ToLowerInvariant();
+                if (!name.Contains("save") && !name.Contains("load") &&
+                    !name.Contains("selected") && !name.Contains("entry"))
+                    continue;
+                Logger.LogInfo("[AP SAVE API] property " +
+                    property.PropertyType.Name + " " + property.Name);
+                if (++reported >= 18) break;
+            }
+            foreach (FieldInfo field in type.GetFields(flags))
+            {
+                string name = field.Name.ToLowerInvariant();
+                if (!name.Contains("save") && !name.Contains("load") &&
+                    !name.Contains("selected") && !name.Contains("entry"))
+                    continue;
+                Logger.LogInfo("[AP SAVE API] field " +
+                    field.FieldType.Name + " " + field.Name);
+                if (++reported >= 35) break;
+            }
+            Logger.LogInfo("[AP SAVE API] Selection probe completed for " + type.FullName);
+        }
+
         private void ScheduleNativeSaveFilter(string source)
         {
             if (String.IsNullOrEmpty(apSaveRoot))
@@ -310,7 +343,7 @@ namespace CastleStoryArchipelago
             float now = Time.realtimeSinceStartup;
             if (now >= nextSaveScanAt)
             {
-                nextSaveScanAt = now + 3f;
+                nextSaveScanAt = now + 1f;
                 ScanNewNativeSaves();
             }
             if (pendingLoadFilterPasses > 0 && now >= nextLoadMenuFilterAt)
