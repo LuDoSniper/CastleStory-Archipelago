@@ -73,7 +73,7 @@ namespace CastleStoryArchipelago
             try
             {
                 var registry = JsonUtility.FromJson<ApSaveRegistry>(
-                    File.ReadAllText(path));
+                    File.ReadAllText(path).TrimStart('\uFEFF', ' ', '\r', '\n', '\t'));
                 // An empty registry may serialize saves as null (Unity's
                 // JsonUtility) or [] (PowerShell's ConvertTo-Json). Neither
                 // means corrupt data, and neither may lock future writes.
@@ -353,6 +353,17 @@ namespace CastleStoryArchipelago
                 ": AP=" + active + " saves=" + cachedSaveFolderNames.Count +
                 " allowed=" + cachedAllowedSaveNames.Count +
                 " tagged=" + apSaveTags.Count);
+            foreach (var pair in apSaveTags)
+            {
+                if (pair.Value == null) continue;
+                Logger.LogInfo("[AP SAVE POLICY] folder=" + pair.Key +
+                    " present=" + cachedSaveFolderNames.Contains(pair.Key) +
+                    " seedMatch=" + String.Equals(pair.Value.seed, seed,
+                        StringComparison.Ordinal) +
+                    " tokenMatch=" + String.Equals(pair.Value.token, token,
+                        StringComparison.Ordinal) +
+                    " allowed=" + cachedAllowedSaveNames.Contains(pair.Key));
+            }
         }
 
         private bool IsArchipelagoSaveSessionActive()
