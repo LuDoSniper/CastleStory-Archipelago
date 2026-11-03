@@ -81,6 +81,7 @@ namespace CastleStoryArchipelago
                     throw new InvalidDataException("Invalid schema");
                 if (registry.saves == null)
                 {
+                    if (primary) saveRegistryWritable = true;
                     Logger.LogInfo("[AP SAVE] Empty valid index " +
                         Path.GetFileName(path));
                     return;
