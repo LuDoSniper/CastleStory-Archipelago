@@ -36,6 +36,7 @@ namespace CastleStoryArchipelago
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private string apSaveRoot;
         private bool saveBaselineReady;
+        private bool saveRegistryWritable = true;
         private float nextSaveScanAt;
         private float nextLoadMenuFilterAt;
         private int pendingLoadFilterPasses;
@@ -91,8 +92,10 @@ namespace CastleStoryArchipelago
                 }
                 catch (Exception error)
                 {
+                    saveRegistryWritable = false;
                     Logger.LogWarning("[AP SAVE] Invalid save_tags.json: " +
-                        error.GetType().Name);
+                        error.GetType().Name +
+                        "; registry is read-only to protect existing tags.");
                     // Never overwrite corrupt metadata without an explicit
                     // backup. Unknown saves remain untagged.
                 }
@@ -187,6 +190,7 @@ namespace CastleStoryArchipelago
 
         private void PersistApSaveRegistry()
         {
+            if (!saveRegistryWritable) return;
             string temp = SaveTagsPath + ".tmp";
             try
             {
@@ -227,6 +231,38 @@ namespace CastleStoryArchipelago
             Logger.LogInfo("[AP SAVE UI] Filter scheduled from " + source);
         }
 
+        private GameObject FindNativeSaveCardRoot(Component label,
+                                                  HashSet<string> saveNames)
+        {
+            if (label == null) return null;
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return null;
+            GameObject card = null;
+            Transform node = label.transform.parent;
+            for (int level = 0; node != null && level < 6; level++,
+                 node = node.parent)
+            {
+                RectTransform rect = node as RectTransform;
+                if (node.GetComponent<Canvas>() != null ||
+                    rect == null || rect.rect.height > 450f)
+                    break;
+                int folderCaptions = 0;
+                foreach (Component text in node.GetComponentsInChildren(textType, true))
+                {
+                    string value = GetUiProperty(text, "text") as string;
+                    if (saveNames.Contains(NormalizeSaveFolder(value)))
+                        folderCaptions++;
+                    if (folderCaptions > 1) break;
+                }
+                // Stop before the whole list or menu: only one save folder's
+                // entry may be hidden, never all the user's save games.
+                if (folderCaptions > 1) break;
+                if (HasNativeInteractiveSurface(node))
+                    card = node.gameObject;
+            }
+            return card;
+        }
+
         private void FilterNativeSaveChoices()
         {
             if (String.IsNullOrEmpty(apSaveRoot) ||
@@ -245,7 +281,7 @@ namespace CastleStoryArchipelago
                 string caption = GetUiProperty(label, "text") as string;
                 string folder = NormalizeSaveFolder(caption);
                 if (!known.Contains(folder)) continue;
-                GameObject card = FindNativeChoiceRoot(label);
+                GameObject card = FindNativeSaveCardRoot(label, known);
                 if (card == null || hiddenNativeEntries.ContainsKey(card))
                 {
                     unknown++;
@@ -312,7 +348,9 @@ namespace CastleStoryArchipelago
                     BindingFlags.Instance | BindingFlags.Public |
                     BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
                     null, Type.EmptyTypes, null);
-                if (onOk == null) continue;
+                // Save As / overwrite dialogs must never be intercepted here.
+                // Only load-oriented menus are candidates for a load guard.
+                if (onOk == null || !typeName.Contains("load")) continue;
                 try
                 {
                     harmony.Patch(onOk, prefix: new HarmonyMethod(
@@ -356,8 +394,10 @@ namespace CastleStoryArchipelago
                 if (chosen == null)
                 {
                     Logger.LogWarning("[AP SAVE] Native load selection unknown; " +
-                        "cannot verify seed. No changes to original save.");
-                    return true;
+                        "cannot verify seed.");
+                    // Never load an unidentifiable game into an active
+                    // multiworld: it may silently send incorrect checks.
+                    return !bridgeConnected;
                 }
                 string folder = chosen as string;
                 if (folder == null)
@@ -370,7 +410,11 @@ namespace CastleStoryArchipelago
                         folder = info.GetValue(chosen, null) as string;
                         if (!String.IsNullOrEmpty(folder)) break;
                     }
-                if (String.IsNullOrEmpty(folder)) return true;
+                if (String.IsNullOrEmpty(folder))
+                {
+                    Logger.LogWarning("[AP SAVE] Native selected-save folder unavailable.");
+                    return !bridgeConnected;
+                }
                 // Selection may be the save directory OR a file inside
                 // it (for example gameobjects.json). Resolve its parent
                 // against actual known save folders, not arbitrary text.
