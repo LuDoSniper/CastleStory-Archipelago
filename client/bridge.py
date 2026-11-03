@@ -28,7 +28,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.7.9"
+BRIDGE_CLIENT_VERSION = "0.8.0"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -227,6 +227,43 @@ def save_campaign_wire(path, content):
     temp = path.with_name(path.name + ".tmp")
     temp.write_text(content, encoding="ascii")
     os.replace(temp, path)
+
+
+def start_parent_watch(parent_pid):
+    """Exit when the specific Windows game process exits, including crashes.
+
+    Keep an open process HANDLE to avoid confusing a recycled PID with the
+    original Castle Story instance. Manual CLI bridges have no parent-pid.
+    """
+    if not parent_pid:
+        return None
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x00100000, False, parent_pid)  # SYNCHRONIZE
+    if not handle:
+        raise RuntimeError("Castle Story parent process unavailable")
+
+    def monitor():
+        try:
+            # WAIT_OBJECT_0: process object signaled, not merely PID absent.
+            if kernel32.WaitForSingleObject(handle, 0xFFFFFFFF) == 0:
+                LOG.info("Castle Story process exited; stopping bridge.")
+                os._exit(0)
+        finally:
+            kernel32.CloseHandle(handle)
+
+    thread = threading.Thread(target=monitor, name="castle-story-parent", daemon=True)
+    thread.start()
+    return thread
 
 
 def token_for(seed, slot, player, team=0):
@@ -542,6 +579,8 @@ class Bridge:
             latest = control.drain() if control is not None else (
                 effective_connection_request(
                     self.directory, getattr(self, "fallback_request", None)))
+            if control is not None and control.closed.is_set():
+                raise BridgeShutdown()
             if (getattr(self, "request_snapshot", None) is not None and
                     latest != self.request_snapshot):
                 raise ConnectionChanged()
@@ -582,27 +621,37 @@ class StdinControl:
     def __init__(self, start_reader=True, directory=None):
         self.queue = queue.Queue()
         self.request = None
+        self.closed = threading.Event()
         self.directory = Path(directory) if directory is not None else None
         if start_reader:
             self.reader = threading.Thread(target=self._read, daemon=True)
             self.reader.start()
 
     def _read(self):
-        for line in sys.stdin:
-            try:
-                if line.startswith("APIPC1:"):
-                    raw = base64.b64decode(line[7:].strip(), validate=True)
-                    value = json.loads(raw.decode("utf-8"))
-                else:
-                    # Standalone test clients may still use JSON messages.
-                    value = json.loads(line)
-                if isinstance(value, dict):
-                    self.queue.put(value)
-            except (ValueError, TypeError, binascii.Error):
-                LOG.warning("Invalid stdin control message (credentials redacted)")
+        try:
+            for line in sys.stdin:
+                try:
+                    if line.startswith("APIPC1:"):
+                        raw = base64.b64decode(line[7:].strip(), validate=True)
+                        value = json.loads(raw.decode("utf-8"))
+                    else:
+                        # Standalone test clients may still use JSON messages.
+                        value = json.loads(line)
+                    if isinstance(value, dict):
+                        self.queue.put(value)
+                except (ValueError, TypeError, binascii.Error):
+                    LOG.warning("Invalid stdin control message (credentials redacted)")
+        finally:
+            # Anonymous pipe EOF means Unity/the launching process died.
+            # Never keep reconnecting as an orphaned background bridge.
+            self.closed.set()
 
     def apply(self, command):
         action = command.get("cmd")
+        if action == "shutdown":
+            self.request = None
+            self.closed.set()
+            return
         if action == "disconnect":
             self.request = None
         elif action == "connect":
@@ -637,6 +686,11 @@ class ConnectionChanged(Exception):
     """User edited in-game AP connection settings; reconnect cleanly."""
     pass
 
+
+class BridgeShutdown(Exception):
+    """The owning Castle Story process closed its control channel."""
+    pass
+
 def read_connection_request(directory):
     """Main-menu frontend writes connection.json; password stays local."""
     data = load_json(Path(directory) / "connection.json")
@@ -669,6 +723,7 @@ def write_status(directory, state, message):
     })
 
 async def main(args):
+    start_parent_watch(getattr(args, "parent_pid", 0))
     directory = Path(args.bridge_dir).resolve()
     bridge = None
     active = None
@@ -678,6 +733,12 @@ async def main(args):
     while True:
         requested = control.drain() if control is not None else (
             effective_connection_request(directory, static))
+        if control is not None and control.closed.is_set():
+            if bridge is not None:
+                bridge.connected = False
+                bridge.persist_session()
+            write_status(directory, "stopped", "Castle Story closed.")
+            return
         if requested is None:
             if bridge is not None:
                 bridge.connected = False
@@ -704,6 +765,12 @@ async def main(args):
         except ConnectionChanged:
             write_status(directory, "reconnecting", "Settings changed in game.")
             delay = 1
+        except BridgeShutdown:
+            bridge.connected = False
+            bridge.persist_session()
+            write_status(directory, "stopped", "Castle Story closed.")
+            return
+            delay = 1
         except (OSError, websockets.exceptions.WebSocketException,
                 RuntimeError, ValueError, KeyError) as exc:
             message = str(exc).replace(requested[2], "[redacted]") if requested[2] else str(exc)
@@ -720,6 +787,8 @@ if __name__ == "__main__":
     p.add_argument("--password", default="")
     p.add_argument("--stdin-control", action="store_true",
                    help="Secure per-run in-memory credentials via anonymous stdin pipe")
+    p.add_argument("--parent-pid", type=int, default=0,
+                   help="Owning Castle Story PID (Windows only, game-launched bridge)")
     p.add_argument("--bridge-dir", required=True,
                    help="Castle Story/BepInEx/config/castle_story_archipelago")
     logging.basicConfig(level=logging.INFO)
