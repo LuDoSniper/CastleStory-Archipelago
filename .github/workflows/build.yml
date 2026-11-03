@@ -76,9 +76,11 @@ jobs:
         run: |
           $tokens = $null
           $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path (Get-Location) "tools/Install-CastleStoryAP.ps1"),
-            [ref] $tokens, [ref] $parseErrors) | Out-Null
+          foreach ($script in @("tools/Install-CastleStoryAP.ps1", "tools/Associate-CastleStoryAPSave.ps1")) {
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path (Get-Location) $script),
+              [ref] $tokens, [ref] $parseErrors) | Out-Null
+          }
           if ($parseErrors.Count -gt 0) {
             $parseErrors | Format-List | Out-String | Write-Host
             throw "Installer has invalid PowerShell syntax."
@@ -90,6 +92,7 @@ jobs:
           Copy-Item client/bridge.py,client/requirements.txt package/client/
           Copy-Item tools/Start-Bridge.ps1 package/Start-Bridge.ps1
           Copy-Item tools/Install-CastleStoryAP.ps1 package/Install-CastleStoryAP.ps1
+          Copy-Item tools/Associate-CastleStoryAPSave.ps1 package/Associate-CastleStoryAPSave.ps1
           Copy-Item tools/inspect_maps.py package/inspect_maps.py
           New-Item -Force -ItemType Directory package/tools | Out-Null
           Copy-Item tools/inspect_maps.py package/tools/inspect_maps.py
