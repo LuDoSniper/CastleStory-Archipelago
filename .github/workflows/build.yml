@@ -85,7 +85,10 @@ jobs:
             $parseErrors | Format-List | Out-String | Write-Host
             throw "Installer has invalid PowerShell syntax."
           }
-      - name: Test save tag recovery script on Windows
+      - name: Test save tag recovery under Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/Test-AssociateSaveTag.ps1
+      - name: Test save tag recovery under PowerShell 7
         shell: pwsh
         run: ./tests/Test-AssociateSaveTag.ps1
       - name: Assemble tester kit
