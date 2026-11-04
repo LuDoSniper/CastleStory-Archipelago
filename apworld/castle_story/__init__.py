@@ -96,17 +96,20 @@ class CastleStoryWorld(World):
                      "Equipped Archer", "Equipped Knight", "Equipped Alchemist",
                      "Archer Unlock", "Knight Unlock", "Alchemist Unlock"] *
                     ((count + 7) // 8))[:count]
-        starter = [
-            "Equipped Worker",
-            "Archer Unlock",
-            "Equipped Archer",
-            "Knight Unlock",
-            "Equipped Knight",
-            "Alchemist Unlock",
-            "Equipped Alchemist",
-            "Bricktron Reinforcement",
-        ]
-        pool = starter[:count]
+        # Unlocks must always be accompanied by an equipped-unit reward:
+        # e.g. a 4-check seed must not contain an unusable Knight Unlock
+        # without a possible Knight gift in its entire item pool.
+        pool = ["Equipped Worker"]
+        for bundle in (
+            ("Archer Unlock", "Equipped Archer"),
+            ("Knight Unlock", "Equipped Knight"),
+            ("Alchemist Unlock", "Equipped Alchemist"),
+        ):
+            if count - len(pool) < 2:
+                break
+            pool.extend(bundle)
+        if len(pool) < count:
+            pool.append("Bricktron Reinforcement")
         rng = seed_rng(self.multiworld.seed, "gameplay-rewards-player-%s" % self.player)
         repeatable = ["Bricktron Reinforcement", "Equipped Worker",
                       "Equipped Worker", "Equipped Archer", "Equipped Knight",
