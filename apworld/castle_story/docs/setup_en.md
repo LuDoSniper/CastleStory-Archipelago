@@ -27,15 +27,14 @@ The playable item pool consists of `Equipped Worker`,
 `Archer Unlock` + `Equipped Archer`,
 `Knight Unlock` + `Equipped Knight`, and
 `Alchemist Unlock` + `Equipped Alchemist`, depending on location count.
-A gift can be received ahead of its unlock and will remain pending.
+An equipped unit received as a gift does not require its crafting unlock. It can be awarded before the corresponding technology is available.
 
 The BepInEx plugin can create units using a verified local game's
 `UNetProjectCmd.SpawnUnit` arguments. It cannot safely invent a unit
 asset key or network owner: first observe an actual locally owned native
 spawn. Gifts are journaled by AP item index; uncertain spawns are never
 repeated blindly. Gifts currently count towards Castle Story's ordinary
-population limit. Tech unlocks gate **gifted** equipped units only, not all
-vanilla equipment/production buttons.
+population limit. Tech unlocks will eventually restrict native production of additional units, not gifted units. The game's crafting restrictions are not implemented yet.
 
 `Wood Supply`, `Stone Supply`, `Wisp Supply`, and `Catapult Unlock`
 still have reserved IDs but have no verified native effect, so they are not
