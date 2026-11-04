@@ -1378,6 +1378,9 @@ namespace CastleStoryArchipelago
             UnityEngine.SceneManagement.Scene current)
         {
             string name = current.name ?? "";
+            // Reward templates contain Unity scene-owned objects and must
+            // never survive a Load Game / Save & Quit / scene transition.
+            ClearNativeBonusSceneTemplate();
             // Flush the last native save before leaving a seeded gameplay
             // scene: Save & Quit can return to SceneMenu before the 1s poll.
             if (name == "SceneMenu" && previous.name != "SceneMenu")
