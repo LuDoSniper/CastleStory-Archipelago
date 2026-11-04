@@ -163,16 +163,6 @@ namespace CastleStoryArchipelago
             return null;
         }
 
-        private bool BonusUnlockReady(int item)
-        {
-            if (!gameplayRequireUnlocks) return true;
-            int required = item == ItemBase + 9 ? ItemBase + 1 :
-                item == ItemBase + 10 ? ItemBase + 2 :
-                item == ItemBase + 11 ? ItemBase + 7 : 0;
-            return required == 0 ||
-                (inventory.ContainsKey(required) && inventory[required] > 0);
-        }
-
         private void ClearNativeBonusSceneTemplate()
         {
             // Unity GameObjects and method hosts are scene-owned. Reusing a
@@ -292,8 +282,11 @@ namespace CastleStoryArchipelago
             if (templateOwner == null) return; // destroyed Unity object
             if (nativeSpawnHost is UnityEngine.Object &&
                 (UnityEngine.Object)nativeSpawnHost == null) return;
-            var ticket = bonusRewards.Values.Where(x => x.state == "pending" &&
-                BonusUnlockReady(x.item)).OrderBy(x => x.index).FirstOrDefault();
+            // AP gifts bypass production research/building requirements:
+            // finding an equipped Archer grants that Archer directly, even
+            // when the player cannot craft any additional Archers yet.
+            var ticket = bonusRewards.Values.Where(x => x.state == "pending")
+                .OrderBy(x => x.index).FirstOrDefault();
             if (ticket == null) return;
 
             var proto = (object[])nativeSpawnPrototype.Clone();
@@ -376,12 +369,12 @@ namespace CastleStoryArchipelago
             foreach (var ticket in bonusRewards.Values.OrderBy(x => x.index))
                 Logger.LogInfo("[AP BONUS] index=" + ticket.index +
                     " item=" + ticket.item + " state=" + ticket.state +
-                    " unlockReady=" + BonusUnlockReady(ticket.item) +
+                    " giftedUnitBypassesCraftingUnlock=true" +
                     " note=" + ticket.note);
             Logger.LogInfo("[AP GAMEPLAY] seed-native rewards=" +
                 gameplayUnitRewardsEnabled + " emergencyDisabled=" +
                 (disableAutomaticUnitRewards != null && disableAutomaticUnitRewards.Value) +
-                " gatedEquippedRewards=" + gameplayRequireUnlocks);
+                " giftedUnitsIgnoreCraftingUnlocks=true");
             Logger.LogInfo("[AP BONUS] Native template=" +
                 (nativeSpawnPrototype == null ? "not observed" : "observed") +
                 "; native spawning enabled=" +
