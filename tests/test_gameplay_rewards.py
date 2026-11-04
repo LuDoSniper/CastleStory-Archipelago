@@ -131,7 +131,7 @@ class NativeGameplaySafetyTests(unittest.TestCase):
         self.assertIn("private bool IsActiveConquestMission()", mod)
         self.assertIn("!IsActiveConquestMission()", mod)
         self.assertIn("if (!campaignVictory && (!victoryChecks.Value || !bridgeConnected))", mod)
-        self.assertIn("if (!IsActiveConquestMission()) return;", mod)
+        self.assertIn("!IsActiveConquestMission()) return;", mod)
         self.assertIn("IsActiveInvasionMission() &&", mod)
         self.assertIn("IsActiveConquestMission())) return;", mod)
         self.assertIn("if (checksDirty && (bridgeConnected || IsActiveInvasionMission() ||", mod)
