@@ -6,6 +6,8 @@ game: Castle Story
 Castle Story:
   game_mode: invasion
   invasion_goal: 5
+  # Native unit gifts enabled for newly generated runs; false = observation-only.
+  gameplay_rewards: true
   conquest_shards: 3
   invasion_map_pool: []
   conquest_map_capacities: {}
