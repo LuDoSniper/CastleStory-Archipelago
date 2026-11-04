@@ -94,7 +94,7 @@ class InvasionCheckDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("already completed for this seed", mod)
         self.assertIn('if (seedChanged && checkedIds.Count > 0)', mod)
         self.assertIn("if (checksDirty) WriteChecks();", mod)
-        self.assertIn("if (checksDirty && (bridgeConnected || IsActiveInvasionMission()))", mod)
+        self.assertIn("if (checksDirty && (bridgeConnected || IsActiveInvasionMission() ||", mod)
         self.assertIn("startedMission = \"\";", mod)
 
 
