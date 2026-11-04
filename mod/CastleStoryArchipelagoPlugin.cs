@@ -888,7 +888,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.7.9 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story Archipelago — Gameplay");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -901,8 +901,10 @@ namespace CastleStoryArchipelago
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 80, 650, 22),
                 "Invasion sending=" + (IsActiveInvasionMission() ?
                     "AUTO (seed)" : waveChecks.Value ? "ON (legacy)" : "OFF") +
-                " | Conquest captures=" + (captureChecks.Value ? "ON" : "OFF") +
-                " | Victory=" + (victoryChecks.Value ? "ON" : "OFF"));
+                " | Conquest captures=" + (IsActiveConquestMission() ?
+                    "AUTO (seed)" : captureChecks.Value ? "ON (legacy)" : "OFF") +
+                " | Victory=" + (IsActiveConquestMission() ?
+                    "AUTO (seed)" : victoryChecks.Value ? "ON (legacy)" : "OFF"));
             string itemText = "";
             string[] names = { "Archer", "Knight", "Catapult", "Reinforcements", "Wood",
                 "Stone", "Alchemist", "Worker bonus", "Archer bonus", "Knight bonus",
@@ -914,7 +916,7 @@ namespace CastleStoryArchipelago
                     itemText += names[i - 1] + " x" + amount + "  ";
             }
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 107, 650, 45),
-                "AP received inventory (display only): " + (itemText == "" ? "none" : itemText));
+                "AP received inventory: " + (itemText == "" ? "none" : itemText));
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 147, 650, 20),
                 "F8 = write status to BepInEx log; do not test with an existing save.");
             GUI.depth = oldDepth;
