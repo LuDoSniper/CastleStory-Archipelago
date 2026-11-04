@@ -86,9 +86,9 @@ class CastleStoryWorld(World):
         """Playable seed rewards rather than inert placeholders.
 
         Unit rewards use a verified native SpawnUnit template. An equipped
-        advanced Bricktron waits for its corresponding unlock; a basic worker
-        or reinforcement is immediately usable. Other catalog IDs remain
-        reserved for future safely verified resource/building APIs.
+        Bricktron is a direct gift and never waits for its crafting technology.
+        Crafting unlocks will eventually govern *production*, not gifts.
+        Other catalog IDs remain reserved for verified resource/build APIs.
         """
         count = len(self._active_names())
         if not self.options.gameplay_rewards.value:
@@ -96,9 +96,9 @@ class CastleStoryWorld(World):
                      "Equipped Archer", "Equipped Knight", "Equipped Alchemist",
                      "Archer Unlock", "Knight Unlock", "Alchemist Unlock"] *
                     ((count + 7) // 8))[:count]
-        # Unlocks must always be accompanied by an equipped-unit reward:
-        # e.g. a 4-check seed must not contain an unusable Knight Unlock
-        # without a possible Knight gift in its entire item pool.
+        # Keep a matching gift in the pool for every crafting technology,
+        # but neither the gift nor its delivery depends on that technology.
+        # The server may place the gift BEFORE its crafting unlock.
         pool = ["Equipped Worker"]
         for bundle in (
             ("Archer Unlock", "Equipped Archer"),
@@ -154,7 +154,8 @@ class CastleStoryWorld(World):
             "gameplay_rules": {
                 "version": 1,
                 "native_unit_rewards": bool(self.options.gameplay_rewards.value),
-                "unlock_required_for_equipped_units": bool(
-                    self.options.gameplay_rewards.value),
+                # Legacy slot-data key retained for bridge compatibility.
+                # Crafting locks must never gate gifted units.
+                "unlock_required_for_equipped_units": False,
             },
         }
