@@ -79,7 +79,7 @@ class InvasionCheckDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('startedMission = matching.id;', native)
         self.assertIn("[AP MISSION START]", native)
         self.assertIn("if (!activeSeedMission && (!waveChecks.Value || !bridgeConnected))", mod)
-        self.assertIn("(!bridgeConnected && !IsActiveInvasionMission())", mod)
+        self.assertIn("(!bridgeConnected && !IsActiveInvasionMission() &&", mod)
         ledger = (root / "mod/CheckLedger.cs").read_text(encoding="utf-8")
         self.assertIn('File.Replace(temp, path, path + ".bak")', ledger)
         self.assertIn("File.Copy(temp, path, true);", ledger)
