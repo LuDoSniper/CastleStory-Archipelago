@@ -62,7 +62,64 @@ namespace CastleStoryArchipelago
                 }
             }
             ProbeNativeArchipelagoUi();
+            ProbeNativeGameplayEffects();
             Logger.LogInfo("[AP API PROBE] Finished. Future hooks must be validated in game.");
+        }
+        private void ProbeNativeGameplayEffects()
+        {
+            // F9-only, read-only inventory of the *real loaded game assembly*.
+            // This is for resource/build/equip adapters in the next iteration.
+            // Do not infer methods from display labels or invoke anything.
+            try
+            {
+                Type anchor = AccessTools.TypeByName("Brix.Game.Network.UNetProjectCmd");
+                if (anchor == null) return;
+                Type[] types;
+                try { types = anchor.Assembly.GetTypes(); }
+                catch (ReflectionTypeLoadException partial)
+                { types = partial.Types; }
+                int logged = 0;
+                foreach (Type type in types)
+                {
+                    if (type == null || logged >= 36) break;
+                    string name = type.FullName ?? "";
+                    if (!name.StartsWith("Brix.", StringComparison.Ordinal) &&
+                        name.IndexOf("Crystal", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    string lower = name.ToLowerInvariant();
+                    if (!lower.Contains("resource") && !lower.Contains("stock") &&
+                        !lower.Contains("inventory") && !lower.Contains("occupation") &&
+                        !lower.Contains("equipment") && !lower.Contains("bricktron") &&
+                        !lower.Contains("crystal") && !lower.Contains("unlock") &&
+                        !lower.Contains("build") && !lower.Contains("wave"))
+                        continue;
+                    logged++;
+                    Logger.LogInfo("[AP GAMEPLAY API] type " + name);
+                    int methods = 0;
+                    foreach (MethodInfo method in type.GetMethods(
+                        BindingFlags.Instance | BindingFlags.Static |
+                        BindingFlags.Public | BindingFlags.NonPublic |
+                        BindingFlags.DeclaredOnly))
+                    {
+                        string action = method.Name.ToLowerInvariant();
+                        if (!action.Contains("add") && !action.Contains("give") &&
+                            !action.Contains("set") && !action.Contains("equip") &&
+                            !action.Contains("spawn") && !action.Contains("resource") &&
+                            !action.Contains("build") && !action.Contains("wave") &&
+                            !action.Contains("unlock") && !action.Contains("consume"))
+                            continue;
+                        Logger.LogInfo("[AP GAMEPLAY API] method " + method);
+                        if (++methods >= 12) break;
+                    }
+                }
+                Logger.LogInfo("[AP GAMEPLAY API] read-only scan types=" + logged +
+                    " (F9). No gameplay state changed.");
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP GAMEPLAY API] Probe failed: " +
+                    error.GetType().Name);
+            }
         }
     }
 }
