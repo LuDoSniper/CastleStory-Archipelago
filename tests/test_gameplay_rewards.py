@@ -69,6 +69,7 @@ class GameplayWorldTests(unittest.TestCase):
         options = (ROOT / "apworld/castle_story/options.py").read_text("utf-8")
         self.assertIn('"gameplay_rules": {', text)
         self.assertIn('"native_unit_rewards": bool(self.options.gameplay_rewards.value)', text)
+        self.assertIn('"unlock_required_for_equipped_units": False', text)
         self.assertIn('class GameplayRewards(Toggle):', options)
         self.assertIn('default = 1', options)
         self.assertIn('gameplay_rewards: GameplayRewards', options)
@@ -107,6 +108,25 @@ class GameplayBridgeTests(unittest.IsolatedAsyncioTestCase):
                           {"item": bridge.ITEM_BASE + 9, "player": 2}]})
             self.assertEqual(len(bridge.load_json(Path(tmp) / "items.json")["items"]), 2)
 
+    async def test_legacy_seed_gift_gate_field_does_not_remove_received_archer(self):
+        # The old v0.9.0 seed may carry the obsolete True flag. The bridge
+        # keeps it for compatibility, but Unity must ignore it for direct gifts.
+        with tempfile.TemporaryDirectory() as tmp:
+            b, ws, data = await self.connect(tmp, {
+                "version": 1,
+                "native_unit_rewards": True,
+                "unlock_required_for_equipped_units": True,
+            })
+            self.assertTrue(data["gameplay_unlocks_required"])
+            await b.on_message(ws, {"cmd": "ReceivedItems", "index": 0,
+                "items": [{"item": bridge.ITEM_BASE + 9, "player": 3}]})
+            items = bridge.load_json(Path(tmp) / "items.json")["items"]
+            self.assertEqual([x["item"] for x in items],
+                             [bridge.ITEM_BASE + 9])
+            plugin = PLUGIN.read_text(encoding="utf-8")
+            self.assertIn("legacyGiftGateIgnored=", plugin)
+            self.assertNotIn("gameplayRequireUnlocks", plugin)
+
     async def test_old_slots_and_unknown_gameplay_versions_are_safe(self):
         for rules in (None, {"version": 99, "native_unit_rewards": True},
                       {"version": 1, "native_unit_rewards": "true"}):
@@ -123,7 +143,13 @@ class NativeGameplaySafetyTests(unittest.TestCase):
         self.assertIn("gameplayUnitRewardsEnabled", source)
         self.assertIn("DisableSeedUnitRewards", source)
         self.assertIn("!IsSeedGameplayActive()", source)
-        self.assertIn("BonusUnlockReady(x.item)", source)
+        # A received Archer/Knight/Alchemist is a direct gift, even if its
+        # workshop or crafting technology is not unlocked.
+        self.assertIn('bonusRewards.Values.Where(x => x.state == "pending")', source)
+        self.assertNotIn("BonusUnlockReady(", source)
+        self.assertIn("giftedUnitBypassesCraftingUnlock=true", source)
+        self.assertIn("giftedUnitsIgnoreCraftingUnlocks=true", source)
+
         self.assertIn('item == ItemBase + 4', source)
         self.assertIn("lastBonusSpawn ?? result as GameObject", source)
         self.assertIn('ticket.state = "spawning"', source)
