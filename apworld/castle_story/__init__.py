@@ -5,7 +5,7 @@ from .catalog import (
     GAME, GOAL_ITEM_NAME, ITEM_NAME_TO_ID, LOCATION_NAME_TO_ID,
     INVASION_LOCATIONS, CONQUEST_LOCATIONS, PROGRESSION_ITEMS, USEFUL_ITEMS,
 )
-from .campaign import plan_campaign
+from .campaign import plan_campaign, seed_rng
 from .options import CastleStoryOptions
 
 class CastleStoryItem(Item):
@@ -82,17 +82,45 @@ class CastleStoryWorld(World):
         )
         return CastleStoryItem(name, classification, ITEM_NAME_TO_ID[name], self.player)
 
-    def create_items(self):
-        count = len(self.active_names)
-        # Pool changes with the generated campaign size, never leaving unfilled
-        # locations. Reserve a safe base: no hard gates before in-game effects exist.
-        pool = ["Archer Unlock", "Knight Unlock", "Alchemist Unlock",
-                "Bricktron Reinforcement", "Equipped Worker",
-                "Equipped Archer", "Equipped Knight", "Equipped Alchemist"]
-        pool = pool[:count]
+    def _reward_pool(self):
+        """Playable seed rewards rather than inert placeholders.
+
+        Unit rewards use a verified native SpawnUnit template. An equipped
+        advanced Bricktron waits for its corresponding unlock; a basic worker
+        or reinforcement is immediately usable. Other catalog IDs remain
+        reserved for future safely verified resource/building APIs.
+        """
+        count = len(self._active_names())
+        if not self.options.gameplay_rewards.value:
+            return (["Bricktron Reinforcement", "Equipped Worker",
+                     "Equipped Archer", "Equipped Knight", "Equipped Alchemist",
+                     "Archer Unlock", "Knight Unlock", "Alchemist Unlock"] *
+                    ((count + 7) // 8))[:count]
+        starter = [
+            "Equipped Worker",
+            "Archer Unlock",
+            "Equipped Archer",
+            "Knight Unlock",
+            "Equipped Knight",
+            "Alchemist Unlock",
+            "Equipped Alchemist",
+            "Bricktron Reinforcement",
+        ]
+        pool = starter[:count]
+        rng = seed_rng(self.multiworld.seed, "gameplay-rewards-player-%s" % self.player)
+        repeatable = ["Bricktron Reinforcement", "Equipped Worker",
+                      "Equipped Worker", "Equipped Archer", "Equipped Knight",
+                      "Equipped Alchemist"]
         while len(pool) < count:
-            pool.append(["Wood Supply", "Stone Supply", "Wisp Supply"][len(pool) % 3])
-        self.multiworld.itempool.extend(self.create_item(x) for x in pool)
+            pool.append(rng.choice(repeatable))
+        return pool
+
+    def create_items(self):
+        # The AP server randomizes item placement; all items in the bag have a
+        # functioning native unit reward or a concrete prerequisite for one.
+        self.multiworld.itempool.extend(
+            self.create_item(name) for name in self._reward_pool())
+
 
     def get_filler_item_name(self):
         return "Wood Supply"
@@ -118,4 +146,12 @@ class CastleStoryWorld(World):
             "location_ids": [LOCATION_NAME_TO_ID[name] for name in self._active_names()],
             "campaign": self.campaign_plan,
             "protocol_version": 6,
+            # New seeds opt into real in-game effects; already generated slots
+            # without this contract continue in read-only reward mode.
+            "gameplay_rules": {
+                "version": 1,
+                "native_unit_rewards": bool(self.options.gameplay_rewards.value),
+                "unlock_required_for_equipped_units": bool(
+                    self.options.gameplay_rewards.value),
+            },
         }
