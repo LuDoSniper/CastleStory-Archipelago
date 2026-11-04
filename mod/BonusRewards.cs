@@ -286,8 +286,8 @@ namespace CastleStoryArchipelago
                 !bridgeConnected || !IsSeedGameplayActive() ||
                 Time.realtimeSinceStartup < nextBonusAttempt) return;
             nextBonusAttempt = Time.realtimeSinceStartup + 2f;
-            if (nativeSpawnMethod == null || nativeSpawnHost == null ||
-                nativeSpawnPrototype == null) return;
+            if (nativeSpawnMethod == null || nativeSpawnPrototype == null ||
+                (!nativeSpawnMethod.IsStatic && nativeSpawnHost == null)) return;
             GameObject templateOwner = nativeSpawnPrototype[3] as GameObject;
             if (templateOwner == null) return; // destroyed Unity object
             if (nativeSpawnHost is UnityEngine.Object &&
