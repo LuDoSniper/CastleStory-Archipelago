@@ -253,6 +253,15 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private bool IsActiveConquestMission()
+        {
+            return !String.IsNullOrEmpty(token) && !disconnectPending &&
+                campaign != null && campaign.ready &&
+                !String.IsNullOrEmpty(startedMission) &&
+                String.Equals(startedMission, chosenMission, StringComparison.Ordinal) &&
+                IsSelectedMissionType("Conquest");
+        }
+
         private void RecordCapture(object captured, object faction)
         {
             // A faction argument is present in the actual game's DLL signature.
@@ -278,6 +287,12 @@ namespace CastleStoryArchipelago
                 (faction == null ? "<null>" : faction.GetType().FullName) +
                 " ownedByPlayer=" + ownedByPlayer);
             if (!ownedByPlayer) return;
+            if (campaign != null && campaign.ready && !IsActiveConquestMission())
+            {
+                Logger.LogInfo("[AP CHECK] Capture ignored: no active verified " +
+                    "Conquest mission in this run.");
+                return;
+            }
             int objectId = captured == null ? 0 :
                 (captured is UnityEngine.Object ? ((UnityEngine.Object)captured).GetInstanceID()
                  : captured.GetHashCode());
@@ -315,8 +330,10 @@ namespace CastleStoryArchipelago
                 }
                 int ordinal = selected.shard_start + completedOnThisMap;
                 conquestCaptured = capturedKeys.Count;
+                // A seed-launched Conquest mission is authoritative; the old
+                // optional config flag applies only to legacy AP manifests.
                 if ((mode != "Conquest" && mode != "Hybrid") ||
-                    !captureChecks.Value || !bridgeConnected) return;
+                    !IsActiveConquestMission()) return;
                 int checkId = ConquestBase + ordinal;
                 if (ordinal <= shardGoal && checkedIds.Add(checkId))
                 {
@@ -344,8 +361,17 @@ namespace CastleStoryArchipelago
             conquestWinEvents++;
             Logger.LogInfo("[AP VICTORY] StatsTracker.GameWon() at t=" +
                 Time.realtimeSinceStartup.ToString("F1") + "s, mode=" + mode);
-            if ((mode != "Conquest" && mode != "Hybrid") || !victoryChecks.Value || !bridgeConnected) return;
-            if (campaign != null && campaign.ready && campaign.missions != null)
+            if (mode != "Conquest" && mode != "Hybrid") return;
+            bool campaignVictory = campaign != null && campaign.ready &&
+                campaign.missions != null;
+            if (campaignVictory && !IsActiveConquestMission())
+            {
+                Logger.LogWarning("[AP MISSION] Victory ignored: no verified " +
+                    "seed-launched Conquest mission.");
+                return;
+            }
+            if (!campaignVictory && (!victoryChecks.Value || !bridgeConnected)) return;
+            if (campaignVictory)
             {
                 if (!IsSelectedMissionType("Conquest"))
                 {
@@ -745,7 +771,8 @@ namespace CastleStoryArchipelago
             // process. Persist to its own ledger first, then the live bridge
             // inbox. If either write fails, retry without losing the event.
             if (String.IsNullOrEmpty(token) || disconnectPending ||
-                (!bridgeConnected && !IsActiveInvasionMission())) return;
+                (!bridgeConnected && !IsActiveInvasionMission() &&
+                 !IsActiveConquestMission())) return;
             bool allShards = checkedIds.Contains(ConquestBase + shardGoal);
             bool invasionFinished = lastWave >= goalWave;
             bool conquestFinished = conquestVictory && allShards;
@@ -807,7 +834,8 @@ namespace CastleStoryArchipelago
                 FlushNativeMapCatalogIfIdle();
                 // Retry a temporarily locked ledger without depending on
                 // further InvasionWave callbacks.
-                if (checksDirty && (bridgeConnected || IsActiveInvasionMission()))
+                if (checksDirty && (bridgeConnected || IsActiveInvasionMission() ||
+                    IsActiveConquestMission()))
                     WriteChecks();
             }
             if (Input.GetKeyDown(KeyCode.F9))
