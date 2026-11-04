@@ -130,6 +130,8 @@ class NativeGameplaySafetyTests(unittest.TestCase):
         self.assertIn('ticket.state = "review"', source)
         self.assertIn('ticket.state = "delivered"', source)
         self.assertIn("WriteCheckLedgerFile(path,", source)
+        self.assertIn("if (!SaveBonusRewards())", source)
+        self.assertIn("Reward journal unavailable; no unit spawned.", source)
         self.assertNotIn("if (File.Exists(path)) File.Delete(path);", source)
         self.assertIn("ClearNativeBonusSceneTemplate();", scene)
 
