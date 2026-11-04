@@ -50,6 +50,13 @@ class GameplayWorldTests(unittest.TestCase):
             self.assertNotIn("Stone Supply", first)
             self.assertNotIn("Catapult Unlock", first)
             self.assertIn("Equipped Worker", first)
+            for unlock, gift in (
+                ("Archer Unlock", "Equipped Archer"),
+                ("Knight Unlock", "Equipped Knight"),
+                ("Alchemist Unlock", "Equipped Alchemist"),
+            ):
+                if unlock in first:
+                    self.assertIn(gift, first)
 
     def test_longer_campaigns_vary_repeatable_reward_selection_by_seed(self):
         pools = {tuple(reward_pool_for(seed, 1, 22)) for seed in range(15)}
