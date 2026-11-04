@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.8.1")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.9.0")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -127,8 +127,8 @@ namespace CastleStoryArchipelago
             LoadRememberedConnection();
             InitializeApSaveRegistry();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.8.1 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.8.1 initialised.");
+                "Castle Story Archipelago v0.9.0 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.9.0 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -726,7 +726,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.8.1 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.9.0 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
