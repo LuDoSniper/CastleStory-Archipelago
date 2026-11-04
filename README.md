@@ -1,6 +1,12 @@
-# Castle Story × Archipelago — v0.9.0 (premier gameplay de randomisation)
+# Castle Story × Archipelago — v0.9.1 (cadeaux directs, fabrication indépendante)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.9.1 — Gifts bypass crafting unlocks
+
+Archipelago items `Equipped Archer`, `Equipped Knight` and `Equipped Alchemist` grant the unit directly without waiting for a crafting unlock. Research and crafting restrictions are a separate, not-yet-implemented game integration. Existing v0.9.0 seeds remain compatible: their obsolete gift-lock flag is ignored.
+
+Test across two Archipelago slots (`CS` plus another configured game): checks in either game can send items to the other. The multiworld placement is random, so do not expect an equipped unit from the first check. F10 logs the reward ticket; an unavailable native spawn template may keep the unit pending, never a missing crafting unlock.
 
 ## v0.9.0 — Première passe de gameplay réel
 
@@ -26,9 +32,9 @@ avec le nouvel APWorld pour tester les récompenses automatiques**.
   l'observation en jeu d'un modèle natif possédé localement**. Ni AssetKey,
   ni propriétaire réseau, ni position initiale ne sont inventés.
 - **Progression de récompenses** : `Archer Unlock`, `Knight Unlock` et
-  `Alchemist Unlock` autorisent les unités bonus correspondantes. Si
-  `Equipped Archer` arrive avant `Archer Unlock`, le cadeau reste en
-  attente. Ces unlocks **ne verrouillent pas encore toutes les commandes
+  `Alchemist Unlock` sont destinés à débloquer leur fabrication, pas les cadeaux. Si
+  `Equipped Archer` arrive avant `Archer Unlock`, le cadeau est
+  livré sans attendre ce déblocage de fabrication. Ces unlocks **ne verrouillent pas encore toutes les commandes
   de construction ou d'équipement vanilla** : ce serait un changement plus
   large à faire après validation des APIs natives de ces menus.
 - **Pas de doublons** : les objets reçus sont identifiés par leur index
@@ -62,7 +68,7 @@ normal du jeu : aucune exclusion artificielle non validée n'est appliquée.
    Un cadeau `Equipped Worker` ou `Bricktron Reinforcement` reçu pendant
    la partie doit rester `pending` jusqu'à la découverte d'une création
    native d'unité locale, puis devenir `delivered` après confirmation.
-   Une unité avancée attend aussi son item Unlock correspondant.
+   Une unité avancée offerte n'attend pas son Unlock, réservé à la fabrication.
 4. **F10** imprime les tickets des récompenses, `[AP BONUS]`,
    `[AP REWARD DELIVERED]`, `[AP REWARD REVIEW]` dans
    `BepInEx/LogOutput.log`. **F8** affiche le diagnostic des checks et des
