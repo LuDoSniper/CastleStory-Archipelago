@@ -1,25 +1,53 @@
-# Castle Story Archipelago campaign — developer preview
+# Castle Story Archipelago — gameplay preview v0.9.0
 
-Game mode: `invasion`, `conquest` or `hybrid`. Hybrid requires both branches for
-the final server goal. Set `invasion_goal` between 1 and 10 and
-`conquest_shards` between 1 and 30.
+Select `invasion`, `conquest`, or `hybrid`, then choose an
+`invasion_goal` from 1 to 10 and `conquest_shards` from 1 to 30.
+Hybrid needs at least one mission of each type.
 
-## Seed-selected maps
+## Maps
 
-The map planner chooses a subset with total shard capacity at least the
-configured target, minimizing extra shard capacity and then the number of maps.
-It uses the seed for deterministic ties.
+Archipelago seeds use technical native IDs (`official:<folder>` or
+`workshop:<folder>`), never translated map names. If
+`invasion_map_pool: []`, Castle Story chooses a deterministic compatible
+Invasion map from its installed native catalog on the first connection to
+this seed.
 
-**IMPORTANT:** the .apworld cannot read your game's installed map files.
-`conquest_map_capacities` must list maps and VERIFIED shard counts. Empty or
-insufficient map catalogs produce `campaign.ready=false`; the client must not
-claim to have auto-selected playable maps. Do not guess counts. The default
-invasion pool names the official Pioneer Pass map, but it must be installed.
+Conquest requires `conquest_map_capacities` with **verified** shard counts
+for every eligible map. The APWorld does not have access to the player's game
+installation, and it will reject seeds without enough verified capacity.
 
-## Game integration status
+## Actual items and checks (gameplay protocol 1)
 
-The client carries the seed-generated campaign to `session.json`. The Unity
-plugin can display the campaign and connection UI, but the native game map-menu
-replacement and automatic map launch still require verified game menu hooks.
-Equipped Bricktron rewards are modeled in the item catalog, not yet granted
-outside the Home Crystal's cap. The current release is a development build.
+Newly generated seeds use `gameplay_rewards: true` by default. Invasion
+checks are triggered by completing waves; Conquest checks by capturing
+player-owned crystals and completing the seeded Conquest mission.
+
+The playable item pool consists of `Equipped Worker`,
+`Bricktron Reinforcement`, matching
+`Archer Unlock` + `Equipped Archer`,
+`Knight Unlock` + `Equipped Knight`, and
+`Alchemist Unlock` + `Equipped Alchemist`, depending on location count.
+An equipped unit received as a gift does not require its crafting unlock. It can be awarded before the corresponding technology is available.
+
+The BepInEx plugin can create units using a verified local game's
+`UNetProjectCmd.SpawnUnit` arguments. It cannot safely invent a unit
+asset key or network owner: first observe an actual locally owned native
+spawn. Gifts are journaled by AP item index; uncertain spawns are never
+repeated blindly. Gifts currently count towards Castle Story's ordinary
+population limit. Tech unlocks will eventually restrict native production of additional units, not gifted units. The game's crafting restrictions are not implemented yet.
+
+`Wood Supply`, `Stone Supply`, `Wisp Supply`, and `Catapult Unlock`
+still have reserved IDs but have no verified native effect, so they are not
+placed in the active gameplay item pool. The implementation is a gameplay
+preview and needs testing against the original game.
+
+## Compatibility and testing
+
+Old seeds that lack `gameplay_rules` retain the old behavior. Generate a
+**new seed with the updated .apworld** to test native gifts. Install the
+matching client bundle (bridge and BepInEx DLL), use a disposable solo
+save, check the AP server for wave completion and press F10 in the game to
+log gift-ticket status in `BepInEx/LogOutput.log`.
+
+Native gift spawning can be turned off using the BepInEx config flag
+`Bonus Rewards/DisableSeedUnitRewards` without changing checks or saves.

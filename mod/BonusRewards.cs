@@ -33,6 +33,7 @@ namespace CastleStoryArchipelago
             new Dictionary<int, BonusRewardTicket>();
         private string activeBonusToken = "";
         private ConfigEntry<bool> nativeBonusSpawning;
+        private ConfigEntry<bool> disableAutomaticUnitRewards;
         private ConfigEntry<bool> bonusQuotaCompensation;
         private MethodInfo nativeSpawnMethod;
         private object nativeSpawnHost;
@@ -44,6 +45,10 @@ namespace CastleStoryArchipelago
 
         private void InstallBonusSpawnHooks()
         {
+            disableAutomaticUnitRewards = Config.Bind("Bonus Rewards",
+                "DisableSeedUnitRewards", false,
+                "Emergency opt-out for automatic native unit gifts enabled by " +
+                "new Archipelago seeds. Existing seeds remain unchanged.");
             nativeBonusSpawning = Config.Bind("Bonus Rewards", "EnableNativeBonusSpawns", false,
                 "DANGEROUS TEST ONLY: allow native SpawnUnit replay with recorded local ownership. " +
                 "Use a disposable SOLO save. A missing template leaves the reward pending.");
@@ -74,8 +79,9 @@ namespace CastleStoryArchipelago
                 }
                 harmony.Patch(nativeSpawnMethod, postfix: new HarmonyMethod(
                     AccessTools.Method(typeof(CastleStoryArchipelagoPlugin), "AfterNativeUnitSpawn")));
-                Logger.LogInfo("[AP BONUS] SpawnUnit hook attached; active spawn opt-in=" +
-                    nativeBonusSpawning.Value);
+                Logger.LogInfo("[AP BONUS] SpawnUnit hook attached; legacy opt-in=" +
+                    nativeBonusSpawning.Value +
+                    " (new-seed native rewards read from Archipelago slot data).");
             }
             catch (Exception error)
             {
@@ -105,7 +111,8 @@ namespace CastleStoryArchipelago
                 return;
             }
             if (parameters == null || parameters.Length != 6 ||
-                parameters[3] == null || !(parameters[3] is GameObject))
+                parameters[3] == null || !(parameters[3] is GameObject) ||
+                !IsSeedGameplayActive())
                 return;
             if (!IsLocalOwnedUnit(unit))
                 return;
@@ -120,7 +127,9 @@ namespace CastleStoryArchipelago
         {
             try
             {
-                foreach (Component part in gameObject.GetComponents<Component>())
+                // Unity may attach Affiliation to the unit's child visual/
+                // ownership object rather than to its root GameObject.
+                foreach (Component part in gameObject.GetComponentsInChildren<Component>(true))
                 {
                     if (part == null || !part.GetType().Name.Contains("Affiliation")) continue;
                     var factionProperty = AccessTools.Property(part.GetType(), "Faction");
@@ -140,8 +149,29 @@ namespace CastleStoryArchipelago
 
         private static bool IsBonusUnitItem(int id)
         {
-            // Equipped Worker / Archer / Knight / Alchemist.
-            return id >= ItemBase + 8 && id <= ItemBase + 11;
+            // Bricktron Reinforcement or equipped Worker/Archer/Knight/Alchemist.
+            return id == ItemBase + 4 ||
+                id >= ItemBase + 8 && id <= ItemBase + 11;
+        }
+
+        private string BonusOccupation(int item)
+        {
+            if (item == ItemBase + 4 || item == ItemBase + 8) return "Worker";
+            if (item == ItemBase + 9) return "Archer";
+            if (item == ItemBase + 10) return "Knight";
+            if (item == ItemBase + 11) return "Alchemist";
+            return null;
+        }
+
+        private void ClearNativeBonusSceneTemplate()
+        {
+            // Unity GameObjects and method hosts are scene-owned. Reusing a
+            // template captured before Save & Quit could address a destroyed
+            // owner or spawn at a stale coordinate in a different map.
+            nativeSpawnHost = null;
+            nativeSpawnPrototype = null;
+            lastBonusSpawn = null;
+            trackedBonusInstanceIds.Clear();
         }
 
         private string BonusJournalPath()
@@ -176,23 +206,22 @@ namespace CastleStoryArchipelago
             }
         }
 
-        private void SaveBonusRewards()
+        private bool SaveBonusRewards()
         {
-            if (String.IsNullOrEmpty(token) || activeBonusToken != token) return;
+            if (String.IsNullOrEmpty(token) || activeBonusToken != token) return false;
             try
             {
                 string path = BonusJournalPath();
-                string temporary = path + ".tmp";
                 var tickets = bonusRewards.Values.OrderBy(t => t.index).ToArray();
-                File.WriteAllText(temporary, JsonUtility.ToJson(new BonusRewardJournal {
+                WriteCheckLedgerFile(path, JsonUtility.ToJson(new BonusRewardJournal {
                     token = token, tickets = tickets
                 }));
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(temporary, path);
+                return true;
             }
             catch (Exception error)
             {
                 Logger.LogWarning("[AP BONUS] Cannot save journal: " + error);
+                return false;
             }
         }
 
@@ -211,7 +240,7 @@ namespace CastleStoryArchipelago
                 {
                     bonusRewards[item.index] = new BonusRewardTicket {
                         index = item.index, item = item.item, state = "pending",
-                        note = "Awaiting native cap-neutral spawn adapter."
+                        note = "Awaiting verified local native unit spawn."
                     };
                     dirty = true;
                     Logger.LogInfo("[AP BONUS] New equipped Bricktron reward #" +
@@ -235,25 +264,38 @@ namespace CastleStoryArchipelago
 
         private void ProcessPendingNativeBonus()
         {
-            if (nativeBonusSpawning == null || !nativeBonusSpawning.Value ||
-                !bridgeConnected || !IsSelectedMissionType("Invasion") &&
-                !IsSelectedMissionType("Conquest") ||
+            // Native reward spawning is enabled ONLY by a new APWorld's
+            // gameplay_rules (plus an emergency opt-out), or by the player's
+            // explicit old experimental flag. Never change ordinary saves.
+            bool enabledForSeed = gameplayUnitRewardsEnabled &&
+                (disableAutomaticUnitRewards == null ||
+                 !disableAutomaticUnitRewards.Value);
+            bool experimental = nativeBonusSpawning != null &&
+                nativeBonusSpawning.Value;
+            if ((!enabledForSeed && !experimental) ||
+                !bridgeConnected || !IsSeedGameplayActive() ||
                 Time.realtimeSinceStartup < nextBonusAttempt) return;
             nextBonusAttempt = Time.realtimeSinceStartup + 2f;
-            if (nativeSpawnMethod == null || nativeSpawnHost == null ||
-                nativeSpawnPrototype == null) return;
+            if (nativeSpawnMethod == null || nativeSpawnPrototype == null ||
+                (!nativeSpawnMethod.IsStatic && nativeSpawnHost == null)) return;
+            GameObject templateOwner = nativeSpawnPrototype[3] as GameObject;
+            if (templateOwner == null) return; // destroyed Unity object
+            if (nativeSpawnHost is UnityEngine.Object &&
+                (UnityEngine.Object)nativeSpawnHost == null) return;
+            // AP gifts bypass production research/building requirements:
+            // finding an equipped Archer grants that Archer directly, even
+            // when the player cannot craft any additional Archers yet.
             var ticket = bonusRewards.Values.Where(x => x.state == "pending")
                 .OrderBy(x => x.index).FirstOrDefault();
             if (ticket == null) return;
 
             var proto = (object[])nativeSpawnPrototype.Clone();
-            string desired = ticket.item == ItemBase + 8 ? "Worker" :
-                ticket.item == ItemBase + 9 ? "Archer" :
-                ticket.item == ItemBase + 10 ? "Knight" : "Alchemist";
+            string desired = BonusOccupation(ticket.item);
+            if (String.IsNullOrEmpty(desired)) return;
             Type roleType = nativeSpawnMethod.GetParameters()[4].ParameterType;
             if (!roleType.IsEnum)
             {
-                ticket.note = "Native occupation type is not an enum; cannot spawn.";
+                ticket.note = "Native occupation parameter was not an enum.";
                 SaveBonusRewards();
                 return;
             }
@@ -261,8 +303,7 @@ namespace CastleStoryArchipelago
                 x.Equals(desired, StringComparison.OrdinalIgnoreCase));
             if (String.IsNullOrEmpty(role))
             {
-                ticket.note = "Occupation missing: " + desired +
-                    ". Existing roles: " + String.Join(",", Enum.GetNames(roleType));
+                ticket.note = "Verified native occupation not available: " + desired;
                 SaveBonusRewards();
                 return;
             }
@@ -270,13 +311,20 @@ namespace CastleStoryArchipelago
             if (proto[1] is Vector3)
             {
                 Vector3 p = (Vector3)proto[1];
+                // Offset from a VANILLA locally owned unit; never guess the
+                // game's own asset, network owner, or initial scene position.
                 proto[1] = new Vector3(p.x + 1.5f, p.y + .2f, p.z + 1.5f);
             }
-            // Write a 'spawning' intent before calling the game. A crash does
-            // not cause an unbounded duplicate grant on restart.
             ticket.state = "spawning";
-            ticket.note = "Native spawn attempted; confirm actual unit creation.";
-            SaveBonusRewards();
+            ticket.note = "Native SpawnUnit invoked. Do not replay after a crash.";
+            // Never spawn if the intent cannot first be safely persisted.
+            // Otherwise a restart could replay a gift that already existed.
+            if (!SaveBonusRewards())
+            {
+                ticket.state = "pending";
+                ticket.note = "Reward journal unavailable; no unit spawned.";
+                return;
+            }
             try
             {
                 bonusSpawnInProgress = true;
@@ -286,26 +334,26 @@ namespace CastleStoryArchipelago
                 if (spawned != null && IsLocalOwnedUnit(spawned))
                 {
                     ticket.state = "delivered";
-                    ticket.note = "Game returned a locally owned Unit GameObject. " +
-                        "Quota exclusion and equipment still require validation.";
-                    Logger.LogInfo("[AP BONUS] Delivered index " + ticket.index +
-                        ", role=" + desired + ", game instance=" + spawned.GetInstanceID());
+                    ticket.note = "Native game-owned unit spawned. " +
+                        "Counts toward Castle Story's normal unit cap.";
+                    Logger.LogInfo("[AP REWARD DELIVERED] index=" + ticket.index +
+                        " item=" + ticket.item + " role=" + desired +
+                        " instance=" + spawned.GetInstanceID());
                 }
                 else
                 {
-                    // An invocation may enqueue a network action with no immediate
-                    // result. Never retry automatically: could double spawn.
                     ticket.state = "review";
-                    ticket.note = "Spawn returned without verified local GameObject. " +
-                        "Manual check required; automatic retry disabled.";
-                    Logger.LogWarning("[AP BONUS] Could not confirm spawn #" + ticket.index);
+                    ticket.note = "Native spawn not confirmed. Never retry blindly.";
+                    Logger.LogWarning("[AP REWARD REVIEW] index=" + ticket.index +
+                        " no owned unit returned.");
                 }
             }
             catch (Exception error)
             {
                 ticket.state = "review";
-                ticket.note = "Native invocation failed: " + error.GetType().Name;
-                Logger.LogError("[AP BONUS] Native spawn failed: " + error);
+                ticket.note = "Native spawn error: " + error.GetType().Name;
+                Logger.LogError("[AP REWARD REVIEW] Spawn error #" +
+                    ticket.index + ": " + error);
             }
             finally
             {
@@ -321,16 +369,25 @@ namespace CastleStoryArchipelago
             foreach (var ticket in bonusRewards.Values.OrderBy(x => x.index))
                 Logger.LogInfo("[AP BONUS] index=" + ticket.index +
                     " item=" + ticket.item + " state=" + ticket.state +
+                    " giftedUnitBypassesCraftingUnlock=true" +
                     " note=" + ticket.note);
+            Logger.LogInfo("[AP GAMEPLAY] seed-native rewards=" +
+                gameplayUnitRewardsEnabled + " emergencyDisabled=" +
+                (disableAutomaticUnitRewards != null && disableAutomaticUnitRewards.Value) +
+                " giftedUnitsIgnoreCraftingUnlocks=true");
             Logger.LogInfo("[AP BONUS] Native template=" +
                 (nativeSpawnPrototype == null ? "not observed" : "observed") +
                 "; native spawning enabled=" +
                 (nativeBonusSpawning != null && nativeBonusSpawning.Value) +
                 "; tracked in this match=" + trackedBonusInstanceIds.Count);
             if (nativeSpawnMethod != null)
-                Logger.LogInfo("[AP BONUS] Native method " + nativeSpawnMethod.ToString() +
-                    " roles=" + String.Join(",", Enum.GetNames(
-                        nativeSpawnMethod.GetParameters()[4].ParameterType)));
+            {
+                Type roleType = nativeSpawnMethod.GetParameters()[4].ParameterType;
+                Logger.LogInfo("[AP BONUS] Native method " +
+                    nativeSpawnMethod.ToString() + " roles=" +
+                    (roleType.IsEnum ? String.Join(",", Enum.GetNames(roleType)) :
+                     "unsupported occupation type"));
+            }
         }
     }
 }

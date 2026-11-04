@@ -65,6 +65,20 @@ namespace CastleStoryArchipelago
         private string loginPassword = "";
         private string chosenMission = "";
         private string statusLine = "Connecte-toi à ta partie Archipelago.";
+        // Bridge heartbeat is distinct from a user-action warning.
+        private string campaignNotice = "";
+        private bool campaignNoticeIsError;
+        private string lastUiException = "";
+
+        private void SetCampaignNotice(string message, bool isError)
+        {
+            campaignNotice = message ?? "";
+            campaignNoticeIsError = isError;
+            if (isError)
+                Logger.LogWarning("[AP ACTION] " + campaignNotice);
+            else
+                Logger.LogInfo("[AP ACTION] " + campaignNotice);
+        }
         private Process localBridge;
         private float nextBridgeStatusRead;
         private float logoScale = 1f;
@@ -224,6 +238,90 @@ namespace CastleStoryArchipelago
             miniStyle = StyledText(12, TextMuted, FontStyle.Normal);
             errorStyle = StyledText(14, new Color(1f, .69f, .53f), FontStyle.Normal);
             inputLabelStyle = StyledText(13, TextMuted, FontStyle.Bold);
+            // Use the real native Play button's font if Castle Story exposes it.
+            ApplyNativeTypography();
+        }
+
+        [Serializable] private sealed class RememberedConnection
+        {
+            public string server;
+            public string slot;
+        }
+
+        private void LoadRememberedConnection()
+        {
+            string preferences = Path.Combine(directory, "connection_preferences.json");
+            string oldFile = Path.Combine(directory, "connection.json");
+            try
+            {
+                // Migrate plaintext credentials from previous versions without
+                // retaining their password. The old file is removed immediately.
+                if (!File.Exists(preferences) && File.Exists(oldFile))
+                {
+                    var old = JsonUtility.FromJson<ConnectionFile>(
+                        File.ReadAllText(oldFile));
+                    if (old != null)
+                    {
+                        loginServer = old.server ?? "";
+                        loginSlot = old.slot ?? "";
+                        SaveRememberedConnection();
+                    }
+                }
+                if (File.Exists(oldFile)) File.Delete(oldFile);
+                if (File.Exists(preferences))
+                {
+                    var prefs = JsonUtility.FromJson<RememberedConnection>(
+                        File.ReadAllText(preferences));
+                    if (prefs != null)
+                    {
+                        loginServer = prefs.server ?? "";
+                        loginSlot = prefs.slot ?? "";
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP SESSION] Cannot migrate saved server/slot: " +
+                    error.Message);
+                // Do not retain an old connection.json with a plaintext password.
+                try { if (File.Exists(oldFile)) File.Delete(oldFile); }
+                catch (Exception ignored) {
+                    Logger.LogWarning("[AP SESSION] Cannot delete legacy credentials: " +
+                        ignored.GetType().Name);
+                }
+            }
+            loginPassword = "";
+        }
+
+        private void SaveRememberedConnection()
+        {
+            File.WriteAllText(Path.Combine(directory, "connection_preferences.json"),
+                JsonUtility.ToJson(new RememberedConnection {
+                    server = loginServer.Trim(), slot = loginSlot.Trim()
+                }));
+        }
+
+        private void SendBridgeControl(bool enable)
+        {
+            if (localBridge == null || localBridge.HasExited)
+                throw new InvalidOperationException("Client Archipelago absent.");
+            // StandardInput is an anonymous pipe. No password is written to
+            // connection.json, arguments, environment variables or diagnostics.
+            string payload = JsonUtility.ToJson(new ConnectionFile {
+                enabled = enable, server = enable ? loginServer.Trim() : "",
+                slot = enable ? loginSlot.Trim() : "",
+                password = enable ? pendingBridgePassword : ""
+            });
+            // Bridge protocol uses cmd=connect/disconnect, not enabled.
+            string command = enable ? "connect" : "disconnect";
+            payload = payload.Substring(0, payload.Length - 1) +
+                ",\"cmd\":\"" + command + "\",\"request_id\":\"" +
+                (enable ? pendingBridgeRequestId : "") + "\"}";
+            // Use ASCII-safe framed base64 to preserve Unicode passwords and
+            // slot names regardless of the Windows console code page.
+            string wire = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload));
+            localBridge.StandardInput.WriteLine("APIPC1:" + wire);
+            localBridge.StandardInput.Flush();
         }
 
         private void WriteConnection(bool enable)
@@ -236,57 +334,140 @@ namespace CastleStoryArchipelago
                     statusLine = "L'adresse du serveur et le nom du slot sont obligatoires.";
                     return;
                 }
-                File.WriteAllText(Path.Combine(directory, "connection.json"),
-                    JsonUtility.ToJson(new ConnectionFile {
-                        enabled = enable, server = enable ? loginServer.Trim() : "",
-                        slot = enable ? loginSlot.Trim() : "",
-                        password = enable ? loginPassword : ""
-                    }));
+                if (enable)
+                {
+                    SaveRememberedConnection();
+                    pendingBridgePassword = loginPassword;
+                    pendingBridgeRequestId = Guid.NewGuid().ToString("N");
+                    pendingBridgeSendCount = 0;
+                    if (!StartLocalBridge())
+                    {
+                        ClearPendingBridgeHandshake();
+                        loginPassword = "";
+                        return;
+                    }
+                }
+                else if (localBridge == null || localBridge.HasExited)
+                {
+                    // The plugin can safely mark the session disconnected
+                    // even if the child bridge has already exited.
+                    disconnectPending = true;
+                    bridgeConnected = false;
+                    RestoreNativeEntries();
+                    OnApAuthenticationChanged(false);
+                    ScheduleNativeSaveFilter("manual disconnect");
+                    loginPassword = "";
+                    ClearPendingBridgeHandshake();
+                    return;
+                }
+                try { SendBridgeControl(enable); }
+                finally { loginPassword = ""; }
+                if (enable)
+                {
+                    pendingBridgeSentAt = Time.realtimeSinceStartup;
+                    pendingBridgeSendCount = 1;
+                }
+                else ClearPendingBridgeHandshake();
                 statusLine = enable ? "Connexion en cours…" : "Déconnexion demandée…";
+                campaignNotice = "";
                 if (enable)
                 {
                     disconnectPending = false;
                     bridgeConnected = false;
-                    StartLocalBridge();
                 }
                 else
                 {
                     disconnectPending = true;
-                    loginPassword = "";
                     nativeNewGameVisible = false;
                     campaignPreviewOpen = false;
                     apMenuOpen = true;
                     bridgeConnected = false;
+                    // Re-enable ordinary native options immediately, then
+                    // hide only tagged AP saves if Load is still open.
+                    RestoreNativeEntries();
+                    OnApAuthenticationChanged(false);
+                    ScheduleNativeSaveFilter("manual disconnect");
                     Logger.LogInfo("[AP SESSION] User requested disconnection.");
                 }
             }
-            catch (Exception error) { statusLine = "Cannot save connection: " + error.Message; }
+            catch (Exception error)
+            {
+                loginPassword = "";
+                ClearPendingBridgeHandshake();
+                statusLine = "Connexion au bridge impossible : " + error.Message;
+                Logger.LogWarning("[AP BRIDGE] Control channel: " +
+                    error.GetType().Name);
+            }
         }
 
-        private void StartLocalBridge()
+        private bool StartLocalBridge()
         {
             try
             {
-                if (localBridge != null && !localBridge.HasExited) return;
+                if (localBridge != null)
+                {
+                    if (!localBridge.HasExited) return true;
+                    localBridge.Dispose();
+                    localBridge = null;
+                }
                 string exe = Path.Combine(Path.Combine(Paths.PluginPath,
                     "castle_story_ap"), "castle-story-ap-bridge.exe");
                 if (!File.Exists(exe))
                 {
                     statusLine = "Client manquant : installe tout le dossier BepInEx/plugins.";
-                    return;
+                    return false;
                 }
                 var info = new ProcessStartInfo(exe);
-                info.Arguments = "--bridge-dir " + Quote(directory);
+                // Parent PID is a lifecycle scope, NOT a run/session ID.
+                // The bridge also watches Windows process death in case
+                // Unity never calls OnApplicationQuit (crash/forced exit).
+                using (Process game = Process.GetCurrentProcess())
+                    info.Arguments = "--stdin-control --bridge-dir " +
+                        Quote(directory) + " --parent-pid " + game.Id;
                 info.UseShellExecute = false;
                 info.CreateNoWindow = true;
+                info.RedirectStandardInput = true;
                 info.WorkingDirectory = Path.GetDirectoryName(exe);
                 localBridge = Process.Start(info);
-                statusLine = "Démarrage du client Archipelago...";
+                return localBridge != null;
             }
             catch (Exception error)
             {
-                statusLine = "Bridge startup failed: " + error.Message;
-                Logger.LogWarning("[AP BRIDGE] " + error);
+                statusLine = "Démarrage du bridge impossible : " + error.Message;
+                Logger.LogWarning("[AP BRIDGE] " + error.GetType().Name);
+                return false;
+            }
+        }
+
+        private void StopLocalBridge()
+        {
+            if (localBridge == null) return;
+            try
+            {
+                if (!localBridge.HasExited)
+                {
+                    try
+                    {
+                        string command = Convert.ToBase64String(
+                            System.Text.Encoding.UTF8.GetBytes("{\"cmd\":\"shutdown\"}"));
+                        localBridge.StandardInput.WriteLine("APIPC1:" + command);
+                        localBridge.StandardInput.Flush();
+                        localBridge.StandardInput.Close();
+                    }
+                    catch (Exception) { /* Broken pipe: kill fallback below. */ }
+                    if (!localBridge.WaitForExit(450))
+                        localBridge.Kill();
+                    Logger.LogInfo("[AP BRIDGE] Owned bridge stopped on game exit.");
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP BRIDGE] Shutdown: " + error.GetType().Name);
+            }
+            finally
+            {
+                localBridge.Dispose();
+                localBridge = null;
             }
         }
 
@@ -295,6 +476,78 @@ namespace CastleStoryArchipelago
             string quotationMark = ((char)34).ToString();
             string slash = ((char)92).ToString();
             return quotationMark + value.Replace(quotationMark, slash + quotationMark) + quotationMark;
+        }
+
+        private string lastBridgeStatusState = "";
+        // Credentials are kept in memory only until bridge acknowledges stdin.
+        private string pendingBridgePassword = "";
+        private string pendingBridgeRequestId = "";
+        private float pendingBridgeSentAt;
+        private int pendingBridgeSendCount;
+
+        [Serializable] private sealed class BridgeCommandAck
+        {
+            public string request_id;
+            public string cmd;
+        }
+
+        private void ClearPendingBridgeHandshake()
+        {
+            pendingBridgePassword = "";
+            pendingBridgeRequestId = "";
+            pendingBridgeSendCount = 0;
+        }
+
+        private void MaintainBridgeHandshake()
+        {
+            if (String.IsNullOrEmpty(pendingBridgeRequestId)) return;
+            if (bridgeConnected)
+            {
+                ClearPendingBridgeHandshake();
+                return;
+            }
+            try
+            {
+                string path = Path.Combine(directory, "bridge_command_ack.json");
+                if (File.Exists(path))
+                {
+                    var ack = JsonUtility.FromJson<BridgeCommandAck>(
+                        File.ReadAllText(path));
+                    if (ack != null && ack.cmd == "connect" &&
+                        ack.request_id == pendingBridgeRequestId)
+                    {
+                        Logger.LogInfo("[AP LOGIN] Bridge acknowledged initial connection command.");
+                        ClearPendingBridgeHandshake();
+                        return;
+                    }
+                }
+                float elapsed = Time.realtimeSinceStartup - pendingBridgeSentAt;
+                if (elapsed < 2.5f) return;
+                if (pendingBridgeSendCount >= 3)
+                {
+                    if (elapsed >= 5f)
+                    {
+                        statusLine = "Le bridge n'a pas confirmé la connexion. Réessaie.";
+                        Logger.LogWarning("[AP LOGIN] Bridge IPC failed after three tries.");
+                        ClearPendingBridgeHandshake();
+                    }
+                    return;
+                }
+                if (StartLocalBridge())
+                {
+                    SendBridgeControl(true);
+                    pendingBridgeSendCount++;
+                    pendingBridgeSentAt = Time.realtimeSinceStartup;
+                    Logger.LogWarning("[AP LOGIN] Re-sent private connection command " +
+                        "after missing bridge acknowledgement; try=" +
+                        pendingBridgeSendCount);
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP LOGIN] Bridge handshake: " +
+                    error.GetType().Name);
+            }
         }
 
         private void ReadLocalBridgeStatus()
@@ -306,9 +559,19 @@ namespace CastleStoryArchipelago
                 string path = Path.Combine(directory, "bridge_status.json");
                 if (!File.Exists(path)) return;
                 var state = JsonUtility.FromJson<BridgeStatusFile>(File.ReadAllText(path));
-                // Do not hide an obsolete-client error behind a stale bridge status.
                 if (state != null && !String.IsNullOrEmpty(state.state) &&
-                    campaignStatus != "obsolete_bridge" && campaignStatus != "stale")
+                    lastBridgeStatusState != state.state)
+                {
+                    lastBridgeStatusState = state.state;
+                    Logger.LogInfo("[AP LOGIN STATE] Bridge state=" + state.state +
+                        "; waitingForUser=" + (state.state == "idle") +
+                        "; inSession=" + bridgeConnected);
+                }
+                // Do not hide an obsolete-client error behind a stale bridge status.
+                // Never clobber an action error with the heartbeat every second.
+                if (state != null && !String.IsNullOrEmpty(state.state) &&
+                    campaignStatus != "obsolete_bridge" && campaignStatus != "stale" &&
+                    !bridgeConnected && String.IsNullOrEmpty(campaignNotice))
                     statusLine = state.state + ": " + (state.message ?? "");
             }
             catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
@@ -319,7 +582,9 @@ namespace CastleStoryArchipelago
             if (mission == null || String.IsNullOrEmpty(token)) return;
             if (mission.map_id == "auto:invasion")
             {
-                statusLine = "Ouvre Nouvelle partie pour que le jeu choisisse la carte Invasion.";
+                SetCampaignNotice(
+                    "Ouvre Nouvelle partie dans Castle Story pour charger les cartes Invasion.",
+                    true);
                 return;
             }
             chosenMission = mission.id;
@@ -330,10 +595,18 @@ namespace CastleStoryArchipelago
                         token = token, mission_id = mission.id,
                         map = MissionMapId(mission), mode = mission.mode
                     }));
+                SetCampaignNotice("Mission " + mission.id +
+                    " sélectionnée. " + (nativeStarterMenu == null ?
+                    "Ferme cette fenêtre puis ouvre Nouvelle partie pour la lancer." :
+                    "Tu peux maintenant lancer la mission."), false);
                 Logger.LogInfo("[AP MISSION] Choisie " + mission.id +
                     ", map " + mission.map + ", mode " + mission.mode);
             }
-            catch (Exception error) { Logger.LogWarning("[AP MISSION] " + error.Message); }
+            catch (Exception error)
+            {
+                SetCampaignNotice("Impossible de sélectionner la mission : " + error.Message, true);
+                Logger.LogWarning("[AP MISSION] " + error.Message);
+            }
         }
 
         private void DrawBrandingButton()
@@ -354,7 +627,7 @@ namespace CastleStoryArchipelago
             GUI.color = Color.white;
             if (GUI.Button(new Rect(15, 12, 67, 68), "", GUIStyle.none))
             {
-                if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
+                if (nativeNewGameVisible || campaignPreviewOpen)
                 {
                     CloseCampaignPopup();
                     apMenuOpen = true;
@@ -411,8 +684,10 @@ namespace CastleStoryArchipelago
             DrawBackdrop();
             BlockImGuiClicksOutsidePanel(panel);
             GUI.Box(panel, "", panelStyle);
-            DrawTopBar(panel, "MULTIWORLD  /  CONNEXION",
-                       "Archipelago", "Connecte-toi pour accéder aux missions de ta seed.");
+            DrawTopBar(panel, "CASTLE STORY  /  ARCHIPELAGO",
+                       "Archipelago", bridgeConnected ?
+                       "Session active. Le menu Nouvelle partie suit ta seed." :
+                       "Connecte-toi pour activer la campagne Archipelago.");
             if (GUI.Button(new Rect(panel.xMax - 68, panel.y + 25, 40, 38),
                            "X", closeButton))
                 apMenuOpen = false;
@@ -441,14 +716,10 @@ namespace CastleStoryArchipelago
                 bridgeConnected ? bodyStyle : miniStyle);
             float bottom = panel.yMax - 64;
             if (GUI.Button(new Rect(x, bottom, inner * .63f - 7, 43),
-                           bridgeConnected ? "Voir la campagne" : "Se connecter",
+                           bridgeConnected ? "Retour au jeu" : "Se connecter",
                            primaryButton))
             {
-                if (bridgeConnected)
-                {
-                    apMenuOpen = false;
-                    campaignPreviewOpen = true;
-                }
+                if (bridgeConnected) apMenuOpen = false;
                 else WriteConnection(true);
             }
             if (GUI.Button(new Rect(x + inner * .63f + 5, bottom,
@@ -504,7 +775,8 @@ namespace CastleStoryArchipelago
                            selected ? primaryButton : secondaryButton))
             {
                 if (!waitingForMap) SelectMission(mission);
-                else statusLine = "Ouvre Nouvelle partie et attends le catalogue de cartes.";
+                else SetCampaignNotice(
+                    "Ouvre Nouvelle partie et attends le catalogue de cartes.", true);
             }
         }
 
@@ -614,16 +886,32 @@ namespace CastleStoryArchipelago
                 "  /  " + campaign.missions.Length + " CARTES",
                 eyebrowStyle);
             float listY = panel.y + 189;
-            float listHeight = Mathf.Max(100, panel.height - 300f);
+            // Make room for a persistent, readable message banner.
+            float listHeight = Mathf.Max(80f, panel.height - 350f);
             Rect viewport = new Rect(x, listY, inner, listHeight);
             float rowHeight = 104f;
             Rect content = new Rect(0, 0, inner - 20,
                 Mathf.Max(listHeight - 1, campaign.missions.Length * rowHeight));
             missionScroll = GUI.BeginScrollView(viewport, missionScroll, content);
-            for (int i = 0; i < campaign.missions.Length; i++)
-                DrawMissionCard(new Rect(0, i * rowHeight, content.width, 96),
-                                campaign.missions[i], i + 1);
-            GUI.EndScrollView();
+            try
+            {
+                for (int i = 0; i < campaign.missions.Length; i++)
+                    DrawMissionCard(new Rect(0, i * rowHeight, content.width, 96),
+                                    campaign.missions[i], i + 1);
+            }
+            finally { GUI.EndScrollView(); }
+
+            float noticeY = panel.yMax - 151;
+            GUI.Box(new Rect(x, noticeY, inner, 48), "", cardStyle);
+            string notice = !bridgeConnected ?
+                "Connexion Archipelago interrompue. Vérifie le bridge et reconnecte-toi." :
+                !String.IsNullOrEmpty(campaignNotice) ? campaignNotice :
+                nativeStarterMenu == null ?
+                    "Pour jouer : ferme cette fenêtre, ouvre Nouvelle partie et choisis la mission." :
+                    "Choisis une mission puis clique sur Lancer cette mission.";
+            GUI.Label(new Rect(x + 12, noticeY + 6, inner - 24, 38),
+                notice, !bridgeConnected || campaignNoticeIsError ?
+                    errorStyle : mutedStyle);
 
             float footerY = panel.yMax - 95;
             GUI.DrawTexture(new Rect(x, footerY - 14, inner, 1), borderPixel);
@@ -635,7 +923,8 @@ namespace CastleStoryArchipelago
                            "Lancer cette mission", primaryButton))
             {
                 if (isChosen) LaunchSelectedMission();
-                else statusLine = "Choisis d'abord une mission Archipelago.";
+                else SetCampaignNotice(
+                    "Choisis d'abord une mission Archipelago.", true);
             }
             GUI.Label(new Rect(x, panel.yMax - 39, inner, 23),
                 "Lancement via Castle Story. " +
@@ -649,7 +938,7 @@ namespace CastleStoryArchipelago
             // Mouse events may be consumed by Unity UI before IMGUI sees them.
             // Input.GetMouseButtonDown provides an independent, reliable way
             // to dismiss the campaign dialog.
-            if (!bridgeConnected || !(nativeNewGameVisible || campaignPreviewOpen))
+            if (!(nativeNewGameVisible || campaignPreviewOpen))
                 return;
             if (Input.GetKeyDown(KeyCode.Escape))
             {
@@ -674,26 +963,36 @@ namespace CastleStoryArchipelago
 
         private void DrawApMenu()
         {
-            PrepareSkin();
-            ReadLocalBridgeStatus();
             int originalDepth = GUI.depth;
             Color originalColor = GUI.color;
-            GUI.depth = -29000;
-
-            // Always draw the AP icon; it is separate from the optional F8 diagnostic.
-            if (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen))
+            try
             {
-                DrawCampaign();
-                // Native Unity UI events are blocked by NativeInputShield.cs.
-                // Do not call Event.Use() here: IMGUI controls such as
-                // "Fermer" need the complete MouseDown/MouseUp sequence.
-            }
-            else if (apMenuOpen)
-                DrawConnection();
+                PrepareSkin();
+                ReadLocalBridgeStatus();
+                GUI.depth = -29000;
 
-            DrawBrandingButton();
-            GUI.color = originalColor;
-            GUI.depth = originalDepth;
+                // The map and mode selection now live entirely in Castle
+                // Story's native menu. Only the connection dialog remains.
+                if (apMenuOpen) DrawConnection();
+                else DrawArchipelagoIntroCredit();
+                lastUiException = "";
+            }
+            catch (Exception error)
+            {
+                string diagnostic = error.ToString();
+                if (lastUiException != diagnostic)
+                {
+                    lastUiException = diagnostic;
+                    Logger.LogError("[AP UI EXCEPTION] " + diagnostic);
+                    campaignNotice = "Erreur d'interface : " + error.Message;
+                    campaignNoticeIsError = true;
+                }
+            }
+            finally
+            {
+                GUI.color = originalColor;
+                GUI.depth = originalDepth;
+            }
         }
 
         private void CleanupApUi()

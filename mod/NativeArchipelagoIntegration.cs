@@ -1,0 +1,1539 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using HarmonyLib;
+using UnityEngine;
+
+namespace CastleStoryArchipelago
+{
+    public sealed partial class CastleStoryArchipelagoPlugin
+    {
+        // The main menu button is a clone of a real Unity UI control, not an
+        // IMGUI control drawn over the main menu.
+        private GameObject nativeArchipelagoButton;
+        private Font nativeMenuFont;
+        private RectTransform titlePlayControl;
+        private RectTransform titleOptionsControl;
+        private RectTransform titleArchipelagoControl;
+        private readonly Dictionary<RectTransform, Vector2> shiftedMenuEntries =
+            new Dictionary<RectTransform, Vector2>();
+        private readonly Dictionary<GameObject, bool> hiddenNativeEntries =
+            new Dictionary<GameObject, bool>();
+        private readonly Dictionary<string, string> nativeMapLabels =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private float nextNativeUiRefresh;
+        // Never walk every Unity button on every Update. Menu hooks schedule
+        // a small, bounded number of passes after the native UI is built.
+        private float nextMainMenuProbeAt;
+        private int mainMenuProbeCount;
+        private int pendingFilterPasses;
+        private float nextFilterPassAt;
+        private float lastLuaTitleFilterAt = -100f;
+        private bool nativeButtonMissingLogged;
+        private int nativeRestrictionLogCount;
+        private string lastNativeFilterKey;
+        private string lastFilterMode;
+        private object lastFilterMenu;
+        private bool introCreditShown;
+        private bool introCreditActive;
+        private float introCreditStart = -1f;
+        private float titleSceneReadyAt = -1f;
+        private float nextTitleReadyProbeAt;
+        private bool titleSceneSeen;
+        private bool titleSceneEvidenceLogged;
+        private readonly Dictionary<GameObject, List<string>> cachedNativeLabels =
+            new Dictionary<GameObject, List<string>>();
+        private GUIStyle introCreditStyle;
+
+        private static string NormalizeNativeLabel(string text)
+        {
+            return (text ?? "").Trim().ToLowerInvariant();
+        }
+
+        private static bool IsPlayLabel(string label)
+        {
+            string normalized = NormalizeNativeLabel(label);
+            return normalized == "play" || normalized == "jouer" ||
+                   normalized == "spielen" || normalized == "jugar" ||
+                   normalized == "button_play" || normalized == "btnplay" ||
+                   normalized == "playbutton" || normalized == "mainmenuplay";
+        }
+
+        private static bool IsSandboxLabel(string label)
+        {
+            string normalized = NormalizeNativeLabel(label);
+            // Includes prefab identifiers such as "SandboxModeButton".
+            if (normalized.Contains("sandbox") ||
+                normalized.Contains("freebuild") ||
+                normalized.Contains("free_build") ||
+                normalized.Contains("construction libre"))
+                return true;
+            switch (normalized)
+            {
+                case "sandbox": case "creative": case "creative mode":
+                case "free build": case "freebuild": case "free building":
+                case "construction libre": case "mode libre":
+                case "bac à sable": case "bac a sable":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private static string NativeModeFromLabel(string label)
+        {
+            string value = NormalizeNativeLabel(label);
+            if (value == "invasion" || value == "mode_invasion" ||
+                value == "invasionmode" || value.Contains("invasionmode") ||
+                value.Contains("mode_invasion")) return "Invasion";
+            if (value == "conquest" || value == "conquête" ||
+                value == "mode_conquest" || value == "conquestmode" ||
+                value.Contains("conquestmode") ||
+                value.Contains("mode_conquest"))
+                return "Conquest";
+            return null;
+        }
+
+        private static PropertyInfo RuntimeTextProperty(Type type)
+        {
+            return type == null ? null : type.GetProperty("text",
+                BindingFlags.Instance | BindingFlags.Public);
+        }
+
+        private static List<string> NativeUiLabels(GameObject obj)
+        {
+            var labels = new List<string>();
+            if (obj == null) return labels;
+            // Castle Story Unity 5.6 uses UnityEngine.UI.Text. Resolving
+            // TMPro.TextMeshProUGUI on every tile emitted hundreds of
+            // warnings and spent 100-200 ms per UI filter pass.
+            foreach (string typeName in new [] { "UnityEngine.UI.Text" })
+            {
+                Type textType = FindRuntimeType(typeName);
+                if (textType == null) continue;
+                PropertyInfo property = RuntimeTextProperty(textType);
+                if (property == null) continue;
+                foreach (Component text in obj.GetComponentsInChildren(textType, true))
+                {
+                    try
+                    {
+                        string value = property.GetValue(text, null) as string;
+                        if (!String.IsNullOrEmpty(value))
+                            labels.Add(value.Trim());
+                    }
+                    catch (Exception) { }
+                }
+            }
+            // Some prefab buttons expose only a native object name.
+            if (!String.IsNullOrEmpty(obj.name)) labels.Add(obj.name);
+            return labels;
+        }
+
+        private List<string> CachedNativeUiLabels(GameObject obj)
+        {
+            List<string> result;
+            if (obj != null && cachedNativeLabels.TryGetValue(obj, out result))
+                return result;
+            result = NativeUiLabels(obj);
+            if (obj != null) cachedNativeLabels[obj] = result;
+            return result;
+        }
+
+        private static string NativeUiLabel(GameObject obj)
+        {
+            List<string> labels = NativeUiLabels(obj);
+            return labels.Count == 0 ? null : labels[0];
+        }
+
+        private static bool SetNativeUiLabel(GameObject obj, string value)
+        {
+            if (obj == null) return false;
+            Component fallback = null;
+            PropertyInfo fallbackProperty = null;
+            // Castle Story Unity 5.6 uses UnityEngine.UI.Text. Resolving
+            // TMPro.TextMeshProUGUI on every tile emitted hundreds of
+            // warnings and spent 100-200 ms per UI filter pass.
+            foreach (string typeName in new [] { "UnityEngine.UI.Text" })
+            {
+                Type textType = FindRuntimeType(typeName);
+                if (textType == null) continue;
+                PropertyInfo textProp = RuntimeTextProperty(textType);
+                if (textProp == null || !textProp.CanWrite) continue;
+                foreach (Component text in obj.GetComponentsInChildren(textType, true))
+                {
+                    try
+                    {
+                        string current = textProp.GetValue(text, null) as string;
+                        if (String.IsNullOrEmpty(current)) continue;
+                        if (IsPlayLabel(current))
+                        {
+                            textProp.SetValue(text, value, null);
+                            return true;
+                        }
+                        if (fallback == null)
+                        {
+                            fallback = text;
+                            fallbackProperty = textProp;
+                        }
+                    }
+                    catch (Exception) { }
+                }
+            }
+            // A localized Play button may have a native prefab name
+            // "Button_Play" but a translated or dynamically bound caption.
+            if (fallback != null && fallbackProperty != null)
+            {
+                try
+                {
+                    fallbackProperty.SetValue(fallback, value, null);
+                    return true;
+                }
+                catch (Exception) { }
+            }
+            return false;
+        }
+
+        private void CaptureNativeMenuFont(GameObject source)
+        {
+            Type type = FindRuntimeType("UnityEngine.UI.Text");
+            if (type == null || source == null) return;
+            PropertyInfo property = type.GetProperty("font");
+            if (property == null) return;
+            foreach (Component label in source.GetComponentsInChildren(type, true))
+            {
+                try
+                {
+                    nativeMenuFont = property.GetValue(label, null) as Font;
+                    if (nativeMenuFont == null) continue;
+                    ApplyNativeTypography();
+                    return;
+                }
+                catch (Exception) { }
+            }
+        }
+
+        private void ApplyNativeTypography()
+        {
+            if (nativeMenuFont == null) return;
+            foreach (GUIStyle style in new [] {
+                titleStyle, subTitleStyle, bodyStyle, mutedStyle,
+                miniStyle, eyebrowStyle, errorStyle, inputLabelStyle,
+                primaryButton, secondaryButton, subtleButton, inputStyle })
+                if (style != null) style.font = nativeMenuFont;
+        }
+
+        private void OpenArchipelagoFromNativeMenu()
+        {
+            if (ShowNativeConnectionPanel())
+            {
+                apMenuOpen = false;
+                Logger.LogInfo("[AP NATIVE UI] Opened native Archipelago connection panel.");
+            }
+            else
+            {
+                apMenuOpen = true;
+                Logger.LogWarning("[AP NATIVE UI] Using legacy login fallback: " +
+                    nativePanelDiagnostic);
+            }
+        }
+
+        private bool InstallNativeButtonListener(Component clonedButton, Type buttonType,
+                                                 string methodName)
+        {
+            try
+            {
+                var clickProperty = buttonType.GetProperty("onClick");
+                if (clickProperty == null) return false;
+                Type eventType = clickProperty.PropertyType;
+                object click = Activator.CreateInstance(eventType);
+                Type actionType = FindRuntimeType("UnityEngine.Events.UnityAction");
+                if (actionType == null) return false;
+                MethodInfo handler = GetType().GetMethod(
+                    methodName,
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Delegate listener = Delegate.CreateDelegate(actionType, this, handler);
+                var addListener = eventType.GetMethod("AddListener",
+                    new [] { actionType });
+                if (addListener == null) return false;
+                addListener.Invoke(click, new object[] { listener });
+                if (clickProperty.CanWrite)
+                    clickProperty.SetValue(clonedButton, click, null);
+                else
+                {
+                    // No cloned Play/Start listener may remain attached!
+                    var field = buttonType.GetField("m_OnClick",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field == null) return false;
+                    field.SetValue(clonedButton, click);
+                }
+                return true;
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP NATIVE UI] Button listener unavailable: " +
+                    error.Message);
+                return false;
+            }
+        }
+
+        private static bool IsOptionsLabel(string label)
+        {
+            string normalized = NormalizeNativeLabel(label);
+            return normalized == "options" || normalized == "option" ||
+                normalized == "settings" || normalized == "paramètres" ||
+                normalized == "parametres" || normalized == "einstellungen";
+        }
+
+        private static bool HasNativeOptionsSibling(GameObject play)
+        {
+            // Castle Story can nest the Play and Options controls under
+            // separate layout groups. Requiring the same immediate parent
+            // caused the main menu button (and intro) never to appear.
+            if (play == null) return false;
+            Type type = FindRuntimeType("UnityEngine.UI.Button");
+            if (type == null) return false;
+            Transform ancestor = play.transform.parent;
+            for (int level = 0; level < 4 && ancestor != null; level++,
+                ancestor = ancestor.parent)
+            {
+                foreach (Component button in ancestor.GetComponentsInChildren(type, true))
+                {
+                    if (button == null || button.gameObject == play) continue;
+                    foreach (string label in NativeUiLabels(button.gameObject))
+                        if (IsOptionsLabel(label)) return true;
+                }
+            }
+            return false;
+        }
+
+        private bool IsNativeTitleReady()
+        {
+            if (!titleSceneSeen || nativeStarterMenu != null) return false;
+            // The proprietary studio splash animation length is not in this
+            // repository. Detect the transition to the actual title choices,
+            // rather than guessing "4 seconds after SceneMenu".
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return false;
+            bool play = false, options = false;
+            foreach (UnityEngine.Object obj in
+                UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component component = obj as Component;
+                if (component == null || !component.gameObject.activeInHierarchy)
+                    continue;
+                string value = GetUiProperty(component, "text") as string;
+                if (IsPlayLabel(value)) play = true;
+                else if (IsOptionsLabel(value)) options = true;
+                if (play && options) return true;
+            }
+            return false;
+        }
+
+        private void BeginOwnIntroCredit()
+        {
+            // Start only AFTER Play+Options are present, which marks the end
+            // of the studio splash sequence. Never overlay a studio logo.
+            if (introCreditShown || !IsNativeTitleReady())
+                return;
+            introCreditShown = true;
+            introCreditActive = true;
+            introCreditStart = Time.realtimeSinceStartup;
+            Logger.LogInfo("[AP CREDITS] Title Play+Options detected after " +
+                (Time.realtimeSinceStartup - titleSceneReadyAt).ToString("F2") +
+                "s in SceneMenu. Dedicated Archipelago credit started.");
+        }
+
+        private RectTransform FindTitleChoiceRect(Component label)
+        {
+            if (label == null) return null;
+            RectTransform fallback = label.transform.parent as RectTransform;
+            Transform ancestor = label.transform.parent;
+            for (int depth = 0; ancestor != null && depth < 4; depth++,
+                 ancestor = ancestor.parent)
+            {
+                RectTransform rect = ancestor as RectTransform;
+                if (rect == null) continue;
+                if (rect.rect.width >= 150f && rect.rect.height >= 32f &&
+                    rect.rect.height <= 170f)
+                    return rect;
+            }
+            return fallback;
+        }
+
+        private RectTransform FindTitleOptionsRect()
+        {
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return null;
+            foreach (UnityEngine.Object value in
+                UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = value as Component;
+                if (label == null || !label.gameObject.activeInHierarchy ||
+                    !IsOptionsLabel(GetUiProperty(label, "text") as string))
+                    continue;
+                GameObject root = FindNativeChoiceRoot(label);
+                RectTransform rect = root == null ? null :
+                    root.transform as RectTransform;
+                return rect != null ? rect : FindTitleChoiceRect(label);
+            }
+            return null;
+        }
+
+        private static void MoveRectVerticallyToTop(RectTransform rect,
+                                                     float desiredWorldTop)
+        {
+            if (rect == null) return;
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            float delta = desiredWorldTop - corners[1].y;
+            if (Mathf.Abs(delta) <= .8f) return;
+            // World-space displacement handles Options having a different
+            // parent, anchor, pivot, scale or layout from the Play button.
+            rect.position += new Vector3(0f, delta, 0f);
+        }
+
+        private void MaintainTitleButtonSpacing()
+        {
+            if (titlePlayControl == null || titleOptionsControl == null ||
+                titleArchipelagoControl == null || !titleSceneSeen)
+                return;
+            // The Brix menu can rebuild its child ordering after Play/Back.
+            // Keep our clone directly after the REAL title Play prefab.
+            if (titleArchipelagoControl.parent == titlePlayControl.parent &&
+                titleArchipelagoControl.GetSiblingIndex() !=
+                    titlePlayControl.GetSiblingIndex() + 1)
+            {
+                titleArchipelagoControl.SetSiblingIndex(
+                    titlePlayControl.GetSiblingIndex() + 1);
+                Logger.LogInfo("[AP TITLE] Restored Play -> Archipelago sibling order.");
+            }
+            var play = new Vector3[4];
+            var archipelago = new Vector3[4];
+            titlePlayControl.GetWorldCorners(play);
+            MoveRectVerticallyToTop(titleArchipelagoControl, play[0].y - 10f);
+            titleArchipelagoControl.GetWorldCorners(archipelago);
+            MoveRectVerticallyToTop(titleOptionsControl,
+                archipelago[0].y - 10f);
+        }
+
+        private void ShiftTitleOptionsBelow(RectTransform play,
+                                            RectTransform inserted)
+        {
+            if (play == null || inserted == null) return;
+            RectTransform options = FindTitleOptionsRect();
+            if (options == null || options == play ||
+                options == inserted || options.IsChildOf(inserted))
+            {
+                Logger.LogWarning("[AP TITLE] Could not locate Options card geometry.");
+                return;
+            }
+            if (!shiftedMenuEntries.ContainsKey(options))
+                shiftedMenuEntries[options] = options.anchoredPosition;
+            titlePlayControl = play;
+            titleOptionsControl = options;
+            titleArchipelagoControl = inserted;
+            MaintainTitleButtonSpacing();
+            Logger.LogInfo("[AP TITLE] Adjusted full Play/Archipelago/Options " +
+                "cards with world geometry, separate parents supported.");
+        }
+
+        private void DrawPrimaryTitleFallback(GameObject target)
+        {
+            // Visual fallback matching the white/dark-bordered action controls
+            // used by Castle Story's native map menu, with blue bottom accent.
+            // Used only when the title Play card has no UGUI Image sprite.
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (imageType == null || target == null) return;
+            Component baseImage = target.GetComponent(imageType);
+            SetUiProperty(baseImage, "color", new Color(.04f, .05f, .06f, 1f));
+
+            var body = NewNativeUiObject("AP_PrimaryBody", target.transform,
+                Vector2.zero, Vector2.zero);
+            RectTransform rect = (RectTransform)body.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(4, 6);
+            rect.offsetMax = new Vector2(-4, -4);
+            AddUiImage(body, new Color(.99f, .99f, .98f, 1f), false);
+            body.transform.SetAsFirstSibling();
+
+            var accent = NewNativeUiObject("AP_PrimaryAccent", target.transform,
+                Vector2.zero, Vector2.zero);
+            rect = (RectTransform)accent.transform;
+            rect.anchorMin = new Vector2(0, 0);
+            rect.anchorMax = new Vector2(1, 0);
+            rect.pivot = new Vector2(.5f, 0);
+            rect.sizeDelta = new Vector2(-8, 7);
+            rect.anchoredPosition = new Vector2(0, 4);
+            AddUiImage(accent, new Color(.10f, .68f, .88f, 1f), false);
+            accent.transform.SetSiblingIndex(1);
+        }
+
+        private void MatchTitlePrimaryVisual(RectTransform nativePlay, GameObject target)
+        {
+            if (nativePlay == null || target == null) return;
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (imageType == null) return;
+            Component targetImage = target.GetComponent(imageType);
+            if (targetImage == null) return;
+
+            // The title card's visual may sit on a child/ancestor rather than
+            // its clickable root. Search both directions for the real sprite.
+            Component source = null;
+            Transform node = nativePlay;
+            for (int depth = 0; node != null && depth < 5; depth++,
+                 node = node.parent)
+            {
+                source = node.GetComponent(imageType);
+                if (source == null)
+                    source = node.GetComponentInChildren(imageType, true);
+                if (source != null && GetUiProperty(source, "sprite") != null)
+                    break;
+                source = null;
+            }
+            if (source != null)
+            {
+                try
+                {
+                    foreach (string prop in new [] {
+                        "sprite", "color", "type", "fillCenter", "material" })
+                    {
+                        PropertyInfo property = imageType.GetProperty(prop);
+                        if (property != null && property.CanRead &&
+                            property.CanWrite)
+                            property.SetValue(targetImage,
+                                property.GetValue(source, null), null);
+                    }
+                    Logger.LogInfo("[AP TITLE] Reused native Play primary sprite from " +
+                        source.gameObject.name);
+                    return;
+                }
+                catch (Exception error)
+                {
+                    Logger.LogWarning("[AP TITLE] Sprite copy failed: " +
+                        error.GetType().Name);
+                }
+            }
+            DrawPrimaryTitleFallback(target);
+            Logger.LogInfo("[AP TITLE] Applied native-style white/bordered primary fallback.");
+        }
+
+        private static GameObject FindRealTitlePlayButton(Component label)
+        {
+            if (label == null) return null;
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            if (buttonType == null) return null;
+            Transform ancestor = label.transform;
+            for (int depth = 0; ancestor != null && depth < 9; depth++,
+                ancestor = ancestor.parent)
+            {
+                // Search only upward from the real "JOUER" text in SceneMenu.
+                // This avoids cloning the unrelated Play button on the map
+                // selection screen (a previous bug).
+                if (ancestor.GetComponent(buttonType) != null)
+                    return ancestor.gameObject;
+                if (ancestor.GetComponent<Canvas>() != null) break;
+            }
+            return null;
+        }
+
+        private static void RemoveOriginalTitleClickTriggers(GameObject clone)
+        {
+            Type type = FindRuntimeType("UnityEngine.EventSystems.EventTrigger");
+            if (clone == null || type == null) return;
+            PropertyInfo triggersProp = type.GetProperty("triggers");
+            if (triggersProp == null) return;
+            foreach (Component component in clone.GetComponentsInChildren(type, true))
+            {
+                var entries = triggersProp.GetValue(component, null) as
+                    System.Collections.IList;
+                if (entries == null) continue;
+                for (int i = entries.Count - 1; i >= 0; i--)
+                {
+                    object entry = entries[i];
+                    FieldInfo eventId = entry == null ? null :
+                        entry.GetType().GetField("eventID");
+                    string name = eventId == null ? "" :
+                        Convert.ToString(eventId.GetValue(entry));
+                    // Preserve PointerEnter/PointerExit for the title's
+                    // original hover animation, remove native Play actions.
+                    if (name == "PointerClick" || name == "Submit" ||
+                        name == "PointerDown" || name == "PointerUp")
+                        entries.RemoveAt(i);
+                }
+            }
+        }
+
+        private void ConfigureFallbackPrimaryHover(GameObject obj)
+        {
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Type imageType = FindRuntimeType("UnityEngine.UI.Image");
+            if (buttonType == null || imageType == null || obj == null) return;
+            Component button = obj.GetComponent(buttonType);
+            Component image = obj.GetComponent(imageType);
+            Transform body = obj.transform.Find("AP_PrimaryBody");
+            if (body != null && body.GetComponent(imageType) != null)
+                image = body.GetComponent(imageType);
+            if (button == null || image == null) return;
+            try
+            {
+                SetUiProperty(button, "targetGraphic", image);
+                PropertyInfo transition = buttonType.GetProperty("transition");
+                if (transition != null && transition.CanWrite)
+                    transition.SetValue(button,
+                        Enum.Parse(transition.PropertyType, "ColorTint"), null);
+                PropertyInfo colorsProp = buttonType.GetProperty("colors");
+                if (colorsProp == null || !colorsProp.CanWrite) return;
+                object colors = colorsProp.GetValue(button, null);
+                Type block = colors.GetType();
+                block.GetProperty("normalColor").SetValue(colors,
+                    Color.white, null);
+                block.GetProperty("highlightedColor").SetValue(colors,
+                    new Color(.99f, .87f, .54f, 1f), null);
+                block.GetProperty("pressedColor").SetValue(colors,
+                    new Color(.87f, .71f, .36f, 1f), null);
+                block.GetProperty("fadeDuration").SetValue(colors, .14f, null);
+                colorsProp.SetValue(button, colors, null);
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP TITLE] ColorTint hover fallback: " +
+                    error.GetType().Name);
+            }
+        }
+
+        private bool TryInstallTitleEntryFromText()
+        {
+            // SceneMenu's initial two controls do not expose the UGUI Button
+            // component in the supplied runtime logs. Fall back to the REAL
+            // title Play text/rect, rather than cloning a later map Play.
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            if (textType == null || buttonType == null) return false;
+            foreach (UnityEngine.Object instance in
+                UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = instance as Component;
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string caption = GetUiProperty(label, "text") as string;
+                if (!IsPlayLabel(caption)) continue;
+                GameObject realPlay = FindRealTitlePlayButton(label);
+                RectTransform playRect = realPlay == null ?
+                    FindTitleChoiceRect(label) :
+                    realPlay.transform as RectTransform;
+                if (playRect == null || playRect.parent == null) continue;
+                if (nativeStarterMenu != null) return false;
+                bool nativeClone = realPlay != null;
+                GameObject copy = nativeClone ?
+                    UnityEngine.Object.Instantiate(realPlay) as GameObject : null;
+                if (copy != null)
+                {
+                    copy.SetActive(false);
+                    copy.transform.SetParent(playRect.parent, false);
+                    RectTransform dst = copy.transform as RectTransform;
+                    if (dst != null)
+                        dst.anchoredPosition = playRect.anchoredPosition +
+                            new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f));
+                    RemoveOriginalTitleClickTriggers(copy);
+                }
+                else
+                {
+                    nativeClone = false;
+                    copy = NewNativeUiObject(
+                        "Archipelago_NativeTitleEntry", playRect.parent,
+                        new Vector2(Mathf.Max(230f, playRect.rect.width),
+                                    Mathf.Max(48f, playRect.rect.height)),
+                        playRect.anchoredPosition +
+                            new Vector2(0, -Mathf.Max(52f, playRect.rect.height + 9f)));
+                    AddUiImage(copy, new Color(.94f, .76f, .25f, 1f), true);
+                    MatchTitlePrimaryVisual(playRect, copy);
+                    copy.AddComponent(buttonType);
+                    ConfigureFallbackPrimaryHover(copy);
+                }
+                copy.name = "Archipelago_NativeTitleEntry";
+                Component button = copy.GetComponent(buttonType);
+                if (button == null ||
+                    !InstallNativeButtonListener(button, buttonType,
+                        "OpenArchipelagoFromNativeMenu"))
+                {
+                    UnityEngine.Object.Destroy(copy);
+                    continue;
+                }
+                if (nativeClone)
+                {
+                    if (!SetNativeUiLabel(copy, "ARCHIPELAGO"))
+                    {
+                        UnityEngine.Object.Destroy(copy);
+                        continue;
+                    }
+                }
+                else
+                {
+                    Component text = CloneNativeText(label.gameObject,
+                        copy.transform, "ARCHIPELAGO",
+                        new Vector2(Mathf.Max(210f, playRect.rect.width - 24f), 44),
+                        Vector2.zero, 23);
+                    if (text == null)
+                    {
+                        UnityEngine.Object.Destroy(copy);
+                        continue;
+                    }
+                    SetUiProperty(text, "alignment", TextAnchor.MiddleCenter);
+                }
+                copy.transform.SetSiblingIndex(playRect.GetSiblingIndex() + 1);
+                // Move the real Options control, even if nested elsewhere.
+                ShiftTitleOptionsBelow(playRect, (RectTransform)copy.transform);
+                copy.SetActive(true);
+                nativeArchipelagoButton = copy;
+                mainMenuPlayTemplate = copy;
+                nativeMenuFont = GetUiProperty(label, "font") as Font;
+                Logger.LogInfo("[AP TITLE] Inserted title Archipelago button, " +
+                    (nativeClone ? "native Play clone with hover/events" :
+                        "color-tint primary fallback") + ".");
+                return true;
+            }
+            return false;
+        }
+
+        private void TryInstallNativeArchipelagoButton()
+        {
+            if (nativeArchipelagoButton != null) return;
+            // Never clone the Play control from map selection. Runtime logs
+            // prove the previous injection happened only after entering
+            // SpNewGameStarterMenu, which created an entry in the wrong menu.
+            if (!titleSceneSeen || nativeStarterMenu != null) return;
+            if (TryInstallTitleEntryFromText()) return;
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            if (buttonType == null) return;
+            try
+            {
+                foreach (UnityEngine.Object instance in
+                    UnityEngine.Object.FindObjectsOfType(buttonType))
+                {
+                    Component button = instance as Component;
+                    if (button == null || button.gameObject == null ||
+                        !button.gameObject.activeInHierarchy) continue;
+                    string name = null;
+                    foreach (string label in NativeUiLabels(button.gameObject))
+                        if (IsPlayLabel(label)) { name = label; break; }
+                    if (name == null) continue;
+                    GameObject source = button.gameObject;
+                    // Play can be nested separately from Options; this is
+                    // only an advisory confidence check, not a hard gate.
+                    bool optionsFound = HasNativeOptionsSibling(source);
+                    if (!optionsFound)
+                        Logger.LogInfo("[AP NATIVE UI] Play located without same-group Options; trying native insertion.");
+                    mainMenuPlayTemplate = source;
+                    Type buttonClass = FindRuntimeType("UnityEngine.UI.Button");
+                    if (source.transform.parent != null)
+                        foreach (Component sibling in source.transform.parent.GetComponentsInChildren(buttonClass, true))
+                            foreach (string label in NativeUiLabels(sibling.gameObject))
+                                if (IsOptionsLabel(label))
+                                    mainMenuOptionsTemplate = sibling.gameObject;
+                    GameObject copy = UnityEngine.Object.Instantiate(source)
+                        as GameObject;
+                    if (copy == null) return;
+                    copy.name = "Archipelago_NativeMainMenuEntry";
+                    copy.SetActive(false);
+                    copy.transform.SetParent(source.transform.parent, false);
+                    Component cloneButton = copy.GetComponent(buttonType);
+                    if (cloneButton == null ||
+                        !InstallNativeButtonListener(cloneButton, buttonType,
+                            "OpenArchipelagoFromNativeMenu") ||
+                        !SetNativeUiLabel(copy, "Archipelago"))
+                    {
+                        UnityEngine.Object.Destroy(copy);
+                        continue;
+                    }
+                    copy.transform.SetSiblingIndex(source.transform.GetSiblingIndex() + 1);
+                    // A native VerticalLayoutGroup positions sibling buttons
+                    // automatically; the anchor fallback covers fixed menus.
+                    var layout = FindRuntimeType("UnityEngine.UI.VerticalLayoutGroup");
+                    bool hasLayout = layout != null &&
+                        source.transform.parent != null &&
+                        source.transform.parent.GetComponent(layout) != null;
+                    if (!hasLayout)
+                    {
+                        var srcRect = source.transform as RectTransform;
+                        var dstRect = copy.transform as RectTransform;
+                        if (srcRect != null && dstRect != null)
+                        {
+                            float delta = Mathf.Max(45f, srcRect.rect.height + 8f);
+                            dstRect.anchoredPosition = srcRect.anchoredPosition +
+                                new Vector2(0, -delta);
+                            // In manually positioned menus, make room below
+                            // Play rather than overlapping the next button.
+                            Transform parent = source.transform.parent;
+                            if (parent != null)
+                                for (int i = 0; i < parent.childCount; i++)
+                                {
+                                    var child = parent.GetChild(i) as RectTransform;
+                                    if (child == null || child == dstRect ||
+                                        child == srcRect || child.GetSiblingIndex() <=
+                                        srcRect.GetSiblingIndex() + 1) continue;
+                                    if (child.anchoredPosition.y <=
+                                        srcRect.anchoredPosition.y - 5f)
+                                    {
+                                        shiftedMenuEntries[child] = child.anchoredPosition;
+                                        child.anchoredPosition += new Vector2(0, -delta);
+                                    }
+                                }
+                        }
+                    }
+                    copy.SetActive(true);
+                    nativeArchipelagoButton = copy;
+                    CaptureNativeMenuFont(source);
+                    Logger.LogInfo("[AP NATIVE UI] Created Archipelago entry after '" +
+                        name + "' using its native Unity UI prefab.");
+                    return;
+                }
+                if (!nativeButtonMissingLogged && Time.realtimeSinceStartup > 12f)
+                {
+                    nativeButtonMissingLogged = true;
+                    Logger.LogWarning("[AP NATIVE UI] No supported native Play button found. " +
+                        "F7 opens Archipelago; F9 reports native UI type details.");
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[AP NATIVE UI] Button integration: " + error);
+            }
+        }
+
+        private void RestoreNativeMenuLayout()
+        {
+            titlePlayControl = titleArchipelagoControl = titleOptionsControl = null;
+            foreach (var item in shiftedMenuEntries)
+                if (item.Key != null) item.Key.anchoredPosition = item.Value;
+            shiftedMenuEntries.Clear();
+        }
+
+        private void RestoreNativeEntries()
+        {
+            foreach (var entry in hiddenNativeEntries)
+                if (entry.Key != null) entry.Key.SetActive(entry.Value);
+            hiddenNativeEntries.Clear();
+            lastNativeFilterKey = null;
+            lastFilterMenu = null;
+            lastFilterMode = null;
+        }
+
+        private void EnforceHiddenNativeEntries()
+        {
+            if (!titleSceneSeen || hiddenNativeEntries.Count == 0)
+                return;
+            // Cheap O(hiddenCards) guard: Brix may reactivate the SAME pooled
+            // choice long after the three bounded filtering passes. Do not
+            // rescan every UI text; simply keep known forbidden cards inactive.
+            foreach (var pair in hiddenNativeEntries)
+                if (pair.Key != null && pair.Key.activeSelf)
+                    pair.Key.SetActive(false);
+        }
+
+        private void HideNativeEntry(GameObject button)
+        {
+            if (button == null) return;
+            if (hiddenNativeEntries.ContainsKey(button))
+            {
+                // Brix reuses pooled cards and calls SetActive(true) when
+                // revisiting Play/New Game. Reapply the restriction even if
+                // the SAME GameObject is already in our hidden registry.
+                if (button.activeSelf)
+                {
+                    button.SetActive(false);
+                    Logger.LogInfo("[AP NATIVE UI] Re-hidden pooled choice: " +
+                        button.name);
+                }
+                return;
+            }
+            hiddenNativeEntries[button] = button.activeSelf;
+            button.SetActive(false);
+        }
+
+        private bool AllowedSeedMap(string mapId, string selectedMode)
+        {
+            if (campaign == null || campaign.missions == null) return false;
+            foreach (MissionFile mission in campaign.missions)
+                if (mission != null &&
+                    String.Equals(MissionMapId(mission), mapId,
+                                  StringComparison.OrdinalIgnoreCase) &&
+                    (String.IsNullOrEmpty(selectedMode) ||
+                     String.Equals(mission.mode, selectedMode,
+                                   StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            return false;
+        }
+
+        private string SelectedNativeGamemode()
+        {
+            if (nativeStarterMenu == null) return mode == "Hybrid" ? null : mode;
+            try
+            {
+                var selected = AccessTools.Property(
+                    nativeStarterMenu.GetType(), "SelectedGamemode");
+                object value = selected == null ? null :
+                    selected.GetValue(nativeStarterMenu, null);
+                string code = ModeIdentity(value);
+                return code == "Invasion" || code == "Conquest" ?
+                    code : mode == "Hybrid" ? null : mode;
+            }
+            catch (Exception) { return mode == "Hybrid" ? null : mode; }
+        }
+
+        private void ObserveNativeMapLabel(object map, string label)
+        {
+            if (String.IsNullOrEmpty(label)) return;
+            string mapId = MapIdentity(map);
+            if (String.IsNullOrEmpty(mapId)) return;
+            nativeMapLabels[NormalizeNativeLabel(label)] = mapId;
+        }
+
+        private static int TransformDepth(Transform node)
+        {
+            int depth = 0;
+            while (node != null && depth < 100)
+            {
+                depth++;
+                node = node.parent;
+            }
+            return depth;
+        }
+
+        private static bool IsUnderNativeMenu(Transform child, Transform group)
+        {
+            while (child != null)
+            {
+                if (child == group) return true;
+                child = child.parent;
+            }
+            return false;
+        }
+
+        private static Transform FindPlayMenuRoot(
+            List<Component> controls,
+            Dictionary<GameObject, List<string>> labels)
+        {
+            // Button wrappers often differ: the native menu choices need not
+            // share an immediate parent. Find the deepest shared ancestor of
+            // at least two New Game / Load / Multiplayer controls.
+            var counts = new Dictionary<Transform, int>();
+            foreach (Component control in controls)
+            {
+                if (control == null || control.gameObject == null) continue;
+                List<string> names;
+                if (!labels.TryGetValue(control.gameObject, out names)) continue;
+                bool anchor = false;
+                foreach (string label in names)
+                    if (IsSubmenuAnchor(label)) { anchor = true; break; }
+                if (!anchor) continue;
+                Transform parent = control.transform.parent;
+                for (int depth = 0; parent != null && depth < 6; depth++,
+                     parent = parent.parent)
+                {
+                    int n;
+                    counts.TryGetValue(parent, out n);
+                    counts[parent] = n + 1;
+                }
+            }
+            Transform best = null;
+            int maxDepth = -1;
+            foreach (var candidate in counts)
+                if (candidate.Value >= 2 && candidate.Key != null &&
+                    candidate.Key.GetComponent<Canvas>() == null)
+                {
+                    int depth = TransformDepth(candidate.Key);
+                    if (depth > maxDepth)
+                    {
+                        maxDepth = depth;
+                        best = candidate.Key;
+                    }
+                }
+            return best;
+        }
+
+        private static bool IsKnownNativeChoice(string label)
+        {
+            return IsSandboxLabel(label) || NativeModeFromLabel(label) != null ||
+                IsForbiddenPlaySubmenuEntry(label) ||
+                IsAllowedPlaySubmenuEntry(label);
+        }
+
+        private static int CountDistinctNativeChoices(Transform node)
+        {
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (node == null || textType == null) return 0;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Component text in node.GetComponentsInChildren(textType, true))
+            {
+                string value = GetUiProperty(text, "text") as string;
+                if (IsKnownNativeChoice(value))
+                {
+                    seen.Add(NormalizeNativeLabel(value));
+                    if (seen.Count >= 2) break;
+                }
+            }
+            return seen.Count;
+        }
+
+        private static bool HasNativeInteractiveSurface(Transform node)
+        {
+            if (node == null) return false;
+            foreach (Component component in node.GetComponentsInChildren<Component>(true))
+            {
+                if (component == null) continue;
+                string name = component.GetType().Name.ToLowerInvariant();
+                if (name.Contains("button") || name.Contains("toggle") ||
+                    name.Contains("pointer") || name.Contains("click") ||
+                    name.Contains("selectable") || name.Contains("collider") ||
+                    name.Contains("eventtrigger") || name.Contains("interact"))
+                    return true;
+                if (name == "image" &&
+                    (GetUiProperty(component, "raycastTarget") is bool) &&
+                    (bool)GetUiProperty(component, "raycastTarget"))
+                    return true;
+            }
+            return false;
+        }
+
+        private GameObject FindNativeChoiceRoot(Component label)
+        {
+            if (label == null) return null;
+            GameObject best = null;
+            Transform node = label.transform.parent;
+            // Seek the highest *individual card* containing its text and
+            // click target. Hiding just the caption left a clickable empty
+            // rectangle in the previous build.
+            for (int depth = 0; node != null && depth < 6; depth++,
+                 node = node.parent)
+            {
+                if (node.GetComponent<Canvas>() != null ||
+                    node.name.StartsWith("AP_", StringComparison.Ordinal) ||
+                    node.name.StartsWith("Archipelago_", StringComparison.Ordinal))
+                    break;
+                RectTransform rect = node as RectTransform;
+                if (rect == null || rect.rect.height > 560f) break;
+                if (CountDistinctNativeChoices(node) > 1) break;
+                if (HasNativeInteractiveSurface(node))
+                    best = node.gameObject;
+            }
+            return best;
+        }
+
+        private int HideNativeNonSelectableChoices(string selectedNativeMode)
+        {
+            // Some early Castle Story menus are not UGUI Button/Toggle.
+            // Target their exact native captions, but hide only a wrapper
+            // identified as interactive; never hide an unknown menu root.
+            Type type = FindRuntimeType("UnityEngine.UI.Text");
+            if (type == null) return 0;
+            int count = 0;
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(type))
+            {
+                Component caption = value as Component;
+                if (caption == null || caption.gameObject == null ||
+                    !caption.gameObject.activeInHierarchy) continue;
+                string text = GetUiProperty(caption, "text") as string;
+                string nativeMode = NativeModeFromLabel(text);
+                bool forbidden = IsSandboxLabel(text) ||
+                    IsForbiddenPlaySubmenuEntry(text) ||
+                    (nativeMode != null && mode != "Hybrid" && nativeMode != mode);
+                if (!forbidden) continue;
+                GameObject target = FindNativeChoiceRoot(caption);
+                if (target == null ||
+                    (hiddenNativeEntries.ContainsKey(target) && !target.activeSelf))
+                    continue;
+                HideNativeEntry(target);
+                count++;
+                Logger.LogInfo("[AP NATIVE UI] Hidden entire native choice: " +
+                    (nativeMode ?? NormalizeNativeLabel(text)) +
+                    " root=" + target.name + " parent=" +
+                    (target.transform.parent == null ? "root" :
+                        target.transform.parent.name));
+            }
+            return count;
+        }
+
+        private Transform FindTextBasedPlaySubmenu()
+        {
+            // Castle Story's Play submenu may contain custom controls rather
+            // than UnityEngine.UI.Selectable. Detect its own cards via the
+            // title text layout: at least two of New Game/Load/Multiplayer.
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return null;
+            var ancestors = new Dictionary<Transform, HashSet<string>>();
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(textType))
+            {
+                Component label = value as Component;
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string text = GetUiProperty(label, "text") as string;
+                if (!IsSubmenuAnchor(text)) continue;
+                Transform parent = label.transform.parent;
+                for (int depth = 0; parent != null && depth < 8; depth++,
+                     parent = parent.parent)
+                {
+                    HashSet<string> existing;
+                    if (!ancestors.TryGetValue(parent, out existing))
+                    {
+                        existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        ancestors[parent] = existing;
+                    }
+                    existing.Add(NormalizeNativeLabel(text));
+                }
+            }
+            Transform result = null;
+            int depthBest = -1;
+            foreach (var item in ancestors)
+            {
+                if (item.Key == null || item.Value.Count < 2 ||
+                    item.Key.GetComponent<Canvas>() != null) continue;
+                int depth = TransformDepth(item.Key);
+                if (depth > depthBest)
+                {
+                    result = item.Key;
+                    depthBest = depth;
+                }
+            }
+            return result;
+        }
+
+        private int HideTextBasedPlaySubmenuChoices()
+        {
+            Transform group = FindTextBasedPlaySubmenu();
+            if (group == null) return 0;
+            Type textType = FindRuntimeType("UnityEngine.UI.Text");
+            if (textType == null) return 0;
+            int hidden = 0;
+            // The previous "hide everything not recognised" policy disabled
+            // New Game, Load and Multiplayer when the caption differed by
+            // one word. Only known unwanted actions are removed.
+            foreach (Component label in group.GetComponentsInChildren(textType, true))
+            {
+                if (label == null || !label.gameObject.activeInHierarchy)
+                    continue;
+                string value = GetUiProperty(label, "text") as string;
+                if (String.IsNullOrEmpty(value) ||
+                    IsAllowedPlaySubmenuEntry(value) ||
+                    !IsForbiddenPlaySubmenuEntry(value))
+                    continue;
+                GameObject card = FindNativeChoiceRoot(label);
+                if (card == null ||
+                    (hiddenNativeEntries.ContainsKey(card) && !card.activeSelf) ||
+                    card == group.gameObject || !card.activeInHierarchy ||
+                    CountDistinctNativeChoices(card.transform) > 1)
+                    continue;
+                HideNativeEntry(card);
+                hidden++;
+                Logger.LogInfo("[AP PLAY MENU] Removed explicit unwanted choice: " +
+                    value + " card=" + card.name);
+            }
+            return hidden;
+        }
+
+        private void RefreshNativeSeedMenu()
+        {
+            if (disconnectPending || String.IsNullOrEmpty(token) ||
+                campaign == null || !campaign.ready ||
+                campaign.missions == null)
+            {
+                if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
+                return;
+            }
+
+            string selectedNativeMode = SelectedNativeGamemode();
+            string filterKey = token + "|" + selectedNativeMode;
+            if (lastNativeFilterKey != filterKey)
+            {
+                // Only a real seed/mode switch can restore hidden controls.
+                if (hiddenNativeEntries.Count > 0) RestoreNativeEntries();
+                lastNativeFilterKey = filterKey;
+            }
+
+            Type selectable = FindRuntimeType("UnityEngine.UI.Selectable");
+            if (selectable == null) return;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var controls = new List<Component>();
+            var labels = new Dictionary<GameObject, List<string>>();
+            foreach (UnityEngine.Object value in
+                UnityEngine.Object.FindObjectsOfType(selectable))
+            {
+                Component item = value as Component;
+                if (item == null || item.gameObject == null ||
+                    (hiddenNativeEntries.ContainsKey(item.gameObject) &&
+                     !item.gameObject.activeSelf)) continue;
+                controls.Add(item);
+                labels[item.gameObject] = CachedNativeUiLabels(item.gameObject);
+            }
+            Transform playRoot = FindPlayMenuRoot(controls, labels);
+            int hidden = 0;
+            foreach (Component item in controls)
+            {
+                if (item == null || item.gameObject == null) continue;
+                GameObject go = item.gameObject;
+                List<string> names;
+                if (!labels.TryGetValue(go, out names)) continue;
+                bool inPlaySubmenu = playRoot != null &&
+                    IsUnderNativeMenu(go.transform, playRoot);
+                bool allowedPlay = false;
+                bool forbidden = false;
+                foreach (string label in names)
+                    if (IsAllowedPlaySubmenuEntry(label)) allowedPlay = true;
+                // Never hide by absence from a whitelist: translated captions,
+                // prefab names, and parent wrappers contain other text.
+                // It previously blanked the entire Play menu, including Load.
+                if (allowedPlay) continue;
+                foreach (string label in names)
+                {
+                    string namedMode = NativeModeFromLabel(label);
+                    string mapId;
+                    if (IsSandboxLabel(label) ||
+                        (namedMode != null && mode != "Hybrid" && namedMode != mode) ||
+                        (nativeMapLabels.TryGetValue(
+                             NormalizeNativeLabel(label), out mapId) &&
+                         !AllowedSeedMap(mapId, selectedNativeMode)) ||
+                        (inPlaySubmenu && IsForbiddenPlaySubmenuEntry(label)))
+                    {
+                        forbidden = true;
+                        break;
+                    }
+                }
+                if (!forbidden) continue;
+                HideNativeEntry(go);
+                hidden++;
+            }
+            hidden += HideNativeNonSelectableChoices(selectedNativeMode);
+            hidden += HideTextBasedPlaySubmenuChoices();
+            // Always redo save filtering after a title navigation that may
+            // rebuild the Load list (Brix menus use inherited OpenSelf).
+            if (!nativeCaptionHookInstalled)
+                ScheduleNativeSaveFilter("legacy title scan");
+            watch.Stop();
+            if (hidden > 0 && nativeRestrictionLogCount++ < 12)
+                Logger.LogInfo("[AP NATIVE UI] Hidden " + hidden +
+                    " controls, playGroup=" + (playRoot == null ? "not-found" : playRoot.name) +
+                    ", mode=" + selectedNativeMode + ", seed=" + seed + ".");
+            if (watch.ElapsedMilliseconds > 30)
+                Logger.LogWarning("[AP UI PERF] Native filter took " +
+                    watch.ElapsedMilliseconds + " ms for " + controls.Count +
+                    " active controls. No background polling active.");
+        }
+
+        private static bool IsAllowedPlaySubmenuEntry(string label)
+        {
+            switch (NormalizeNativeLabel(label))
+            {
+                case "new game": case "new game...": case "nouvelle partie":
+                case "nouvelle partie...": case "nouveau jeu":
+                case "load": case "load game": case "load game...":
+                case "charger": case "charger partie": case "charger une partie":
+                case "charger une sauvegarde": case "reprendre une partie":
+                case "continuer": case "continue":
+                case "multiplayer": case "multijoueur":
+                case "back": case "retour": case "previous":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private static bool IsSubmenuAnchor(string label)
+        {
+            string value = NormalizeNativeLabel(label);
+            return value == "new game" || value == "nouvelle partie" ||
+                value == "load game" || value == "charger une partie" ||
+                value == "charger partie" || value == "load" ||
+                value == "multiplayer" || value == "multijoueur";
+        }
+
+        private static bool IsPlaySubmenuGroup(Transform parent, Type buttonType)
+        {
+            if (parent == null || buttonType == null) return false;
+            int known = 0;
+            foreach (Component candidate in parent.GetComponentsInChildren(buttonType, true))
+            {
+                if (candidate == null || candidate.transform.parent != parent) continue;
+                foreach (string label in NativeUiLabels(candidate.gameObject))
+                    if (IsSubmenuAnchor(label)) { known++; break; }
+                if (known >= 2) return true;
+            }
+            return false;
+        }
+
+        private static bool IsForbiddenPlaySubmenuEntry(string label)
+        {
+            switch (NormalizeNativeLabel(label))
+            {
+                case "map editor": case "éditeur de cartes":
+                case "éditeur de carte": case "éditeur de monde":
+                case "editeur de monde": case "world editor":
+                case "editeur du monde": case "édition de monde":
+                case "map maker": case "level editor":
+                case "wonder": case "wonders":
+                case "merveilles": case "merveille":
+                case "île de la renommée": case "ile de la renommée":
+                case "île de la renommee": case "ile de la renommee":
+                case "hall of fame": case "hall of fame island":
+                case "workshop": case "steam workshop":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private void ProbeNativeArchipelagoUi()
+        {
+            Type buttonType = FindRuntimeType("UnityEngine.UI.Button");
+            Logger.LogInfo("[AP NATIVE UI PROBE] Starting. ButtonType=" +
+                (buttonType == null ? "absent" : buttonType.FullName) +
+                " menu=" + (nativeStarterMenu == null ?
+                    "not-open" : nativeStarterMenu.GetType().FullName) +
+                " recognizedNativeMaps=" + nativeMapLabels.Count +
+                " hiddenEntries=" + hiddenNativeEntries.Count);
+            if (buttonType == null) return;
+            int count = 0;
+            foreach (UnityEngine.Object value in UnityEngine.Object.FindObjectsOfType(buttonType))
+            {
+                Component button = value as Component;
+                if (button == null || button.gameObject == null) continue;
+                string label = NativeUiLabel(button.gameObject);
+                if (String.IsNullOrEmpty(label)) continue;
+                string parent = button.transform.parent == null ?
+                    "root" : button.transform.parent.name;
+                Logger.LogInfo("[AP NATIVE UI PROBE] button='" +
+                    label.Replace("\n", " ") + "' name='" + button.name +
+                    "' parent='" + parent + "'");
+                if (++count >= 60) break;
+            }
+            Logger.LogInfo("[AP NATIVE UI PROBE] Finished. visibleButtons=" + count);
+        }
+
+        private void ScheduleNativeUiFilter(string source)
+        {
+            if (nativeCaptionHookInstalled)
+            {
+                // Brix cards are classified by Text.text/OnEnable before they
+                // reach Canvas. Delayed searches caused the visible flicker.
+                return;
+            }
+            // Legacy fallback only, when Unity's text setter could not be patched.
+            // Three short checks cover asynchronous native card creation.
+            // No continuous polling and no re-enabling cards on each pass.
+            cachedNativeLabels.Clear();
+            pendingFilterPasses = 3;
+            nextFilterPassAt = Time.realtimeSinceStartup + .03f;
+            Logger.LogInfo("[AP NATIVE UI] One-shot filter scheduled from " + source);
+        }
+
+        private void ProbeTitleScreenHierarchy()
+        {
+            if (!titleSceneSeen || nativeStarterMenu != null) return;
+            Logger.LogInfo("[AP TITLE PROBE] SceneMenu native roots, before opening New Game:");
+            int found = 0;
+            foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>())
+            {
+                if (go == null || go.name.StartsWith("Archipelago_", StringComparison.Ordinal))
+                    continue;
+                string name = (go.name ?? "").ToLowerInvariant();
+                if (!(name.Contains("play") || name.Contains("jouer") ||
+                      name.Contains("option") || name.Contains("menu") ||
+                      name.Contains("button") || name.Contains("bouton") ||
+                      name.Contains("intro") || name.Contains("logo")))
+                    continue;
+                string components = "";
+                foreach (Component item in go.GetComponents<Component>())
+                {
+                    if (item == null) continue;
+                    if (components.Length > 170) break;
+                    components += (components.Length > 0 ? "," : "") +
+                        item.GetType().Name;
+                }
+                Logger.LogInfo("[AP TITLE PROBE] object=" + go.name +
+                    " parent=" + (go.transform.parent == null ?
+                        "root" : go.transform.parent.name) +
+                    " components=" + components);
+                if (++found == 65) break;
+            }
+            Type labelType = FindRuntimeType("UnityEngine.UI.Text");
+            int texts = 0;
+            if (labelType != null)
+                foreach (UnityEngine.Object instance in
+                    UnityEngine.Object.FindObjectsOfType(labelType))
+                {
+                    Component label = instance as Component;
+                    if (label == null) continue;
+                    string value = GetUiProperty(label, "text") as string;
+                    if (IsPlayLabel(value) || IsOptionsLabel(value))
+                    {
+                        Logger.LogInfo("[AP TITLE PROBE] label=" + value +
+                            " object=" + label.name + " parent=" +
+                            (label.transform.parent == null ? "root" :
+                                label.transform.parent.name));
+                        texts++;
+                    }
+                }
+            Logger.LogInfo("[AP TITLE PROBE] done: objects=" + found +
+                " recognizedTitleLabels=" + texts);
+        }
+
+        private void OnArchipelagoSceneChanged(
+            UnityEngine.SceneManagement.Scene previous,
+            UnityEngine.SceneManagement.Scene current)
+        {
+            string name = current.name ?? "";
+            // Reward templates contain Unity scene-owned objects and must
+            // never survive a Load Game / Save & Quit / scene transition.
+            ClearNativeBonusSceneTemplate();
+            // Flush the last native save before leaving a seeded gameplay
+            // scene: Save & Quit can return to SceneMenu before the 1s poll.
+            if (name == "SceneMenu" && previous.name != "SceneMenu")
+                ScanNewNativeSaves(true);
+            Logger.LogInfo("[AP NATIVE SCREEN] Scene changed: " + name);
+            bool returningToTitle = String.Equals(name, "SceneMenu",
+                StringComparison.OrdinalIgnoreCase);
+            // Native Unity objects belong to the outgoing scene. Clearing
+            // these references is essential: a previously selected map
+            // remained cached after Save & Quit, causing the title button
+            // and native menu restrictions to silently stop reappearing.
+            ClearPreRenderCardPolicy();
+            hiddenNativeEntries.Clear();
+            cachedNativeLabels.Clear();
+            lastNativeFilterKey = null;
+            lastFilterMenu = null;
+            lastFilterMode = null;
+            shiftedMenuEntries.Clear();
+            titlePlayControl = titleOptionsControl = titleArchipelagoControl = null;
+            nativeArchipelagoButton = null;
+            nativeStarterMenu = null;
+            mainMenuPlayTemplate = null;
+            mainMenuOptionsTemplate = null;
+            observedMapAssets.Clear();
+            mapRegistrationCount = 0;
+            nativeButtonMissingLogged = false;
+            nativeRestrictionLogCount = 0;
+            pendingFilterPasses = 0;
+            // The connection modal is independent of scene-owned buttons.
+            // Hide it on scene transitions without clearing server/slot/session.
+            HideNativeConnectionPanel();
+            if (returningToTitle)
+            {
+                titleSceneSeen = true;
+                titleSceneReadyAt = Time.realtimeSinceStartup;
+                titleSceneEvidenceLogged = false;
+                nextTitleReadyProbeAt = Time.realtimeSinceStartup;
+                Logger.LogInfo("[AP NATIVE UI] Rebuilding Archipelago title UI and " +
+                    "seed restrictions after returning to SceneMenu.");
+            }
+            else
+            {
+                titleSceneSeen = false;
+            }
+            // Reset bounded title discovery only when switching scenes.
+            // This catches titles that load after a long studio intro
+            // without performing expensive continuous UI polling.
+            mainMenuProbeCount = 0;
+            nextMainMenuProbeAt = Time.realtimeSinceStartup + .35f;
+            ScheduleNativeUiFilter("scene " + name);
+        }
+
+        private void UpdateNativeArchipelagoIntegration()
+        {
+            float now = Time.realtimeSinceStartup;
+            if (titleSceneSeen && !titleSceneEvidenceLogged &&
+                now - titleSceneReadyAt >= 1.6f)
+            {
+                titleSceneEvidenceLogged = true;
+                ProbeTitleScreenHierarchy();
+            }
+            // Do not guess the original credits' duration. Show our segment
+            // as soon as the actual title controls become active.
+            if (titleSceneSeen && !introCreditShown &&
+                titleSceneReadyAt >= 0f && now >= nextTitleReadyProbeAt)
+            {
+                nextTitleReadyProbeAt = now + .20f;
+                BeginOwnIntroCredit();
+            }
+            // Layout groups may reposition the native Options card after
+            // each frame. Reassert non-overlapping positions without scanning
+            // the scene or shifting anything that is already aligned.
+            MaintainTitleButtonSpacing();
+            if (introCreditActive && now - introCreditStart >= 3.5f)
+            {
+                introCreditActive = false;
+                Logger.LogInfo("[AP CREDITS] Archipelago splash completed.");
+            }
+            // A handful of title-screen probes only. Once native button is
+            // inserted or the title cannot be found, stop scanning entirely.
+            if (nativeArchipelagoButton == null && mainMenuProbeCount < 8 &&
+                now >= nextMainMenuProbeAt)
+            {
+                mainMenuProbeCount++;
+                nextMainMenuProbeAt = now + (mainMenuProbeCount < 4 ? 1f : 3f);
+                TryInstallNativeArchipelagoButton();
+                if (mainMenuProbeCount == 8 && nativeArchipelagoButton == null)
+                {
+                    Logger.LogWarning("[AP NATIVE UI] No native Play button found after bounded probes; F7 remains available.");
+                    ProbeNativeArchipelagoUi();
+                }
+            }
+            // Main Play, mode choice and Back may use custom game controls,
+            // not Brix.OpenSelf. A click schedules finite filtering once,
+            // unlike the old unconditional 500 ms scanner.
+            if (!nativeCaptionHookInstalled &&
+                titleSceneSeen && !introCreditActive && bridgeConnected &&
+                (nativeConnectionPanel == null || !nativeConnectionPanel.activeSelf) &&
+                (Input.GetMouseButtonUp(0) || Input.GetKeyDown(KeyCode.Return)))
+                ScheduleNativeUiFilter("legacy title interaction");
+            if (!nativeCaptionHookInstalled &&
+                pendingFilterPasses > 0 && now >= nextFilterPassAt)
+            {
+                pendingFilterPasses--;
+                nextFilterPassAt = now + .12f;
+                RefreshNativeSeedMenu();
+            }
+        }
+
+        private void DrawArchipelagoIntroCredit()
+        {
+            if (!introCreditActive) return;
+            // This is an entire additional credit after the original game's
+            // splash sequence, not a watermark on top of Sauropod's credit.
+            // Main menu buttons exist under the full white canvas, blocked by
+            // the input shield until this dedicated 3.5-second segment ends.
+            LoadApLogo();
+            float elapsed = Time.realtimeSinceStartup - introCreditStart;
+            float opacity = Mathf.Clamp01(elapsed / .55f) *
+                Mathf.Clamp01((3.5f - elapsed) / .65f);
+            int oldDepth = GUI.depth;
+            Color old = GUI.color;
+            GUI.depth = -32000;
+            try
+            {
+                GUI.color = Color.white;
+                GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height),
+                    Texture2D.whiteTexture);
+                GUI.color = new Color(1f, 1f, 1f, opacity);
+                if (apLogo != null)
+                {
+                    float size = Mathf.Min(250f, Screen.height * .34f);
+                    GUI.DrawTexture(new Rect((Screen.width - size) * .5f,
+                        (Screen.height - size) * .43f, size, size),
+                        apLogo, ScaleMode.ScaleToFit, true);
+                }
+                if (introCreditStyle == null)
+                {
+                    introCreditStyle = new GUIStyle(GUI.skin.label);
+                    introCreditStyle.alignment = TextAnchor.MiddleCenter;
+                    introCreditStyle.normal.textColor = Color.black;
+                    introCreditStyle.fontSize = 27;
+                    introCreditStyle.fontStyle = FontStyle.Bold;
+                    if (nativeMenuFont != null) introCreditStyle.font = nativeMenuFont;
+                }
+                GUI.Label(new Rect(0, Screen.height * .69f,
+                    Screen.width, 60f), "ARCHIPELAGO", introCreditStyle);
+            }
+            finally
+            {
+                GUI.color = old;
+                GUI.depth = oldDepth;
+            }
+        }
+    }
+}

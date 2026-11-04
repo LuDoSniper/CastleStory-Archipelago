@@ -137,8 +137,12 @@ namespace CastleStoryArchipelago
 
         private bool IsApModalVisible()
         {
-            return apMenuOpen ||
-                (bridgeConnected && (nativeNewGameVisible || campaignPreviewOpen));
+            // The popup stays open to show an error even when the bridge
+            // heartbeat drops. Its pointer shield must remain in sync.
+            // The separate white Archipelago credit also blocks inputs until
+            // it has finished; the native connection panel uses its own Canvas.
+            return introCreditActive || apMenuOpen ||
+                nativeNewGameVisible || campaignPreviewOpen;
         }
 
         private void UpdateNativeInputShield()
@@ -159,7 +163,11 @@ namespace CastleStoryArchipelago
                 {
                     nativeInputShield.SetActive(modal);
                     Logger.LogInfo("[AP UI] Native pointer shield " +
-                        (modal ? "activated" : "deactivated"));
+                        (modal ? "activated" : "deactivated") +
+                        "; apMenu=" + apMenuOpen +
+                        "; nativeNewGame=" + nativeNewGameVisible +
+                        "; campaignPreview=" + campaignPreviewOpen +
+                        "; connected=" + bridgeConnected);
                 }
             }
             else if (modal && !nativeShieldWarningShown)

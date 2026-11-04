@@ -1,9 +1,14 @@
 """Archipelago websocket client for the Castle Story BepInEx file bridge."""
 import argparse
+import base64
+import binascii
 import asyncio
 import copy
 import hashlib
 import json
+import queue
+import sys
+import threading
 import logging
 import os
 import time
@@ -23,7 +28,7 @@ IDS = {
 }
 IDS["Hybrid"] = IDS["Invasion"] | IDS["Conquest"]
 AUTO_INVASION_MAP_ID = "auto:invasion"
-BRIDGE_CLIENT_VERSION = "0.6.6"
+BRIDGE_CLIENT_VERSION = "0.9.1"
 ITEM_NAMES = {
     ITEM_BASE + 1: "Archer Unlock", ITEM_BASE + 2: "Knight Unlock",
     ITEM_BASE + 3: "Catapult Unlock", ITEM_BASE + 4: "Bricktron Reinforcement",
@@ -172,6 +177,95 @@ def save_json(path, data):
     temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(temp, path)
 
+def wire_text(value):
+    """Encode free-form UTF-8 without introducing newlines/tabs to wire rows."""
+    return base64.b64encode(str(value if value is not None else "").encode("utf-8")).decode("ascii")
+
+
+def campaign_wire_lines(token, protocol, status, message, campaign, default_mode):
+    """Versioned, non-JSON snapshot for old Unity JsonUtility runtimes.
+
+    Each fixed column is either ASCII numeric or base64(UTF-8). Missions are
+    exactly seven tab-separated columns. Never serialize connection secrets.
+    """
+    missions = campaign.get("missions", []) if isinstance(campaign, dict) else []
+    if not isinstance(missions, list):
+        missions = []
+    missing = campaign.get("missing_modes") or []
+    if not isinstance(missing, list):
+        missing = []
+    lines = [
+        "CASTLE_STORY_AP_CAMPAIGN_V1",
+        str(token),
+        str(int(protocol)),
+        wire_text(status),
+        wire_text(message),
+        "1" if campaign.get("ready") is True else "0",
+        wire_text(campaign.get("mode") or default_mode),
+        wire_text(campaign.get("warning") or ""),
+        wire_text(",".join(m for m in missing if m in ("Invasion", "Conquest"))),
+        str(len(missions)),
+    ]
+    for mission in missions:
+        if not isinstance(mission, dict):
+            raise ValueError("Invalid campaign mission in wire snapshot")
+        lines.append("\t".join([
+            wire_text(mission.get("id")),
+            wire_text(mission.get("mode")),
+            wire_text(mission.get("map_id")),
+            wire_text(mission.get("map")),
+            str(int(mission.get("wave_goal") or 0)),
+            str(int(mission.get("shard_start") or 0)),
+            str(int(mission.get("shard_count") or 0)),
+        ]))
+    return "\n".join(lines) + "\n"
+
+
+def save_campaign_wire(path, content):
+    """Atomic replacement avoids Unity ever observing a partial manifest."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(content, encoding="ascii")
+    os.replace(temp, path)
+
+
+def start_parent_watch(parent_pid):
+    """Exit when the specific Windows game process exits, including crashes.
+
+    Keep an open process HANDLE to avoid confusing a recycled PID with the
+    original Castle Story instance. Manual CLI bridges have no parent-pid.
+    """
+    if not parent_pid:
+        return None
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x00100000, False, parent_pid)  # SYNCHRONIZE
+    if not handle:
+        raise RuntimeError("Castle Story parent process unavailable")
+
+    def monitor():
+        try:
+            # WAIT_OBJECT_0: process object signaled, not merely PID absent.
+            if kernel32.WaitForSingleObject(handle, 0xFFFFFFFF) == 0:
+                LOG.info("Castle Story process exited; stopping bridge.")
+                os._exit(0)
+        finally:
+            kernel32.CloseHandle(handle)
+
+    thread = threading.Thread(target=monitor, name="castle-story-parent", daemon=True)
+    thread.start()
+    return thread
+
+
 def token_for(seed, slot, player, team=0):
     return hashlib.sha256(f"{seed}/{team}/{slot}/{player}".encode()).hexdigest()[:24]
 
@@ -196,6 +290,9 @@ class Bridge:
         self.campaign = {}
         self.source_campaign = {}
         self.protocol_version = 0
+        self.gameplay_protocol = 0
+        self.gameplay_unit_rewards = False
+        self.gameplay_unlocks_required = False
         self.slot_data_provided = False
         self.slot_data_fields = []
         self.manifest_provided = False
@@ -224,6 +321,9 @@ class Bridge:
                 if isinstance(self.campaign, dict) and
                    isinstance(self.campaign.get("missions"), list) else -1,
             "protocol_version": self.protocol_version,
+            "gameplay_protocol": self.gameplay_protocol,
+            "gameplay_unit_rewards": self.gameplay_unit_rewards,
+            "gameplay_unlocks_required": self.gameplay_unlocks_required,
             "bridge_client_version": BRIDGE_CLIENT_VERSION,
             "updated_at": time.time(),
             "slot_data_provided": self.slot_data_provided,
@@ -259,6 +359,16 @@ class Bridge:
                 "mission_count": len(missions),
                 "missions": missions,
             })
+            # Keep the versioned text snapshot adjacent to the JSON one. It is
+            # deliberately simple to parse on Unity 5.6 / .NET 3.5.
+            # Publish all manifests before session.json (our heartbeat marker).
+            save_campaign_wire(
+                self.directory / "campaign_wire.txt",
+                campaign_wire_lines(
+                    self.token, self.protocol_version, self.campaign_status,
+                    self.campaign_message, campaign, self.mode,
+                ),
+            )
             save_json(self.directory / "session.json", self.session_data())
 
     def persist_items(self):
@@ -290,6 +400,16 @@ class Bridge:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
             self.mode = mode
             self.protocol_version = int(slot_data.get("protocol_version") or 0)
+            native_rules = slot_data.get("gameplay_rules")
+            if isinstance(native_rules, dict) and native_rules.get("version") == 1:
+                self.gameplay_protocol = 1
+                self.gameplay_unit_rewards = native_rules.get("native_unit_rewards") is True
+                self.gameplay_unlocks_required = (
+                    native_rules.get("unlock_required_for_equipped_units") is True)
+            else:
+                self.gameplay_protocol = 0
+                self.gameplay_unit_rewards = False
+                self.gameplay_unlocks_required = False
             received_campaign = slot_data.get("campaign")
             if "campaign" not in slot_data:
                 self.campaign = {}
@@ -321,6 +441,9 @@ class Bridge:
             LOG.info("AP slot_data: keys=%s protocol=%s campaign=%s missions=%s",
                      self.slot_data_fields, self.protocol_version,
                      self.campaign_status, len(self.campaign.get("missions", [])))
+            LOG.info("[AP GAMEPLAY] protocol=%s native_units=%s unlocks=%s",
+                     self.gameplay_protocol, self.gameplay_unit_rewards,
+                     self.gameplay_unlocks_required)
             if self.campaign_message:
                 LOG.warning("[AP CAMPAIGN] %s", self.campaign_message)
             self.goal_wave = int(slot_data.get("goal_wave", 10))
@@ -471,10 +594,14 @@ class Bridge:
     async def poll_game(self, ws):
         while True:
             await asyncio.sleep(0.5)
+            control = getattr(self, "stdin_control", None)
+            latest = control.drain() if control is not None else (
+                effective_connection_request(
+                    self.directory, getattr(self, "fallback_request", None)))
+            if control is not None and control.closed.is_set():
+                raise BridgeShutdown()
             if (getattr(self, "request_snapshot", None) is not None and
-                    effective_connection_request(
-                        self.directory, getattr(self, "fallback_request", None)
-                    ) != self.request_snapshot):
+                    latest != self.request_snapshot):
                 raise ConnectionChanged()
             self.refresh_dynamic_campaign()
             # Heartbeat: Unity must not mistake yesterday's persisted
@@ -504,8 +631,83 @@ async def run_once(url, bridge):
         bridge.connected = False
         bridge.persist_session()
 
+class StdinControl:
+    """In-memory IPC: passwords never enter connection.json or log files.
+
+    Unity writes one JSON command per line to the child's anonymous stdin
+    pipe. Only the server and slot are remembered by the Unity plugin.
+    """
+    def __init__(self, start_reader=True, directory=None):
+        self.queue = queue.Queue()
+        self.request = None
+        self.closed = threading.Event()
+        self.directory = Path(directory) if directory is not None else None
+        if start_reader:
+            self.reader = threading.Thread(target=self._read, daemon=True)
+            self.reader.start()
+
+    def _read(self):
+        try:
+            for line in sys.stdin:
+                try:
+                    if line.startswith("APIPC1:"):
+                        raw = base64.b64decode(line[7:].strip(), validate=True)
+                        value = json.loads(raw.decode("utf-8"))
+                    else:
+                        # Standalone test clients may still use JSON messages.
+                        value = json.loads(line)
+                    if isinstance(value, dict):
+                        self.queue.put(value)
+                except (ValueError, TypeError, binascii.Error):
+                    LOG.warning("Invalid stdin control message (credentials redacted)")
+        finally:
+            # Anonymous pipe EOF means Unity/the launching process died.
+            # Never keep reconnecting as an orphaned background bridge.
+            self.closed.set()
+
+    def apply(self, command):
+        action = command.get("cmd")
+        if action == "shutdown":
+            self.request = None
+            self.closed.set()
+            return
+        if action == "disconnect":
+            self.request = None
+        elif action == "connect":
+            address = str(command.get("server") or "").strip()
+            slot = str(command.get("slot") or "").strip()
+            password = str(command.get("password") or "")
+            if not address or not slot:
+                LOG.warning("Ignored incomplete connection request")
+                return
+            self.request = (normalize_url(address), slot, password)
+        else:
+            LOG.warning("Unsupported bridge control command")
+            return
+        # Ack only that the private IPC message reached the bridge. Neither
+        # password, server nor slot are ever written into this diagnostic.
+        request_id = command.get("request_id")
+        if self.directory is not None and isinstance(request_id, str):
+            save_json(self.directory / "bridge_command_ack.json", {
+                "request_id": request_id,
+                "cmd": action
+            })
+
+    def drain(self):
+        while True:
+            try:
+                self.apply(self.queue.get_nowait())
+            except queue.Empty:
+                return self.request
+
+
 class ConnectionChanged(Exception):
     """User edited in-game AP connection settings; reconnect cleanly."""
+    pass
+
+
+class BridgeShutdown(Exception):
+    """The owning Castle Story process closed its control channel."""
     pass
 
 def read_connection_request(directory):
@@ -540,13 +742,22 @@ def write_status(directory, state, message):
     })
 
 async def main(args):
+    start_parent_watch(getattr(args, "parent_pid", 0))
     directory = Path(args.bridge_dir).resolve()
     bridge = None
     active = None
     delay = 1
     static = (normalize_url(args.server), args.slot, args.password) if args.server and args.slot else None
+    control = StdinControl(directory=directory) if getattr(args, "stdin_control", False) else None
     while True:
-        requested = effective_connection_request(directory, static)
+        requested = control.drain() if control is not None else (
+            effective_connection_request(directory, static))
+        if control is not None and control.closed.is_set():
+            if bridge is not None:
+                bridge.connected = False
+                bridge.persist_session()
+            write_status(directory, "stopped", "Castle Story closed.")
+            return
         if requested is None:
             if bridge is not None:
                 bridge.connected = False
@@ -564,6 +775,7 @@ async def main(args):
             bridge = Bridge(directory, requested[1], requested[2])
             bridge.request_snapshot = requested
             bridge.fallback_request = static
+            bridge.stdin_control = control
             delay = 1
         try:
             write_status(directory, "connecting", "Connecting to Archipelago...")
@@ -571,6 +783,12 @@ async def main(args):
             delay = 1
         except ConnectionChanged:
             write_status(directory, "reconnecting", "Settings changed in game.")
+            delay = 1
+        except BridgeShutdown:
+            bridge.connected = False
+            bridge.persist_session()
+            write_status(directory, "stopped", "Castle Story closed.")
+            return
             delay = 1
         except (OSError, websockets.exceptions.WebSocketException,
                 RuntimeError, ValueError, KeyError) as exc:
@@ -586,6 +804,10 @@ if __name__ == "__main__":
     p.add_argument("--server", default="", help="Optional initial AP server. Omit to use the in-game AP login.")
     p.add_argument("--slot", default="", help="Optional AP slot name, paired with --server")
     p.add_argument("--password", default="")
+    p.add_argument("--stdin-control", action="store_true",
+                   help="Secure per-run in-memory credentials via anonymous stdin pipe")
+    p.add_argument("--parent-pid", type=int, default=0,
+                   help="Owning Castle Story PID (Windows only, game-launched bridge)")
     p.add_argument("--bridge-dir", required=True,
                    help="Castle Story/BepInEx/config/castle_story_archipelago")
     logging.basicConfig(level=logging.INFO)

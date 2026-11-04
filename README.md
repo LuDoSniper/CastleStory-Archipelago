@@ -1,6 +1,912 @@
-# Castle Story × Archipelago — v0.6.6 (lecture du manifeste de campagne)
+# Castle Story × Archipelago — v0.9.1 (cadeaux directs, fabrication indépendante)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.9.1 — Gifts bypass crafting unlocks
+
+Archipelago items `Equipped Archer`, `Equipped Knight` and `Equipped Alchemist` grant the unit directly without waiting for a crafting unlock. Research and crafting restrictions are a separate, not-yet-implemented game integration. Existing v0.9.0 seeds remain compatible: their obsolete gift-lock flag is ignored.
+
+Test across two Archipelago slots (`CS` plus another configured game): checks in either game can send items to the other. The multiworld placement is random, so do not expect an equipped unit from the first check. F10 logs the reward ticket; an unavailable native spawn template may keep the unit pending, never a missing crafting unlock.
+
+## v0.9.0 — Première passe de gameplay réel
+
+L'interface native et la persistance des sauvegardes des versions précédentes
+restent inchangées. Cette version ajoute un **contrat de gameplay v1** entre
+l'APWorld, le bridge et le mod Unity. Les anciennes seeds sans ce contrat
+gardent le comportement précédent ; **il faut une nouvelle seed générée
+avec le nouvel APWorld pour tester les récompenses automatiques**.
+
+### Fonctionnel dans le code (CI et simulation protocole)
+
+- **Checks Invasion** : chaque vague franchie produit une location
+  Archipelago unique ; l'historique par seed/équipe/slot est conservé.
+- **Checks Conquête** : une mission Conquête effectivement lancée ou chargée
+  dans la seed active envoie automatiquement ses captures de cristaux et sa
+  victoire, même si les anciennes options expérimentales sont sur `false`.
+  Le filtre d'appartenance au joueur, le dédoublonnage des cristaux et la
+  correspondance carte/mission restent obligatoires.
+- **Récompenses vivantes** : `Bricktron Reinforcement`, `Equipped Worker`,
+  `Equipped Archer`, `Equipped Knight`, `Equipped Alchemist` peuvent
+  déclencher la création d'un vrai Bricktron via
+  `Brix.Game.Network.UNetProjectCmd.SpawnUnit`, **mais uniquement après
+  l'observation en jeu d'un modèle natif possédé localement**. Ni AssetKey,
+  ni propriétaire réseau, ni position initiale ne sont inventés.
+- **Progression de récompenses** : `Archer Unlock`, `Knight Unlock` et
+  `Alchemist Unlock` sont destinés à débloquer leur fabrication, pas les cadeaux. Si
+  `Equipped Archer` arrive avant `Archer Unlock`, le cadeau est
+  livré sans attendre ce déblocage de fabrication. Ces unlocks **ne verrouillent pas encore toutes les commandes
+  de construction ou d'équipement vanilla** : ce serait un changement plus
+  large à faire après validation des APIs natives de ces menus.
+- **Pas de doublons** : les objets reçus sont identifiés par leur index
+  Archipelago et persistés dans `bonus_rewards_<token>.json`. Un cadeau
+  passe à `spawning` avant l'appel natif ; un appel incertain finit en
+  `review` et ne se répète pas automatiquement. Les templates Unity
+  sont oubliés à chaque changement de scène.
+- **Pool de récompenses utilisable** : la nouvelle génération adapte son
+  contenu au nombre de checks ; aucun unlock n'est placé sans un cadeau
+  d'unité correspondant. Les doublons éventuels de renforts sont choisis
+  de manière déterministe à partir de la seed. Les identifiants Archipelago
+  préexistants restent les mêmes.
+
+### Pas encore revendiqué comme fonctionnel
+
+`Wood Supply`, `Stone Supply`, `Wisp Supply`, `Catapult Unlock` et
+les manipulations du plafond des cristaux demandent encore un adaptateur
+natif confirmé. Ces objets restent reconnus dans le protocole mais **ne
+sont pas inclus dans le nouveau pool de récompenses actives**.
+Les unités cadeaux comptent pour l'instant dans le plafond de population
+normal du jeu : aucune exclusion artificielle non validée n'est appliquée.
+
+### Premier test gameplay conseillé
+
+1. Installer le nouveau `castle_story.apworld` dans ArchiLan, puis
+   **générer une nouvelle seed** avec `gameplay_rewards: true` (exemple
+   `CastleStoryPlayer.yaml`). Ne pas écraser les anciennes seeds ou saves.
+2. Installer le **kit client v0.9.0 complet** (DLL et bridge), connecter le
+   nouveau slot, puis commencer **une partie solo de test jetable**.
+3. Jouer et passer une vague, puis vérifier que le check arrive sur ArchiLan.
+   Un cadeau `Equipped Worker` ou `Bricktron Reinforcement` reçu pendant
+   la partie doit rester `pending` jusqu'à la découverte d'une création
+   native d'unité locale, puis devenir `delivered` après confirmation.
+   Une unité avancée offerte n'attend pas son Unlock, réservé à la fabrication.
+4. **F10** imprime les tickets des récompenses, `[AP BONUS]`,
+   `[AP REWARD DELIVERED]`, `[AP REWARD REVIEW]` dans
+   `BepInEx/LogOutput.log`. **F8** affiche le diagnostic des checks et des
+   objets reçus. Si aucune unité n'est créée, conserver ces logs avant de
+   tenter autre chose : ne pas forcer un spawn sans modèle vérifié.
+5. Pour tester Conquête ou Hybride, renseigner de vraies cartes Conquête et
+   leurs nombres de cristaux vérifiés. Le YAML Hybride fourni est seulement
+   un modèle, pas une seed prête à générer.
+
+Le paramètre BepInEx `Bonus Rewards/DisableSeedUnitRewards=true` désactive
+immédiatement les cadeaux natifs de gameplay sur une nouvelle seed, sans
+désactiver les checks ; il faut relancer le jeu pour recharger la configuration.
+Le paramètre expérimental `EnableNativeBonusSpawns` concerne toujours les
+anciens tests, et n'est pas nécessaire pour les nouvelles seeds. Aucune
+validation automatisée ne remplace le test réel des méthodes Unity 5.6.
+
+## v0.8.1 — Fiabilisation de l'envoi des checks
+
+Retour de test : les sauvegardes v0.8.0 restent visibles après redémarrage,
+mais certains nouveaux checks ne sont plus reçus par ArchiLAN.
+
+- `checks.json` était encore remplacé avec `File.Replace(..., null)` :
+  le même appel problématique sous Windows que nous avions déjà corrigé
+  pour les registres de sauvegarde. Désormais le remplacement utilise un
+  chemin de backup valide, puis une copie compatible de secours en cas
+  d'échec. Les écritures sont retentées sans perdre l'événement.
+- Les checks et la progression sont conservés **par token déterministe
+  de seed/équipe/slot** dans `BepInEx/config/castle_story_archipelago/checks_by_run/`.
+  Cela évite qu'une reconnexion à une autre run écrase l'historique de
+  la précédente. Les anciens `checks.json` sont repris si leur token
+  correspond, sans fusionner deux seeds différentes.
+- Quand le bridge se reconnecte à la même run, le mod republie le ledger
+  vers le fichier live `checks.json` afin de rejouer les événements non
+  encore consommés par le serveur. En quittant le jeu, un ledger sale est
+  écrit avant l'arrêt du bridge.
+- Dans le log, `[AP CHECK LEDGER]` indique la restauration, `[AP CHECK FILE]`
+  confirme l'écriture et `[AP CHECK]` distingue un nouveau check d'une vague
+  **déjà enregistrée**. Une location Archipelago ne peut être cochée qu'une
+  seule fois pour la même seed ; rejouer la vague 1 après l'avoir cochée ne
+  doit donc pas recréer un check. Le bridge refait ses envois au réseau sur
+  chaque reconnexion.
+
+**Test :** conserver la seed et le slot, charger sa sauvegarde, avancer
+jusqu'à une vague *pas encore cochée* dans cette run, puis vérifier le check
+sur ArchiLAN. En cas d'échec, transmettre le nouveau `LogOutput.log` et
+le statut des locations côté serveur. Il n'est pas nécessaire de relancer
+le script d'association des sauvegardes.
+
+## v0.8.0 — Sauvegardes par seed/équipe/slot et bridge attaché au jeu
+
+Retour du test en jeu : la carte de la seed est maintenant sélectionnable.
+Après avoir créé une sauvegarde Invasion, celle-ci apparaît dans Charger
+partie jusqu'au redémarrage de Castle Story ; elle disparaît ensuite malgré
+la reconnexion à la même seed. Le bridge reste également actif après la sortie
+du jeu. Ces deux défauts sont traités indépendamment.
+
+- **Identité stable** : une sauvegarde nouvellement créée en session AP est
+  identifiée par la seed Archipelago, l'équipe et le numéro/nom du slot.
+  L'identifiant du processus du bridge n'intervient pas dans ce marquage.
+  Les anciens enregistrements v0.7.x conservent leur compatibilité, avec un
+  contrôle strict du token déterministe lorsque la donnée d'équipe manque.
+- **Métadonnées indépendantes** : en plus de `save_tags.json` et
+  `Info/Saves/.archipelago-save-tags.json`, chaque sauvegarde reçoit deux
+  petits fichiers de métadonnées **hors des dossiers natifs de sauvegarde** :
+  `Info/ArchipelagoSaveTags/<hash>.json` et
+  `BepInEx/config/castle_story_archipelago/save_tags.d/<hash>.json`.
+  Ils sont relus au démarrage. Les écritures ratées sont retentées ; les
+  preuves contradictoires sont bloquées, jamais attribuées par devinette.
+  Aucun fichier de sauvegarde du jeu n'est modifié.
+- **Fin de processus bridge** : le plugin envoie un ordre d'arrêt dès
+  `OnApplicationQuit`, suivi d'une terminaison de secours de son propre
+  processus. Le bridge s'arrête aussi lorsque son canal stdin est fermé,
+  ou lorsque le processus Windows parent surveillé disparaît brutalement.
+  Un bridge lancé manuellement sans `--parent-pid` reste indépendant.
+- **Le lancement et les checks restent protégés** par les règles de la seed,
+  et le préfiltrage UI de la v0.7.9 n'est pas modifié.
+
+### Test de non-régression
+
+Fermer le jeu, extraire entièrement le dernier
+`castle-story-archipelago-test-kit`, exécuter
+`Install-CastleStoryAP.ps1` et reconnecter à la **même seed**. Sans régénérer
+la run : lancer Invasion sur la carte autorisée, sauvegarder, revenir à Charger,
+fermer complètement Castle Story, contrôler que le bridge n'est plus dans le
+Gestionnaire des tâches, puis rouvrir le jeu et reconnecter le **même slot**
+de la **même seed**. La sauvegarde doit rester visible. Déconnecter puis
+connecter une autre seed/slot doit la rendre invisible ; revenir à la seed
+originale doit la faire réapparaître. Si le résultat diverge, transmettre
+`BepInEx/LogOutput.log`, en particulier `[AP RUN ID]`,
+`[AP SAVE SIDECAR]`, `[AP SAVE POLICY]` et `[AP BRIDGE]`.
+
+**Remarque de migration :** les sauvegardes anciennes dépourvues de toute
+preuve d'appartenance (index et backups perdus) ne peuvent pas être réattribuées
+automatiquement ; le script manuel existant reste disponible pour les
+associer explicitement, sans modifier la save elle-même.
+
+## Correctif après le retour en jeu du 3 novembre 2026
+
+Le journal de test de la v0.7.9 montre une authentification valide, une campagne
+Invasion prête et une unique mission, mais **10 cartes affichées** et **0 sauvegarde
+associée parmi 26 dossiers**. Les filtres de mode fonctionnent.
+
+- Les cartes utilisent maintenant le vrai conteneur `SpNewGameStarterMenu`, et
+  non uniquement les objets nommés `NewGameLibraryMenu`. Leur titre est associé
+  soit au libellé Brix connu, soit à un dossier technique **déjà observé** dans
+  le catalogue du jeu. Aucun conteneur commun n'est désactivé ; les cartes
+  individuelles sont masquées avant rendu. Les journaux `[AP MAP UI]`
+  indiquent l'ID, l'autorisation et le nom réel de la carte ou `not-found`.
+- Les associations présentes dans les fichiers `.bak*` ou les archives
+  `upgrade-backup-*` sont récupérées en évitant les conflits. Aucun nom de
+  sauvegarde n'est attribué arbitrairement à la seed. Le diagnostic
+  `[AP SAVE RECOVERY]` précise combien de tags sont récupérés.
+- **Si tous les registres et leurs backups sont vides**, le mod ne peut pas
+  reconstruire de preuve d'appartenance à une seed. Dans ce cas il faut examiner
+  le registre et l'ancien résultat du script d'association avant de réessayer ;
+  aucune sauvegarde native n'est modifiée automatiquement.
+
+Pour tester le dernier kit CI sur la branche de la PR : installer le package
+complet, se reconnecter à **la même seed**, vérifier que seule la carte
+`official:TroubledHeaps` reste disponible en Invasion et contrôler la présence
+de `ARCHILAN-TEST-01` dans Charger partie. Si cette sauvegarde manque encore,
+conserver `BepInEx/LogOutput.log` avec les lignes `[AP SAVE RECOVERY]`,
+`[AP SAVE POLICY]`, `[AP UI PREPARED]` et `[AP MAP UI]`.
+
+## v0.7.9 — Ne jamais masquer un menu entier pendant sa construction
+
+Le test v0.7.8 a confirmé **l'absence totale de flash visuel**, mais
+a révélé une régression : plus aucune carte ni sauvegarde n'était
+sélectionnable. Aucun nouveau `LogOutput.log` n'accompagnait ce retour,
+donc le diagnostic est basé sur le code exact installé.
+
+Le hook `Text.text` v0.7.8 pouvait appeler
+`FindNativeChoiceRoot` et `SetActive(false)` **pendant que Brix
+construisait encore la carte**. À ce moment, certains libellés frères
+n'existaient pas et la recherche pouvait remonter à un conteneur
+partagé ou désactiver un élément que Brix voulait encore remplir.
+Le module pouvait ainsi rendre tout un écran vide.
+
+### Correctifs
+
+- Remplacement de la désactivation précoce par **CanvasGroup** :
+  `alpha=0`, `interactable=false`, `blocksRaycasts=false`.
+  Lorsqu'un `LayoutElement` existe sur la carte elle-même, son
+  `ignoreLayout` est activé. Brix peut **continuer la construction
+  et la réutilisation de la carte** sans `SetActive(false)`.
+- Un libellé n'est masqué que si son ascendance contient une **carte
+  individuelle de prefab connu** : `GamemodeButton`,
+  `Btn_DblTxt_RightIcon`, ou `ThumbnailListItem` dans la bonne
+  bibliothèque de cartes/sauvegardes. Le mod ne remonte plus à
+  des panneaux parents partagés sur la base de textes incomplets.
+- Les labels **autorisés** (notamment Invasion, carte de la seed et
+  sauvegarde portant le bon tag) restaurent immédiatement le
+  masque s'il provient d'une ancienne utilisation du même objet
+  par le pool Brix. Les sous-titres ne peuvent pas annuler le
+  masquage d'une carte de menu interdite.
+- `Canvas.willRenderCanvases` réévalue les textes candidats
+  une fois que Brix les a renseignés, **avant le dessin** et sans
+  repasser sur tous les contrôles après navigation.
+- Changement de scène, connexion et déconnexion nettoient
+  les masques temporaires et appliquent la politique actualisée
+  dans la même frame. Les contrôles et leurs animations natives
+  restent inchangés.
+- Journal de diagnostic `[AP SAVE POLICY]` par sauvegarde taguée :
+  indique la présence du dossier, la concordance de seed/token
+  et son autorisation, **sans afficher le token**. Lecture du
+  registre tolérante au BOM UTF-8 issu de PowerShell.
+- Les restrictions des modes et des sauvegardes restent
+  **vérifiées aussi au lancement**. Si le nom ou le prefab d'une
+  carte est inconnu, la couche visuelle ne doit jamais désactiver
+  tout son panneau ; la protection du lancement est maintenue.
+
+### Vérification manuelle
+
+Installer la v0.7.9 sans régénérer la seed ni exécuter à nouveau
+le script d'association. Se reconnecter et ouvrir Nouvelle partie :
+au moins le mode Invasion puis `official:TroubledHeaps` doivent être
+sélectionnables ; les modes interdits doivent rester invisibles.
+Dans Charger partie, `ArchiLan-Test-01` doit être visible si le
+log `[AP SAVE POLICY]` indique `present=True tokenMatch=True
+allowed=True`. Tester la reprise, puis le retour au menu et la
+déconnexion. Conserver un nouveau `BepInEx/LogOutput.log` si un
+élément manque encore.
+
+La CI vérifie la compilation et les régressions de code mais
+**ne simule pas la hiérarchie réelle des prefabs Brix** ; seul le
+test en jeu permettra de confirmer la sélection de cartes/saves
+et l'absence de micro-flash.
+
+## v0.7.8 — Préfiltrage natif au lieu de cacher après affichage
+
+Le nouveau retour du test v0.7.7 confirme que
+`Associate-CastleStoryAPSave.ps1` a **réussi à enregistrer**
+`ArchiLan-Test-01` pour la seed actuelle, la mission
+`invasion_1`, et la carte `official:TroubledHeaps`.
+Cependant le log du jeu fourni affiche **0 tags lors de son
+démarrage** et **24 sauvegardes masquées sur 24**. Il date donc
+d'un démarrage où le registre n'était pas encore lu correctement.
+Il faut regarder le nouveau journal après installation, sans
+réassocier artificiellement la même sauvegarde.
+
+### Changement architectural
+
+L'ancien comportement faisait d'abord apparaître la liste native,
+puis lançait trois ou quatre recherches différées (30–250 ms) pour
+masquer les éléments interdits. Ce mécanisme entraînait des flashes
+et des temps de filtrage dépassant parfois 200 ms dans les logs.
+
+La nouvelle stratégie, `mod/NativePreRenderHooks.cs` :
+
+1. Charge les tags, recense les noms de dossiers présents et
+   **prépare l'ensemble des sauvegardes autorisées dès la connexion
+   Archipelago authentifiée** ; hors connexion, seules les saves
+   classiques sont autorisées.
+2. Conserve les règles de cartes et de modes déjà connues. Il ne
+   recherche plus tous les boutons après chaque clic ni après
+   chaque ouverture de bibliothèque.
+3. Intercepte l'attribution du texte natif
+   `UnityEngine.UI.Text.text` ainsi que son activation
+   `OnEnable`. Lorsqu'un bouton ou une carte de sauvegarde est
+   construit par Brix, il est classé et masqué **avant le rendu**.
+   Cela s'applique aussi aux cartes réutilisées par le moteur.
+4. Le callback `Canvas.willRenderCanvases` maintient les cartes
+   déjà refusées invisibles, sans parcourir la scène entière.
+   Les anciens filtres temporisés ne servent plus qu'en cas
+   d'impossibilité d'installer ce hook (annoncée dans le log).
+5. Une modification externe du registre est détectée par les dates
+   de fichiers et **recharge les tags** sans redémarrer. Si une
+   sauvegarde déjà affichée devient autorisée, sa carte est
+   réconciliée sans rouvrir toute la liste.
+
+**Limite technique :** Castle Story ne construit pas tous ses menus
+à la connexion : certaines cartes sont instanciées quand le joueur
+entre dans un écran. Nous préchargeons **les décisions**, puis les
+appliquons pendant la construction de chaque contrôle — sans montrer
+le jeu non modifié. Le bon fonctionnement exact de ces hooks
+doit être confirmé par le test visuel, et non seulement la CI.
+
+### Correctifs de registre et de sécurité
+
+- Un `save_tags.json` de schéma 1 avec `saves: null` ou
+  `saves: []` est désormais accepté comme **vide valide**,
+  sans bloquer les prochains enregistrements.
+- Le plugin ne dépend plus de `File.Replace(..., null)` sur
+  Windows (déjà fautif dans l'utilitaire PowerShell).
+  Une copie de secours est créée avant chaque écriture et la
+  copie persistante dans `Info/Saves` est écrite en premier.
+- Une simple `session.json` conservée depuis une ancienne
+  connexion n'autorise plus les sauvegardes Archipelago :
+  il faut une **authentification réellement réussie**.
+  Les micro-coupures temporaires du heartbeat ne font pas
+  basculer la liste d'une seed active en mode vanilla.
+- Le sprite primaire natif Archipelago, le timing approuvé des
+  crédits, l'ordre Jouer/Archipelago/Options et la vérification
+  des checks ne sont pas modifiés.
+
+### Test ciblé
+
+1. Fermer le jeu, installer le kit v0.7.8 et reconnecter
+   l'**exacte même seed**.
+2. Dans `BepInEx/LogOutput.log`, chercher
+   `[AP SAVE] Imported 1 tags`, `[AP UI NATIVE]` et
+   `[AP UI PREPARED]`. Le compteur attendu pour la seed
+   n'est plus `tagged=0`.
+3. Ouvrir Jouer, Nouvelle partie, puis Retour plusieurs fois :
+   aucun bouton interdit ne doit apparaître brièvement.
+4. Ouvrir Charger partie : `ArchiLan-Test-01` devrait être
+   visible, sans les sauvegardes ordinaires ; lancer la
+   sauvegarde seulement si sa seed/mode/carte correspondent.
+5. Déconnecter Archipelago puis rouvrir Charger partie :
+   les sauvegardes classiques reviennent et les sauvegardes
+   AP ne doivent pas apparaître.
+6. Si une liste reste vide ou une micro-animation apparaît,
+   envoyer le journal : le système indique maintenant
+   explicitement si l'interception pré-rendu a pu être
+   installée. Les tests CI ne remplacent pas l'essai Unity.
+
+## v0.7.7 — Ordre stable, sous-menus réactivés et chargement des saves
+
+Le test réel v0.7.6 confirme enfin le **véritable bouton primaire Archipelago**
+et son animation ; ce rendu est conservé. Les checks sont fonctionnels.
+Les problèmes reproduits sont désormais traités séparément :
+
+- **Ordre accueil** : Castle Story réordonne ses éléments via ses
+  layouts Brix après des cycles Jouer → Retour. Le mod maintient
+  `Jouer → Archipelago → Options` dans `LateUpdate`, en remettant
+  la copie du vrai bouton juste après l'original, avec espacement
+  calculé à partir des coins des `RectTransform`.
+- **Options masquées qui reviennent** : Castle Story recycle les
+  mêmes objets de carte et peut rappeler `SetActive(true)`.
+  Le filtre réapplique désormais `SetActive(false)` même lorsque
+  le contrôle figure déjà dans son registre des objets masqués.
+  Les entrées Nouvelle partie, Charger partie et Multijoueur
+  demeurent explicitement autorisées.
+- **Impossible de charger une save** : la vraie classe
+  `SpLoadGameStarterMenu` hérite de `BaseMapStarterMenu.OnOk`.
+  L'ancien garde-fou la traitait comme une nouvelle partie et
+  refusait `Info/Saves/<save>/Heightmap.png` faute de mode/carte.
+  Le correctif fait désormais passer ce cas par
+  `ValidateNativeLoadStarter`, en extrayant le **dossier de sauvegarde**
+  et en vérifiant son tag contre la seed active. En cas de
+  correspondance, `SelectMission` est restauré **avant**
+  le chargement natif. Les anciennes protections de lancement
+  restent en place pour les nouvelles parties.
+- **Filtrage du menu Charger** : le hook observe maintenant les
+  méthodes `OpenSelf` **héritées** des classes Brix
+  `SpLoadGameLibraryMenu`, avec un filtre différé des cartes
+  associées aux vrais dossiers de sauvegarde. Les dossiers sont
+  reconnus par leur libellé complet ou la première ligne avant
+  une date. Un rechargement de menu renouvelle le filtre.
+  Le prochain log indiquera `[AP SAVE UI]` et pourra révéler
+  les textes natifs si la liste ne correspond pas aux dossiers.
+- **Micro-déconnexions** : le jeu ne doit jamais exposer des
+  sauvegardes classiques au milieu d'une session AP à cause
+  d'un heartbeat ArchiLAN momentanément perdu. La politique
+  d'isolation repose sur la seed prête, jusqu'à une déconnexion
+  explicite, et non sur un booléen réseau volatile.
+- **Durabilité** : `save_tags.json` reste dans BepInEx/config,
+  mais une copie non intrusive `.archipelago-save-tags.json`
+  est conservée à la racine du dossier `Info/Saves` (pas dans les
+  fichiers de jeu de chaque sauvegarde). Les deux sont lus au
+  lancement, ainsi que les anciens `upgrade-backup-*` lorsqu'ils
+  existent. L'installateur sauvegarde désormais explicitement le
+  registre et les préférences avant remplacement.
+
+### Une sauvegarde ancienne dont le tag a disparu
+
+Le journal v0.7.5 avait confirmé la création d'une sauvegarde
+Archipelago, mais celui de v0.7.6 indique **0 tags récupérés**.
+Une sauvegarde déjà privée de tag ne peut pas être attribuée
+automatiquement à une seed en se fiant à son nom.
+
+Le kit contient le script facultatif `Associate-CastleStoryAPSave.ps1`.
+Il peut **associer explicitement** une sauvegarde existante à la
+seed présente dans `session.json`, uniquement après confirmation
+et avec une unique mission identifiée (ou `-MissionId` fourni).
+Il ne touche pas à `Heightmap.png` ni aux autres données de jeu,
+sauvegarde les métadonnées précédentes et refuse d'écraser un tag.
+
+Depuis un terminal PowerShell, **jeu fermé après une connexion
+valide à cette seed** :
+
+```powershell
+.\Associate-CastleStoryAPSave.ps1 -GameDirectory "C:\Program Files (x86)\Steam\steamapps\common\Castle Story" -SaveName "NOM-DE-LA-SAUVEGARDE"
+```
+
+Ne faire cette action que sur une sauvegarde dont l'origine
+Archipelago est certaine. **Ne jamais associer une save vanilla
+ou une save d'une autre seed.**
+
+### Test manuel recommandé
+
+Installer 0.7.7 ; vérifier l'ordre en faisant Jouer → Retour
+plusieurs fois ; naviguer entre les sous-menus pour confirmer que
+les cadres interdits ne réapparaissent pas. Puis, sous une seed
+connectée, créer une sauvegarde **sous un nouveau nom** si le
+registre n'a pas été restauré, revenir au menu et ouvrir Charger.
+Seules les sauvegardes de la seed doivent apparaître, et une
+save associée doit être chargeable, avec maintien des checks.
+Déconnecté, seules les sauvegardes normales doivent être visibles.
+Ces points doivent être confirmés dans le jeu : la CI ne charge
+pas les interfaces du jeu ni de sauvegarde propriétaire.
+
+## v0.7.6 — Retour au menu, libellés natifs et survol
+
+Cette passe corrige les défauts observés dans `LogOutput(3).log` avec
+Castle Story 0.7.5 : après Save & Quit vers `SceneMenu`, toutes les
+modifications de menu disparaissaient, alors que la session AP et ses
+checks restaient fonctionnels.
+
+- **Retour au menu** : `OnArchipelagoSceneChanged` invalide les
+  références aux objets de la scène précédente, réinitialise les
+  filtres, les caches et la recherche bornée du bouton « Jouer »,
+  puis réapplique l'intégration quand `SceneMenu` redevient actif.
+  Il ne relance **pas** une seconde fois le crédit de démarrage et
+  ne touche ni à la connexion, ni aux checks, ni aux sauvegardes.
+- **Jouer** : ajoute les libellés exacts français « Éditeur de monde »
+  et « Île de la renommée » et leurs variantes à la liste des choix
+  interdits. Le filtre masque l'intégralité de la carte et son
+  clic, tout en conservant Nouvelle partie, Charger partie,
+  Multijoueur et Retour.
+- **Animation de bouton** : recherche maintenant le `Button`
+  réellement ancêtre du texte « JOUER » dans `SceneMenu` pour
+  cloner son *vrai prefab* avec la mise en page et les animations
+  survol. Les actions initiales de clic `EventTrigger` sont supprimées
+  de la copie, sans supprimer `PointerEnter` ni `PointerExit`.
+  Si le bouton natif ne peut être cloné, l'élément de secours a
+  une transition `ColorTint` sur sa surface principale.
+  La popup de connexion réutilise ce modèle : comportement de survol
+  Brix lorsque disponible, sinon fondu au survol.
+- **Performance** : le journal v0.7.5 révélait des centaines de
+  `LuaMenu.OpenSelf` déclenchés pendant la partie, chacun planifiant
+  des filtres inutiles de plus de 100 ms. Le callback ignore désormais
+  `LuaMenu` pendant le gameplay et limite les filtres du menu titre.
+  Les cartes ne sont toujours pas réactivées à chaque passage.
+- **Conservé** : la seed, les checks et le système de tags de sauvegarde.
+  Le journal v0.7.5 confirme le marquage d'une nouvelle sauvegarde
+  Archipelago ; le filtrage visuel et le chargement restent à valider.
+
+**Validation requise en jeu :** démarrer une partie, effectuer un
+check, sauvegarder, revenir au menu principal **sans quitter le jeu**.
+Vérifier que Jouer / Archipelago / Options et les sous-menus filtrés
+sont réinstallés. Survoler ensuite le bouton Archipelago et les
+boutons de la popup pour comparer l'animation au bouton original.
+Tester « Charger partie », qui doit rester visible. En cas de problème,
+`BepInEx/LogOutput.log` indique la source du bouton cloné et le
+rechargement de `SceneMenu`. Ces comportements ne peuvent pas être
+entièrement reproduits par la CI Unity-free.
+
+## v0.7.5 — Boutons d'accueil et séparation des sauvegardes
+
+Le retour sur v0.7.4 confirme que les crédits sont désormais suffisamment
+bien synchronisés. Cette passe **ne modifie pas leur déclenchement**.
+
+### Accueil et menu Jouer
+
+- Le bouton Archipelago prend le sprite/couleur de l'Image native de
+  « Jouer » lorsqu'elle est accessible. Sinon, son repli dessine un
+  **bouton primaire blanc avec bord sombre et accent bleu**, plutôt
+  qu'une simple surface blanche.
+- « Options » est maintenant placé à partir des **bords réels en
+  coordonnées monde** de Jouer et Archipelago, et pas d'un décalage
+  fixe dans son conteneur. Cela permet d'espacer des boutons qui
+  n'ont pas le même parent ou le même point d'ancrage. Les positions
+  originales restent restaurables à la fermeture du mod.
+- Le filtre de Jouer n'utilise plus de liste blanche dangereuse.
+  **Nouvelle partie, Charger partie, Multijoueur et Retour** sont
+  reconnus et conservés ; seuls les choix explicitement interdits
+  comme l'éditeur de cartes, les merveilles et le Workshop sont
+  masqués. Le conteneur contenant plusieurs choix ne doit jamais
+  être désactivé.
+
+### Sauvegardes Archipelago
+
+Castle Story stocke normalement les sauvegardes sous
+`<dossier du jeu>/Info/Saves/<nom de sauvegarde>`. Le plugin ne
+modifie ni ne déplace **aucun** de ces fichiers.
+
+- Lors du lancement d'une mission validée par la seed, le plugin
+  relève les dossiers déjà présents. Un nouveau dossier créé pendant
+  la partie est enregistré dans
+  `BepInEx/config/castle_story_archipelago/save_tags.json`.
+  Chaque entrée contient nom de dossier, token de seed, seed, slot,
+  mode, mission et date (sans mot de passe).
+- Dans un menu Charger natif reconnu, le mod tente de relier chaque
+  carte au dossier correspondant. **Connecté à Archipelago**, seules
+  les sauvegardes marquées pour le **token courant** sont autorisées ;
+  **déconnecté**, les sauvegardes Archipelago sont masquées et
+  les sauvegardes ordinaires restent accessibles.
+- Le contrôle de chargement vérifie également la seed pour les
+  sélecteurs natifs dont les propriétés de sélection sont accessibles.
+  Une sauvegarde Archipelago de la seed courante peut restaurer
+  l'identifiant de la mission, afin de retrouver le fonctionnement
+  des checks.
+- Les sauvegardes anciennes (créées avant la pose du registre)
+  ne sont **pas** automatiquement converties : une simple ressemblance
+  de nom n'est pas une preuve qu'elles appartiennent à Archipelago.
+  Une sauvegarde classique écrasée par une partie AP n'est pas non plus
+  renommée ou réétiquetée automatiquement.
+- Si le menu Charger expose une structure différente, le filtre
+  conserve les objets non identifiés et écrit des diagnostics
+  `[AP SAVE UI]`, `[AP SAVE API]` dans BepInEx. Une intégration
+  complète nécessite alors de vérifier cette hiérarchie en jeu.
+  Les contrôles programmatiques ne remplacent pas un test réel.
+
+### Essai recommandé
+
+Installer le kit v0.7.5, examiner l'accueil Jouer → Archipelago →
+Options ; ouvrir Jouer et vérifier **les trois actions utiles**.
+Connecter une seed, démarrer une nouvelle partie Invasion, enregistrer
+une sauvegarde sous un **nouveau nom**, puis retourner au menu.
+Ouvrir Charger partie connecté : vérifier la présence de cette
+sauvegarde et l'absence des sauvegardes classiques ; ensuite
+déconnecter et vérifier l'inverse. Le fichier
+`save_tags.json` doit contenir une entrée pour le nouveau dossier
+créé. Pour le premier test du chargement, garder une copie
+de la sauvegarde du jeu, et transmettre `LogOutput.log` si le
+sélecteur de chargement ne montre pas le bon sous-ensemble.
+
+## v0.7.4 — Ajustements du dernier retour de jeu
+
+La v0.7.3 a permis de rapprocher le crédit de l'introduction et
+de placer Archipelago sur l'accueil, mais trois défauts subsistaient :
+le crédit était encore tardif, Options et Archipelago se chevauchaient,
+et les cadres de modes supprimés restaient cliquables. Des éléments
+indésirables étaient également visibles dans le sous-menu Jouer.
+La connexion pouvait nécessiter un deuxième essai.
+
+- **Crédits :** suppression du délai fixe de quatre secondes. Le
+  crédit supplémentaire se déclenche quand le véritable écran
+  d'accueil affiche **Jouer ET Options**, avec une trace du délai
+  observé depuis `SceneMenu`. Nous ne possédons pas les assets/scripts
+  originaux de la séquence de studios : ce signal de transition est
+  meilleur qu'un délai arbitraire, mais sa synchronisation exacte
+  devra être contrôlée en jeu.
+- **Accueil :** repositionnement du vrai contrôle Options même s'il
+  appartient à un autre parent Unity. L'entrée Archipelago reprend
+  la couleur/le sprite de l'Image du bouton Jouer si elle est exposée,
+  sinon conserve un doré primaire de secours.
+- **Modes :** le filtre recherche le **cadre interactif complet**
+  contenant le texte d'un mode interdit, et le désactive, pas seulement
+  l'objet texte. Il refuse de masquer un parent contenant plusieurs
+  choix distincts. Le garde-fou natif du lancement continue de
+  refuser les cartes/modes hors seed.
+- **Jouer :** ajout d'une recherche du groupe des trois choix autorisés
+  (Nouvelle partie, Charger, Multijoueur), y compris si le jeu utilise
+  des cartes personnalisées au lieu de `UnityEngine.UI.Selectable`,
+  pour masquer les autres entrées de ce groupe.
+- **Connexion :** les commandes du jeu au bridge incluent maintenant
+  un identifiant de requête, et le bridge écrit seulement cet identifiant
+  dans `bridge_command_ack.json` (sans serveur, slot ni mot de passe).
+  Si le premier message n'a pas été reçu, le jeu retente automatiquement
+  jusqu'à trois transmissions. Le secret est conservé seulement
+  quelques secondes en mémoire, jusqu'à l'accusé de réception, puis
+  effacé ; il n'est jamais sauvegardé.
+- **Stabilité :** filtrage uniquement sur ouverture/action de menu,
+  avec caches et sans les recherches TextMeshPro inutiles identifiées
+  dans les logs précédents.
+
+**Périmètre de validation :** les tests CI compilent le plugin et
+valident les protocoles et règles statiques ; ils ne peuvent pas
+certifier le résultat visuel des contrôles internes de Castle Story.
+Il faudra vérifier la séquence d'introduction, l'espacement de l'accueil,
+les cadres de mode et l'ouverture de la session depuis le vrai jeu.
+
+**Test court :** fermer puis relancer Castle Story après installation
+du kit 0.7.4. Observer l'introduction, l'accueil (ordre Jouer /
+Archipelago / Options), ouvrir le panneau, cliquer **une seule fois**
+sur Connexion et vérifier l'état. Dans Jouer puis Nouvelle partie,
+tenter de cliquer à l'ancien emplacement de Conquête ou Construction
+libre pour vérifier que le **cadre entier** est supprimé. Le nouveau
+LogOutput.log peut aider si une de ces interfaces utilise des
+composants non identifiés.
+
+## v0.7.3 — Correctifs depuis la capture et le journal du jeu
+
+Le journal réel v0.7.2 indique que l'option Archipelago et son
+crédit sont créés à l'ouverture de `SpNewGameStarterMenu`, pas sur
+l'accueil `SceneMenu`. Le bouton cloné était donc le `JOUER` du
+choix d'une carte, plutôt que le `Jouer` du menu titre.
+
+- **Crédit :** il est désormais indépendant du bouton et programmé
+  à partir de l'arrivée dans `SceneMenu`, avant le choix d'une carte.
+  La séquence blanche autonome déjà approuvée dure 3,5 secondes.
+  Un délai de quatre secondes après le chargement du menu est utilisé
+  faute de pouvoir modifier la timeline de crédits interne au jeu :
+  l'absence de chevauchement devra être vérifiée manuellement.
+- **Bouton d'accueil :** le clone d'un bouton `JOUER` trouvé après
+  le début du sélecteur de cartes est explicitement interdit.
+  Le mod cherche le `Jouer` de l'accueil et peut créer un bouton
+  primaire dans son groupe `RectTransform` si ce texte est présent,
+  même lorsque le vrai bouton n'utilise pas `UnityEngine.UI.Button`.
+  Sans ancre réelle détectée, le raccourci F7 reste disponible.
+- **Panneau de connexion :** la copie des anciens objets `Text` qui
+  héritaient de leurs positions et alignements est remplacée par de
+  nouveaux textes Unity avec des `RectTransform` propres ; fond
+  jaune/parchemin, textes sombres, valeurs alignées à gauche,
+  légendes et boutons centrés. Les libellés clonés des boutons sont
+  réinsérés dans leur racine pour éviter le texte tronqué.
+  F7 utilise ce Canvas même si aucun bouton native UGUI n'est
+  présent à l'accueil.
+- **Connexion :** les demandes répétées dans les douze premières
+  secondes sont ignorées pendant que le bridge réessaie. Un message
+  d'attente est affiché. `[AP LOGIN STATE]` trace les changements
+  d'état sans journaliser adresse, slot ou mot de passe. Les
+  préférences conservent uniquement adresse et slot.
+- **Performance :** la recherche d'un type TextMeshPro absent a
+  produit des dizaines de warnings dans le log et contribuait aux
+  passes de filtrage de 86 à 228 ms. Elle est supprimée ; les textes
+  natifs sont mis en cache par écran et les passes ne surviennent
+  qu'à l'ouverture ou à une action de navigation.
+- **Menus :** les labels des contrôles natifs continuent d'être
+  filtrés quand ils sont identifiables, avec vérification stricte
+  de l'identifiant de carte/mode avant le démarrage d'une mission.
+  `[AP TITLE PROBE]` capture une fois les noms et composants du
+  menu d'accueil, avant l'ouverture de Nouvelle partie ; cela doit
+  nous permettre d'identifier les contrôles qui n'étaient pas
+  détectés jusque-là.
+
+**Limite honnête :** le journal prouve que `playGroup=not-found`
+dans les écrans testés et que le titre ne comporte pas de boutons
+`UnityEngine.UI.Button` actifs. Nous avons amélioré le parcours
+et la détection, mais ne pouvons pas encore certifier la disparition
+des entrées de Jouer ou Construction libre/Conquête sur l'interface
+réelle sans nouveau test. Ne pas considérer cette passe comme une
+validation du comportement visuel complet.
+
+**Test court :** démarrer le jeu et attendre le crédit, examiner
+Jouer / Archipelago / Options, puis ouvrir la connexion (si besoin F7)
+pour vérifier les alignements et la première tentative. Après
+connexion à la même seed, passer par Jouer puis Nouvelle partie ;
+vérifier les modes, cartes et absence de lag. Le nouveau
+`BepInEx/LogOutput.log` suffit pour connaître les classes et
+composants trouvés ; aucune nouvelle seed ni vague requise.
+
+## v0.7.2 — Correctifs ciblés après un essai réel décevant
+
+Le test de la v0.7.1 a révélé que **seule la duplication des cartes
+avait disparu**. Le lag, l'absence du bouton Archipelago dans le menu
+initial, l'absence du crédit et la présence des options non désirées
+subsistaient. Les tests CI C# ne valident **pas** le rendu runtime Unity.
+
+**Cause concrète du lag dans le code :** la précédente implémentation
+parcourait tous les `UnityEngine.UI.Button` actifs et le texte de leurs
+descendants toutes les 500 ms, même sans changement de menu.
+
+Changements de cette passe :
+
+- Le catalogue des cartes n'est plus régénéré et écrit sur disque à chaque
+  appel `GetAssetLabel` (un travail auparavant quadratique pendant le
+  chargement). Il est sauvegardé une fois après découverte, puis avec
+  un délai de 1,5 seconde pour les cartes tardives.
+- Le scan permanent est supprimé. Les méthodes `OpenSelf` des menus
+  `Brix.UI.Builder.Menu.BaseMenu` sont interceptées ; après chaque
+  ouverture, quelques passes courtes et limitées découvrent les cartes
+  ajoutées par le moteur, puis le filtrage cesse complètement jusqu'au
+  prochain changement d'écran. La nouvelle métrique `[AP UI PERF]`
+  signale les passes dépassant 30 ms.
+- Le menu Jouer est détecté à partir des ancêtres communs des boutons
+  Nouvelle partie / Charger / Multijoueur, même si leurs parents Unity
+  immédiats diffèrent. Le filtrage inclut maintenant les contrôles
+  `Selectable` tels que les `Toggle`, et non seulement les `Button`.
+- L'insertion du bouton Archipelago ne dépend plus strictement du fait
+  que Jouer et Options soient frères directs. Un libellé traduit ou
+  un nom de prefab `Button_Play` peut également servir de repère.
+- Le crédit Archipelago est déclenché indépendamment du résultat de
+  l'insertion du bouton, lorsque l'ouverture du menu titre est reconnue
+  dans Brix ou par le contrôleur de menu principal. Il s'agit d'une
+  séquence séparée après le chargement des menus, **pas d'une
+  modification prouvée de la chronologie originale des studios**.
+- Les classes de menus ouverts sont désormais consignées via
+  `[AP NATIVE SCREEN]`, sans devoir appuyer manuellement sur F9.
+  Si l'entrée native reste introuvable, le mod capture automatiquement
+  une fois les boutons détectés via `[AP NATIVE UI PROBE]`.
+
+**Limite importante :** sans le code de l'interface et des crédits du
+jeu, nous ne pouvons pas démontrer que tous les menus natifs seront
+masqués ni que le crédit démarrera à l'instant exact voulu. Cette passe
+corrige les problèmes identifiables statiquement et fournit des
+informations de runtime pour terminer l'intégration sans continuer
+à deviner les classes du moteur.
+
+**Test conseillé :** installer le kit 0.7.2, observer crédit / bouton
+d'accueil, aller dans Jouer, Nouvelle partie puis Invasion, rester
+sur les cartes pour vérifier l'absence de lag, faire Retour puis
+Invasion. Si des menus sont encore visibles ou manquants, transmettre
+le nouveau `BepInEx/LogOutput.log`. Les nouvelles traces enregistrent
+automatiquement les classes de menu et la durée des filtrages.
+La seed APWorld et les checks existants sont conservés.
+
+## v0.7.1 — Menu natif, splash autonome et identifiants privés
+
+Cette version suit le parcours vérifié par le joueur :
+1. **Accueil** : Jouer, Archipelago (bouton cloné de Jouer en style primaire), Options.
+   Il faut détecter Jouer ET Options dans la même branche du menu, pour
+   éviter de cloner un bouton d'un sous-menu.
+2. **Jouer** : Nouvelle partie, Charger, Multijoueur et Retour. Les autres
+   entrées d'un groupe de menu reconnu sont masquées lorsque la seed est active.
+3. **Nouvelle partie** : pas de Construction libre ; seulement Invasion,
+   Conquête, ou les deux pour Hybride.
+4. **Mode** : le catalogue des cartes visibles est limité aux cartes autorisées
+   par la seed et le mode actuellement choisi ; les identifiants de cartes sont
+   validés également dans le hook natif de lancement.
+
+**Stabilité du filtrage :** les cartes masquées ne sont plus réactivées toutes
+les 500 ms (ce qui déclenchait leurs OnEnable et pouvait dupliquer les tuiles).
+Le filtrage est appliqué à l'ouverture native du menu et incrémental pour les
+nouvelles cartes. Les cartes déjà masquées restent masquées lors de Retour, puis
+réouverture du mode. Pour Hybride, elles sont recalculées seulement lors d'un
+véritable changement de mode.
+
+**Connexion :** le panneau principal utilise désormais un Canvas Unity UI,
+les boutons natifs clonés de Jouer/Options et de vrais InputField Unity.
+Le raccourci F7 ouvre ce même panneau ; l'ancien IMGUI n'apparaît qu'en
+dernier recours si des types Unity UI sont absents. Le panneau propose
+Connexion, Déconnexion et Fermer.
+
+- `connection_preferences.json` conserve **uniquement** l'adresse et le nom
+  du slot, réutilisés au lancement suivant.
+- Le mot de passe n'est **pas** conservé sur disque par le nouveau flux :
+  il est envoyé du jeu à l'exécutable bridge par un tuyau stdin local en
+  mémoire, puis effacé des champs. Il doit être ressaisi à la prochaine
+  connexion. L'installateur migre un éventuel ancien `connection.json`
+  contenant un mot de passe en clair, garde seulement adresse/slot et
+  supprime le fichier. Les backups/disques historiques ne peuvent pas être
+  nettoyés à distance.
+- Checks, progression, seed et cartes installées ne sont pas supprimés par
+  la mise à jour.
+
+**Crédits de démarrage :** une séquence blanche autonome de 3,5 secondes
+apparaît **après** l'apparition de l'écran Jouer / Options, puis disparaît
+avant de donner le contrôle. Le logo Archipelago est centré, le nom est noir
+pour rester lisible sur fond blanc, l'ensemble apparaît/disparaît en fondu.
+Cette réalisation n'édite pas les séquences propriétaires de Sauropod.
+Une imitation exacte de leur chronologie interne nécessiterait leurs
+objets/scripts de crédits, non fournis dans le dépôt.
+
+**Points à valider dans le vrai jeu :** disposition exacte des boutons,
+détection des vrais libellés de certains sous-menus, présentation du Canvas
+de connexion et instant où le menu devient visible après les logos. La CI
+compile le code et vérifie les contrats, mais ne peut pas faire tourner
+le moteur Unity 5.6 et ses menus. F9 affiche les libellés des boutons
+(`[AP NATIVE UI PROBE]`) utiles à l'adaptation.
+
+**Test :** fermer Castle Story, installer le kit 0.7.1, relancer ;
+observer le crédit dédié après les logos, puis le bouton Archipelago
+entre Jouer et Options. Se connecter et vérifier que seul le couple
+serveur/slot se remplit à la reconnexion (mot de passe vide).
+Parcourir Jouer / Nouvelle partie / Invasion / Retour / Invasion,
+surveiller l'absence de doublons et de saccades, puis vérifier qu'un
+check continue à remonter à ArchiLAN.
+
+## v0.7.0 — Navigation Archipelago dans les menus natifs (pré-validation)
+
+Retour utilisateur confirmé : une partie Invasion s'est lancée,
+les cinq checks sont parvenus à ArchiLAN et la run s'est achevée.
+Le parcours passe donc de la popup de sélection à la navigation du jeu.
+
+- Plus de logo flottant en haut à gauche. Le mod cherche le bouton
+  **Jouer / Play** du véritable menu Unity et le clone sous celui-ci
+  pour ajouter un bouton **Archipelago** reprenant son apparence et
+  ses interactions natives, sans réutiliser l'action « Jouer ».
+  **F7** ouvre le panneau de connexion si le bouton natif ne peut pas
+  être identifié sur une version/langue du jeu.
+- Le bouton Archipelago sert à se connecter/se déconnecter. La
+  sélection des modes et cartes se fait maintenant directement via
+  **Jouer > Nouvelle partie**, sans la popup des missions.
+- Quand une seed valide est connectée, le mod masque les contrôles
+  natifs dont le libellé est reconnu comme Construction libre, un
+  mode interdit (Invasion ou Conquête), ou une carte absente de la
+  seed. En Hybride, Invasion et Conquête restent proposées.
+- Les identifiants techniques des cartes sont associés aux libellés
+  du jeu via `GetAssetLabel`. Une carte native ne peut être lancée
+  que si son ID **ET** son mode correspondent exactement à une
+  mission de la seed : le contrôle `OnOk` reste actif même si un
+  contrôle visuel n'a pas pu être masqué.
+- L'action de démarrer dans le menu du jeu associe désormais
+  automatiquement la mission correspondante et conserve la
+  protection contre les faux checks d'une partie libre.
+- Ajout d'un crédit discret **Archipelago** avec son logo officiel
+  pendant les premières secondes du chargement, sans modifier ni
+  remplacer les logos ou cinématiques propriétaires de Sauropod.
+  Son instant d'apparition dépend de la séquence d'introduction du jeu.
+- **F9** liste les contrôles et libellés natifs réellement trouvés
+  (`[AP NATIVE UI PROBE]`) ; `[AP NATIVE UI]` signale
+  l'insertion du bouton et le filtrage appliqué.
+
+**Limite à confirmer en jeu :** la hiérarchie du menu natif et les
+libellés de ses boutons ne sont pas disponibles dans les sources du mod.
+Le filtrage est conservateur, uniquement sur les composants et
+libellés reconnus. La fenêtre de **connexion** conserve temporairement
+son style propre ; l'harmonisation pixel-perfect avec le panneau de
+connexion natif reste à valider avec une capture du menu réel.
+Ce kit ne prétend pas que tous les boutons ou cartes sont déjà
+visuellement masqués sur toutes les versions de Castle Story.
+
+**Test :** installer le kit v0.7.0 ; vérifier le nouveau bouton
+Archipelago sous Jouer, se connecter, puis examiner Nouvelle partie :
+Construction libre doit disparaître, seul le mode de la seed (ou les
+deux modes Hybride) doit rester, puis seulement ses cartes.
+Lancer une mission native, jouer une vague et vérifier qu'un check
+arrive à ArchiLAN. Si un menu reste visible, faire F9 sur cet écran
+et envoyer `BepInEx/LogOutput.log` ; cela permet d'adapter précisément
+le filtre à la structure observée sans modifier la seed.
+
+## v0.6.9 — Vérification des checks Invasion après cinq vagues
+
+Les logs d'un essai réel confirment : lancement validé de la mission
+`invasion_1` sur `official:Zuma`, et événements `InvasionWave` de 0 à 5.
+Pourtant, F8 affichait `checks=0` et `connected=False`. **Cause de
+l'absence de checks identifiée dans le code :** `EnableWaveChecks`
+était `false` par défaut ; les coupures intermittentes de connexion
+constituaient une seconde condition de blocage.
+
+**Correctifs :**
+
+- Après validation de la carte et du mode par le menu natif, les checks
+  Invasion de la campagne Archipelago sont actifs **automatiquement**,
+  même si un ancien `EnableWaveChecks=false` est conservé dans la config.
+  Le flag historique reste réservé aux seeds sans manifeste.
+- Les callbacks répétés de la même vague ne créent pas de doublons.
+- Les checks de la mission effectivement lancée sont stockés dans
+  `checks.json` avec le token de la seed, **même pendant une brève perte
+  de connexion** ; le bridge les transmet à ArchiLAN lors du retour.
+  L'écriture Windows utilise un remplacement atomique, avec retry en cas
+  d'échec temporaire.
+- Le mod ignore les vagues des parties libres et des missions
+  simplement sélectionnées (mais pas réellement lancées).
+- `[AP MISSION START]`, `[AP CHECK]`, `[AP CHECK FILE]` et F8
+  rendent l'enregistrement et la transmission vérifiables.
+
+La panne réseau intermittente observée ne peut pas être attribuée à une
+cause précise à partir des seuls logs BepInEx. Cette version neutralise
+son effet sur l'enregistrement des checks sans prétendre résoudre
+l'origine du réseau.
+
+**Test conseillé :** installer le kit v0.6.9, garder la même seed
+ArchiLAN, démarrer une *nouvelle* partie Invasion sur la mission choisie,
+et progresser sur les vagues. F8 doit montrer `activeMission=invasion_1`,
+`autoChecks=True` et un nombre de checks non nul. Les checks d'une
+ancienne partie v0.6.8 qui n'ont jamais été enregistrés dans
+`checks.json` ne peuvent pas être reconstitués automatiquement depuis
+le serveur.
+
+## v0.6.8 — La mission apparaît, mais l'interface masque les erreurs
+
+Un test réel a confirmé que le bridge 0.6.7 et Unity décodent correctement
+une mission Invasion (`[AP MANIFEST] Transfert texte V1 : 1 mission(s)`).
+Le journal ne contient aucune exception de popup, mais plusieurs transitions
+du bouclier natif. Le client remplaçait aussi les messages de lancement par
+l'état du bridge chaque seconde, ce qui rendait les erreurs illisibles.
+
+- Les messages de sélection/lancement ont maintenant une zone dédiée et
+  restent visibles jusqu'à une nouvelle action.
+- Une coupure momentanée du heartbeat n'efface pas la popup ; elle affiche
+  une indication de connexion et conserve le bouclier anti-clics.
+- Le lancement sans `Nouvelle partie` ouverte indique précisément les
+  étapes à suivre et produit `[AP LAUNCH]` dans les logs.
+- Les exceptions IMGUI sont enregistrées en `[AP UI EXCEPTION]`, avec
+  restauration de l'état GUI et équilibrage du scroll view.
+- Les transitions de connexion sont enregistrées en `[AP SESSION]`.
+
+**Test recommandé :** installe le kit v0.6.8, reconnecte-toi à la même seed
+Invasion, ferme la fenêtre Archipelago, ouvre **Nouvelle partie** dans Castle
+Story, sélectionne la mission et clique sur **Lancer cette mission**. Si le
+lancement échoue, copie `[AP ACTION]`, `[AP LAUNCH]`, `[AP SESSION]` et
+`[AP UI EXCEPTION]` du log : les erreurs restent affichées dans la fenêtre,
+sans nécessiter de capture au bon moment.
+
+La liste des missions est confirmée sur Unity 5.6, mais le lancement d'une
+partie en jeu doit encore être validé manuellement.
+
+## v0.6.7 — Transfert texte de secours pour Unity 5.6
+
+Le bridge produit désormais `campaign_wire.txt`, un instantané atomique et versionné de la campagne, indépendant de `JsonUtility`. Chaque mission utilise une ligne à sept champs, les chaînes UTF-8 sont encodées en Base64, et Unity recoupe le jeton, le protocole et le nombre de missions avant de remplacer la campagne. Le fichier JSON reste disponible pour les diagnostics. Le fichier `session.json` est publié en dernier. Un manifeste obsolète ou tronqué est ignoré sans autoriser un lancement libre.
+
+Pour tester : installer le kit v0.6.7, fermer puis relancer le jeu, reconnecter le même slot/seed ; **inutile de régénérer la seed**. Dans `BepInEx/LogOutput.log`, chercher `[AP MANIFEST]` : le résultat attendu contient `Transfert texte V1` et le nombre exact de missions. Si l'interface indique une autre erreur, fournir la ligne `[AP MANIFEST]` et les informations de diagnostic affichées (sans `connection.json`).
+
+La CI ne simule pas le moteur Unity ; le démarrage réel d'une mission doit encore être testé dans Castle Story.
 
 ## v0.6.6 — Le manifeste arrive dans le bridge, mais pas dans Unity
 

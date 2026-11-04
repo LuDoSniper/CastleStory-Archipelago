@@ -1,49 +1,72 @@
-# Campaign integration — development status v0.5.0
+# Castle Story Archipelago — technical gameplay status v0.9.0
 
-## Implemented and CI-tested
+## Stable, validated foundations
 
-- APWorld modes `invasion`, `conquest`, `hybrid`, goals and deterministic
-  map subset selection from explicitly supplied shard capacities.
-- Stable location/item IDs and Hybrid mode-check filtering.
-- Bridge handshake, item receipt, session file and map-availability check.
-- PyInstaller self-contained Windows client added to the GitHub Actions bundle.
-- Native Unity main-menu connection overlay and AP mission list.
-- Harmony new-game OnOk guard; code path to auto-select cached native
-  `Asset_Map` from the new-game library, query available `Asset_Gamemode`,
-  and invoke Castle Story's own native start method.
-- Distinct per-mission captured shard offsets and victory bookkeeping.
-- Per-seed, per-item-index native bonus delivery journal and opt-in spawn
-  adapter using the validated UNetProjectCmd SpawnUnit parameter signature.
-- Map inspector and explicit confirmation of observed shard counts.
+The original Castle Story native menus are modified before rendering so they
+remain native-looking, without a flash or destructive global scans. APWorld
+campaigns use explicit technical map identifiers and deterministic selection
+by seed. Solo native startup and load-save guards require an actual mission
+map/mode that belongs to the current Archipelago run.
 
-## Must validate in Castle Story itself
+Local save ownership uses seed/team/slot metadata outside the game's save
+files. Each AP location is written into a run-specific check ledger and sent
+through a separate Python WebSocket bridge. The bridge validates location IDs
+against the server's own slot data; reconnects do not repeat completed checks.
 
-1. Native menu hook called for starting a solo new game, map identity from
-   `Asset_Map.GetHeightmapPath()`, gamemode identity from
-   `Asset_Gamemode.GetIntroImagePath()`, and actual launcher call.
-   These names and signatures were inspected in the supplied Assembly DLL,
-   but the precise live object lifetime remains unverified.
-2. Shard capture matching to per-mission identity survives scene reload
-   and revisiting the same crystal without duplicating checks.
-3. The locally owned `UNetProjectCmd.SpawnUnit` reflection callback
-   returns the expected `GameObject`; occupation enum names and equipment
-   support; extra units' interactions with crystal cap.
-4. Capturing/destroying multiple Home Crystals produces the intended
-   `GameWon` event for Conquest and Hybrid. The previous in-game test
-   only validated a shard capture and its AP check.
-5. ArchiLAN preflight of the *new* APWorld and seed options; prior live
-   ArchiLAN test covered an earlier Conquest version, not v0.5.0.
+## Gameplay v1 scope
 
-## Data safety / follow-up architecture
+### Checks
 
-- Default native bonus spawn **OFF** and no global cap modification.
-- Never reset a bonus ticket in `spawning` or `review` automatically.
-- Need a save GUID to bind mission progress and bonus ownership; the
-  current seed token is not a per-save identity.
-- Need event-driven per-mission starts to ignore detections from the
-  previous scene; current selected mission is an explicit manual step.
-- Need a verified quota accounting hook before claiming bonus units
-  are invisible to Home Crystal population limits.
-- Need a usable, non-blocking UI integrated with the *real* main menu
-  instead of permanent overlay. Current AP button is a placeholder,
-  not the official Archipelago logo graphic.
+- Invasion wave checks are automatic after a verified seed mission starts.
+- Conquest owner-verified crystal captures and victory checks now use the same
+  automatic seed-mission rules. Legacy tests without a ready campaign still
+  respect the old explicit opt-in flags. A duplicate crystal position/mission
+  or wave number cannot grant a second check.
+- Hybrid runs require both branches. The server receives GOAL only when
+  Invasion and Conquest goals have both been marked in the local ledger.
+- Missing/stale server heartbeats do not erase valid queued checks.
+
+### Rewards and real game effects
+
+- APWorld v0.9.0 sends `gameplay_rules: { version: 1, ... }`, which the bridge
+  mirrors as simple versioned fields in `session.json` for Unity 5.6.
+  Seeds that predate the gameplay contract do not enable automatic gifts.
+- Only implemented item types enter the default live reward pool. Paired
+  Archer/Knight/Alchemist unlocks and equipped units are always in the same
+  seed pool, with a basic worker and additional reinforcements for remainder
+  slots. Placement remains randomized by Archipelago's ordinary item filler,
+  and repeatable reinforcement choices vary deterministically by seed.
+- The existing, signature-validated
+  `Brix.Game.Network.UNetProjectCmd.SpawnUnit` hook captures game-owned
+  arguments only after verifying the spawned unit's local ownership. A
+  received reinforcement or equipped unit can replay that native adapter
+  without inventing AssetKey, owner GameObject, or occupation enum members.
+- Equipped gifts bypass the crafting unlock entirely. They can stay pending only
+  while awaiting a verified native game-owned spawn template. Native unit grants count toward the **normal** game
+  population limit; they are not currently cap-neutral.
+- Per-seed, per-item-index journals record a `spawning` intent durably
+  BEFORE calling SpawnUnit. A crash or ambiguous return leaves a non-retried
+  `spawning` or `review` state, not a duplicate unit. Templates are reset on
+  scene changes. An emergency opt-out is provided for new-seed native gifts.
+
+## Still pending runtime validation / further gameplay work
+
+1. Run a new v0.9.0 seed against the local Windows Unity 5.6 game and confirm
+   that a locally owned unit spawn populates the adapter and new gifts appear.
+   Validate what the game's own cap does on units beyond a full Home Crystal.
+2. Inspect game-native resource APIs before implementing `Wood Supply`,
+   `Stone Supply`, and `Wisp Supply`; do not create fake inventory values.
+3. Locate exact native build/equipment methods before enforcing received
+   Archer/Knight/Alchemist/Catapult unlocks on *vanilla* production menus.
+   Gifted advanced units must never depend on those crafting restrictions.
+   Actual native production/building locks are still pending.
+4. Verify crystal capture keys and Conquest victory events across multiple
+   maps, save reloads, and a complete Hybrid goal.
+5. Design per-save (rather than solely per-slot) delivered-unit reconciliation
+   for users who branch from an older snapshot. Automatic regrant on save load
+   is unsafe until saved native unit identity can be verified.
+
+All normal Castle Story saves remain untouched by metadata helpers. Reward
+spawning is a deliberate gameplay modification and should first be tested on a
+disposable solo save. Build CI verifies compilation and protocol simulation;
+it cannot emulate the proprietary native game runtime.

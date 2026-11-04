@@ -14,9 +14,21 @@ class HeartbeatTests(unittest.TestCase):
             instance.connected = True
             instance.persist_session()
             record = bridge.load_json(Path(td) / "session.json")
-            self.assertEqual(record["bridge_client_version"], "0.6.6")
+            self.assertEqual(record["bridge_client_version"], "0.9.1")
             self.assertTrue(record["connected"])
             self.assertLess(abs(time.time() - record["updated_at"]), 3)
+
+    def test_bridge_lifecycle_monitors_game_process(self):
+        root = Path(__file__).resolve().parents[1]
+        menu = (root / "mod/ArchipelagoMenu.cs").read_text(encoding="utf-8")
+        plugin = (root / "mod/CastleStoryArchipelagoPlugin.cs").read_text(encoding="utf-8")
+        bridge_source = (root / "client/bridge.py").read_text(encoding="utf-8")
+        self.assertIn('--parent-pid', menu)
+        self.assertIn('StopLocalBridge();', plugin)
+        self.assertIn('private void OnApplicationQuit()', plugin)
+        self.assertIn('WaitForSingleObject', bridge_source)
+        self.assertIn('control.closed.is_set()', bridge_source)
+        self.assertIn('class BridgeShutdown(Exception)', bridge_source)
 
     def test_unity_only_accepts_recent_heartbeat(self):
         code = (Path(__file__).resolve().parents[1] /

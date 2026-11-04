@@ -10,7 +10,9 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('castle-story-ap-bridge.exe', script)
         self.assertIn('CastleStoryArchipelago.dll', script)
         self.assertIn('"session.json", "bridge_status.json"', script)
-        self.assertIn('connection.json, seed progress', script)
+        self.assertIn('connection_preferences.json', script)
+        self.assertIn('Ancien connection.json supprime', script)
+        self.assertIn('checks.json', script)
         self.assertIn("Get-CimInstance Win32_Process", script)
         self.assertNotIn('Remove-Item -LiteralPath $config -Recurse', script)
 

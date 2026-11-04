@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.6.6")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.9.1")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -19,13 +19,24 @@ namespace CastleStoryArchipelago
         private string token = "";
         private string seed = "";
         private string mode = "";
+        private string currentApSlotName = "";
+        private int currentApTeam;
+        private int currentApSlotNumber;
         private bool bridgeConnected;
+        private bool gameplayUnitRewardsEnabled;
+        // This is set only after the native Castle Story start guard validates
+        // the exact Archipelago map and game mode.
+        private string startedMission = "";
         private int goalWave = 10;
         private int shardGoal = 3;
         private CampaignFile campaign;
         private int lastWave;
         private int lastObservedWave = -1;
         private int waveEventCount;
+        private int lastLoggedWave = -1;
+        private int lastRejectedWave = -1;
+        private int lastDuplicateWaveLogged = -1;
+        private bool checksDirty;
         private int conquestCaptured;
         private int conquestWinEvents;
         private bool conquestVictory;
@@ -48,12 +59,18 @@ namespace CastleStoryArchipelago
             public string token;
             public string seed;
             public string mode;
+            public string slot_name;
+            public int slot;
+            public int team;
             public bool connected;
             public int goal_wave;
             public int shard_goal;
             public CampaignFile campaign;
             public int campaign_mission_count;
             public int protocol_version;
+            public int gameplay_protocol;
+            public bool gameplay_unit_rewards;
+            public bool gameplay_unlocks_required;
             public string bridge_client_version;
             public double updated_at;
             public bool slot_data_provided;
@@ -106,11 +123,13 @@ namespace CastleStoryArchipelago
             Instance = this;
             directory = Path.Combine(Paths.ConfigPath, "castle_story_archipelago");
             Directory.CreateDirectory(directory);
+            LoadRememberedConnection();
+            InitializeApSaveRegistry();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.6.6 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.6.6 initialised.");
+                "Castle Story Archipelago v0.9.1 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.9.1 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
-                "Send completed Invasion waves 1-10 to a connected AP Invasion slot.");
+                "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
                 "EXPERIMENTAL: send unique locally owned crystal capture sound events as shard checks. One neutral shard validated; other crystal types not yet proven.");
             victoryChecks = Config.Bind("Conquest", "EnableVictoryCheck", false,
@@ -123,7 +142,12 @@ namespace CastleStoryArchipelago
             Patch("Brix.Game.StatsTracker", "GameWon", "OnGameWon", Type.EmptyTypes);
             Patch("CrystalVisuals", "PlayCapturedSound", "OnCapturedSound", null);
             InstallNativeMenuGuard();
+            InstallNativeSaveMenuHooks();
+            InstallNativePreRenderHooks();
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged +=
+                OnArchipelagoSceneChanged;
             InstallBonusSpawnHooks();
+            Logger.LogInfo("[AP NATIVE UI] Native main menu integration enabled; F7 fallback.");
             Logger.LogInfo("All available gameplay hook installation attempts finished.");
         }
 
@@ -165,33 +189,76 @@ namespace CastleStoryArchipelago
             if (Instance != null) Instance.RecordCapture(__instance, __0);
         }
 
+        private bool IsActiveInvasionMission()
+        {
+            return !String.IsNullOrEmpty(token) && !disconnectPending &&
+                campaign != null && campaign.ready &&
+                !String.IsNullOrEmpty(startedMission) &&
+                String.Equals(startedMission, chosenMission, StringComparison.Ordinal) &&
+                IsSelectedMissionType("Invasion");
+        }
+
         private void RecordWave(int wave)
         {
             lastObservedWave = wave;
             waveEventCount++;
-            Logger.LogInfo("[AP WAVE EVENT] value=" + wave +
-                " at t=" + Time.realtimeSinceStartup.ToString("F1") +
-                "s event #" + waveEventCount);
-            if ((mode != "Invasion" && mode != "Hybrid") || wave < 1 || wave > goalWave) return;
-            if (campaign != null && campaign.ready &&
-                !IsSelectedMissionType("Invasion"))
+            // StatsTracker.InvasionWave fires repeatedly for the same value;
+            // only transitions are useful for check delivery.
+            if (waveEventCount == 1 || wave != lastLoggedWave)
             {
-                Logger.LogWarning("[AP MISSION] Invasion wave ignored; select an Invasion mission.");
+                Logger.LogInfo("[AP WAVE EVENT] value=" + wave +
+                    " at t=" + Time.realtimeSinceStartup.ToString("F1") +
+                    "s event #" + waveEventCount);
+                lastLoggedWave = wave;
+            }
+            if ((mode != "Invasion" && mode != "Hybrid") ||
+                wave < 1 || wave > goalWave) return;
+            bool activeSeedMission = IsActiveInvasionMission();
+            if (campaign != null && campaign.ready && !activeSeedMission)
+            {
+                if (lastRejectedWave != wave)
+                    Logger.LogWarning("[AP CHECK] Wave " + wave +
+                        " ignored: no active seed-launched Invasion mission.");
+                lastRejectedWave = wave;
                 return;
             }
-            if (!waveChecks.Value || !bridgeConnected) return;
+            // A real campaign enables checks automatically, even if an older
+            // installation left EnableWaveChecks=false in its config.
+            // Keep that opt-in for legacy manifests only.
+            if (!activeSeedMission && (!waveChecks.Value || !bridgeConnected))
+                return;
+            // The active seed remains trusted during short websocket outages.
+            // Write to its token-scoped checks.json, then replay on reconnect.
             if (wave > 1 && !checkedIds.Contains(WaveBase + wave - 1))
             {
                 Logger.LogWarning("[AP CHECK] Wave " + wave +
-                    " ignored; previous wave not checked in this AP session.");
+                    " ignored; prior wave has not been observed in this seed.");
                 return;
             }
             if (checkedIds.Add(WaveBase + wave))
             {
                 lastWave = wave;
                 WriteChecks();
-                Logger.LogInfo("[AP CHECK] Completed Invasion wave " + wave);
+                Logger.LogInfo("[AP CHECK] Invasion wave " + wave +
+                    " queued for Archipelago; network=" +
+                    (bridgeConnected ? "online" : "temporarily offline") +
+                    "; id=" + (WaveBase + wave));
             }
+            else if (lastDuplicateWaveLogged != wave)
+            {
+                lastDuplicateWaveLogged = wave;
+                Logger.LogInfo("[AP CHECK] Wave " + wave +
+                    " already completed for this seed; Archipelago checks are unique.");
+            }
+        }
+
+        private bool IsActiveConquestMission()
+        {
+            return !String.IsNullOrEmpty(token) && !disconnectPending &&
+                campaign != null && campaign.ready &&
+                !String.IsNullOrEmpty(startedMission) &&
+                String.Equals(startedMission, chosenMission, StringComparison.Ordinal) &&
+                IsSelectedMissionType("Conquest");
         }
 
         private void RecordCapture(object captured, object faction)
@@ -219,6 +286,12 @@ namespace CastleStoryArchipelago
                 (faction == null ? "<null>" : faction.GetType().FullName) +
                 " ownedByPlayer=" + ownedByPlayer);
             if (!ownedByPlayer) return;
+            if (campaign != null && campaign.ready && !IsActiveConquestMission())
+            {
+                Logger.LogInfo("[AP CHECK] Capture ignored: no active verified " +
+                    "Conquest mission in this run.");
+                return;
+            }
             int objectId = captured == null ? 0 :
                 (captured is UnityEngine.Object ? ((UnityEngine.Object)captured).GetInstanceID()
                  : captured.GetHashCode());
@@ -256,8 +329,10 @@ namespace CastleStoryArchipelago
                 }
                 int ordinal = selected.shard_start + completedOnThisMap;
                 conquestCaptured = capturedKeys.Count;
+                // A seed-launched Conquest mission is authoritative; the old
+                // optional config flag applies only to legacy AP manifests.
                 if ((mode != "Conquest" && mode != "Hybrid") ||
-                    !captureChecks.Value || !bridgeConnected) return;
+                    !IsActiveConquestMission()) return;
                 int checkId = ConquestBase + ordinal;
                 if (ordinal <= shardGoal && checkedIds.Add(checkId))
                 {
@@ -285,8 +360,17 @@ namespace CastleStoryArchipelago
             conquestWinEvents++;
             Logger.LogInfo("[AP VICTORY] StatsTracker.GameWon() at t=" +
                 Time.realtimeSinceStartup.ToString("F1") + "s, mode=" + mode);
-            if ((mode != "Conquest" && mode != "Hybrid") || !victoryChecks.Value || !bridgeConnected) return;
-            if (campaign != null && campaign.ready && campaign.missions != null)
+            if (mode != "Conquest" && mode != "Hybrid") return;
+            bool campaignVictory = campaign != null && campaign.ready &&
+                campaign.missions != null;
+            if (campaignVictory && !IsActiveConquestMission())
+            {
+                Logger.LogWarning("[AP MISSION] Victory ignored: no verified " +
+                    "seed-launched Conquest mission.");
+                return;
+            }
+            if (!campaignVictory && (!victoryChecks.Value || !bridgeConnected)) return;
+            if (campaignVictory)
             {
                 if (!IsSelectedMissionType("Conquest"))
                 {
@@ -414,6 +498,72 @@ namespace CastleStoryArchipelago
             }
         }
 
+        private static string DecodeWireText(string encoded)
+        {
+            return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+        }
+
+        private void ReadCampaignWire(SessionFile session)
+        {
+            string path = Path.Combine(directory, "campaign_wire.txt");
+            if (!File.Exists(path))
+            {
+                campaignDecodeDiagnostic += " | campaign_wire.txt absent (bridge ancien ?).";
+                return;
+            }
+            try
+            {
+                string[] lines = File.ReadAllText(path).Replace("\r", "").Split('\n');
+                if (lines.Length < 11 || lines[0] != "CASTLE_STORY_AP_CAMPAIGN_V1")
+                    throw new FormatException("En-tête ou taille de manifeste incorrect.");
+                if (lines[1] != session.token)
+                    throw new FormatException("Token de campagne différent de la session.");
+                int protocol = Int32.Parse(lines[2], System.Globalization.CultureInfo.InvariantCulture);
+                if (protocol != session.protocol_version)
+                    throw new FormatException("Protocole de campagne différent de la session.");
+                int count = Int32.Parse(lines[9], System.Globalization.CultureInfo.InvariantCulture);
+                if (count < 0 || count > 256 || lines.Length < count + 11)
+                    throw new FormatException("Nombre de missions invalide ou fichier tronqué.");
+                var missions = new MissionFile[count];
+                for (int i = 0; i < count; i++)
+                {
+                    string[] columns = lines[10 + i].Split('\t');
+                    if (columns.Length != 7)
+                        throw new FormatException("Mission " + i + " : colonnes incorrectes.");
+                    missions[i] = new MissionFile {
+                        id = DecodeWireText(columns[0]),
+                        mode = DecodeWireText(columns[1]),
+                        map_id = DecodeWireText(columns[2]),
+                        map = DecodeWireText(columns[3]),
+                        wave_goal = Int32.Parse(columns[4], System.Globalization.CultureInfo.InvariantCulture),
+                        shard_start = Int32.Parse(columns[5], System.Globalization.CultureInfo.InvariantCulture),
+                        shard_count = Int32.Parse(columns[6], System.Globalization.CultureInfo.InvariantCulture)
+                    };
+                    if (String.IsNullOrEmpty(missions[i].id) ||
+                        (missions[i].mode != "Invasion" && missions[i].mode != "Conquest"))
+                        throw new FormatException("Mission " + i + " : ID ou mode invalide.");
+                }
+                string missing = DecodeWireText(lines[8]);
+                campaign = new CampaignFile {
+                    ready = lines[5] == "1",
+                    mode = DecodeWireText(lines[6]),
+                    warning = DecodeWireText(lines[7]),
+                    missing_modes = String.IsNullOrEmpty(missing) ?
+                        new string[0] : missing.Split(','),
+                    missions = missions
+                };
+                bridgeManifestMissionCount = count;
+                campaignStatus = DecodeWireText(lines[3]);
+                campaignMessage = DecodeWireText(lines[4]);
+                campaignDecodeDiagnostic = "Transfert texte V1 : " + count +
+                    " mission(s) décodée(s), statut " + campaignStatus + ".";
+            }
+            catch (Exception error)
+            {
+                campaignDecodeDiagnostic += " | Transfert texte invalide : " + error.Message;
+            }
+        }
+
         private void ReadBridge()
         {
             try
@@ -432,11 +582,38 @@ namespace CastleStoryArchipelago
                     bridgeConnected = false;
                     return;
                 }
-                if (token != session.token || mode != session.mode)
+                bool seedChanged = token != session.token || mode != session.mode ||
+                    seed != (session.seed ?? "") ||
+                    currentApTeam != session.team ||
+                    currentApSlotNumber != session.slot ||
+                    currentApSlotName != (session.slot_name ?? "");
+                if (seedChanged)
                 {
+                    // Preserve the old live inbox before changing the run
+                    // identity. Other slots must never overwrite this run.
+                    PreservePreviousCheckLedger();
+                    authenticatedApSaveSession = false;
                     token = session.token;
                     mode = session.mode;
                     seed = session.seed ?? "";
+                    currentApTeam = session.team;
+                    currentApSlotNumber = session.slot;
+                    currentApSlotName = session.slot_name ?? "";
+                    // No opt-in marker in existing seeds: preserve their
+                    // original gameplay and experimental reward settings.
+                    gameplayUnitRewardsEnabled = session.gameplay_protocol == 1 &&
+                        session.gameplay_unit_rewards;
+                    // Historical v0.9.1 slot data may request gift gating.
+                    // Gifted units intentionally bypass crafting research;
+                    // that flag is obsolete for the native reward pipeline.
+                    Logger.LogInfo("[AP GAMEPLAY] protocol=" + session.gameplay_protocol +
+                        " nativeUnitRewards=" + gameplayUnitRewardsEnabled +
+                        " giftedUnitsBypassCrafting=true" +
+                        " legacyGiftGateIgnored=" + session.gameplay_unlocks_required);
+                    Logger.LogInfo("[AP RUN ID] seed=" + seed +
+                        " team=" + currentApTeam +
+                        " slot=" + currentApSlotNumber +
+                        " player=" + currentApSlotName);
                     goalWave = Math.Max(1, Math.Min(10, session.goal_wave));
                     shardGoal = Math.Max(1, Math.Min(30, session.shard_goal == 0 ? 3 : session.shard_goal));
                     campaign = session.campaign;
@@ -451,31 +628,18 @@ namespace CastleStoryArchipelago
                     capturedKeys.Clear();
                     conqueredMissions.Clear();
                     chosenMission = "";
+                    startedMission = "";
+                    lastRejectedWave = -1;
+                    lastDuplicateWaveLogged = -1;
+                    checksDirty = false;
                     inventory.Clear();
                     ResetBonusRewards(token);
                     conquestCaptured = 0;
                     conquestVictory = false;
                     lastWave = 0;
-                    var checksPath = Path.Combine(directory, "checks.json");
-                    if (File.Exists(checksPath))
-                    {
-                        var prior = JsonUtility.FromJson<CheckFile>(
-                            File.ReadAllText(checksPath));
-                        if (prior != null && prior.token == token &&
-                            prior.mode == mode)
-                        {
-                            if (prior.location_ids != null)
-                                foreach (int id in prior.location_ids)
-                                    if (ValidCheck(mode, id, goalWave, shardGoal))
-                                        checkedIds.Add(id);
-                            if (prior.captured_keys != null)
-                                foreach (string key in prior.captured_keys)
-                                    if (!String.IsNullOrEmpty(key)) capturedKeys.Add(key);
-                            if (prior.completed_missions != null)
-                                foreach (string id in prior.completed_missions)
-                                    if (!String.IsNullOrEmpty(id)) conqueredMissions.Add(id);
-                        }
-                    }
+                    // Prefer the durable run-specific ledger, merging the
+                    // legacy live inbox only when its run token matches.
+                    RestoreCheckLedgerForCurrentRun();
                     if (mode == "Invasion" || mode == "Hybrid")
                     {
                         var waves = checkedIds.Where(id =>
@@ -520,6 +684,7 @@ namespace CastleStoryArchipelago
                 serverSlotDataFields = session.slot_data_fields;
                 campaign = session.campaign;
                 ReadCampaignView(session);
+                ReadCampaignWire(session);
                 if (campaignDecodeDiagnostic != lastCampaignDecodeLog)
                 {
                     Logger.LogInfo("[AP MANIFEST] " + campaignDecodeDiagnostic +
@@ -534,15 +699,35 @@ namespace CastleStoryArchipelago
                     session.updated_at > 0;
                 bool freshHeartbeat = modernBridge && heartbeatAge >= -5 &&
                     heartbeatAge < 8;
+                bool previouslyConnected = bridgeConnected;
                 bridgeConnected = session.connected && freshHeartbeat &&
                     !disconnectPending;
+                if (seedChanged && checkedIds.Count > 0)
+                {
+                    // A new bridge process only watches checks.json. Rebuild
+                    // its inbox from this run's durable ledger on login.
+                    checksDirty = true;
+                    if (bridgeConnected) WriteChecks();
+                }
+                if (seedChanged || previouslyConnected != bridgeConnected)
+                    OnApAuthenticationChanged(bridgeConnected);
+                if (previouslyConnected != bridgeConnected)
+                {
+                    Logger.LogInfo("[AP SESSION] Connection " +
+                        (bridgeConnected ? "restored" : "lost") +
+                        "; remoteConnected=" + session.connected +
+                        "; heartbeatAge=" + heartbeatAge.ToString("F1",
+                            System.Globalization.CultureInfo.InvariantCulture) +
+                        "s; campaign=" + campaignStatus +
+                        "; protocol=" + slotProtocolVersion);
+                }
                 if (!freshHeartbeat)
                 {
                     if (session.connected)
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.6.6 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.9.1 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
@@ -583,24 +768,61 @@ namespace CastleStoryArchipelago
 
         private void WriteChecks()
         {
-            if (!bridgeConnected || String.IsNullOrEmpty(token)) return;
-            var path = Path.Combine(directory, "checks.json");
-            var temp = path + ".tmp";
+            // A check is owned by the seeded run, not the current game/bridge
+            // process. Persist to its own ledger first, then the live bridge
+            // inbox. If either write fails, retry without losing the event.
+            if (String.IsNullOrEmpty(token) || disconnectPending ||
+                (!bridgeConnected && !IsActiveInvasionMission() &&
+                 !IsActiveConquestMission())) return;
             bool allShards = checkedIds.Contains(ConquestBase + shardGoal);
             bool invasionFinished = lastWave >= goalWave;
             bool conquestFinished = conquestVictory && allShards;
             bool won = mode == "Invasion" ? invasionFinished :
                 mode == "Conquest" ? conquestFinished :
                 (invasionFinished && conquestFinished);
-            File.WriteAllText(temp, JsonUtility.ToJson(new CheckFile {
+            string contents = JsonUtility.ToJson(new CheckFile {
                 token = token, mode = mode,
                 location_ids = checkedIds.OrderBy(x => x).ToArray(),
                 captured_keys = capturedKeys.OrderBy(x => x).ToArray(),
                 completed_missions = conqueredMissions.OrderBy(x => x).ToArray(),
                 goal = won
-            }));
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(temp, path);
+            });
+            bool complete = true;
+            string archive = CheckLedgerPath(token);
+            if (String.IsNullOrEmpty(archive)) complete = false;
+            else
+            {
+                try { WriteCheckLedgerFile(archive, contents); }
+                catch (Exception error)
+                {
+                    complete = false;
+                    Logger.LogWarning("[AP CHECK LEDGER] Run history write failed: " +
+                        error.GetType().Name + " " + error.Message);
+                }
+            }
+            try
+            {
+                WriteCheckLedgerFile(Path.Combine(directory, "checks.json"), contents);
+                Logger.LogInfo("[AP CHECK FILE] persisted=" + checkedIds.Count +
+                    " goal=" + won + " online=" + bridgeConnected +
+                    " durable=" + complete + " seed=" + seed);
+            }
+            catch (Exception error)
+            {
+                complete = false;
+                Logger.LogError("[AP CHECK FILE] Could not persist bridge inbox: " +
+                    error.GetType().Name + " " + error.Message);
+            }
+            checksDirty = !complete;
+        }
+
+        private void LateUpdate()
+        {
+            // Brix rebuilds title layout at the end of the frame on Back.
+            // Reapply the real primary button's relative sibling order and
+            // position after that rebuild, without touching hover handlers.
+            MaintainTitleButtonSpacing();
+            EnforceHiddenNativeEntries();
         }
 
         private void Update()
@@ -609,6 +831,13 @@ namespace CastleStoryArchipelago
             {
                 nextRead = Time.realtimeSinceStartup + 0.7f;
                 ReadBridge();
+                MaintainBridgeHandshake();
+                FlushNativeMapCatalogIfIdle();
+                // Retry a temporarily locked ledger without depending on
+                // further InvasionWave callbacks.
+                if (checksDirty && (bridgeConnected || IsActiveInvasionMission() ||
+                    IsActiveConquestMission()))
+                    WriteChecks();
             }
             if (Input.GetKeyDown(KeyCode.F9))
                 ProbeGameApis();
@@ -616,14 +845,31 @@ namespace CastleStoryArchipelago
                 DumpBonusRewardQueue();
             ProcessPendingNativeBonus();
             HandleModalRawInput();
+            UpdateNativeArchipelagoIntegration();
+            UpdateSaveIsolation();
             UpdateNativeInputShield();
+            UpdateNativePanelStatus();
+            if (Input.GetKeyDown(KeyCode.F7))
+            {
+                if (nativeConnectionPanel != null &&
+                    nativeConnectionPanel.activeSelf)
+                    HideNativeConnectionPanel();
+                else if (apMenuOpen)
+                    apMenuOpen = false;
+                else
+                    OpenArchipelagoFromNativeMenu();
+                Logger.LogInfo("[AP NATIVE UI] F7 connection panel toggled.");
+            }
             if (Input.GetKeyDown(KeyCode.F8))
             {
                 debugOverlayVisible = !debugOverlayVisible;
                 Logger.LogInfo("[AP F8] t=" + Time.realtimeSinceStartup.ToString("F1") +
                     "s mode=" + mode + " connected=" + bridgeConnected +
                     " wave=" + lastObservedWave + " captures=" + conquestCaptured +
-                    " victories=" + conquestWinEvents + " checks=" + checkedIds.Count);
+                    " victories=" + conquestWinEvents + " checks=" + checkedIds.Count +
+                    " activeMission=" + (startedMission == "" ? "none" : startedMission) +
+                    " autoChecks=" + IsActiveInvasionMission() +
+                    " legacyFlag=" + waveChecks.Value);
             }
             // Unity IMGUI uses top-left coordinates, Input.mousePosition uses bottom-left.
             Vector2 mouse = new Vector2(Input.mousePosition.x,
@@ -643,7 +889,7 @@ namespace CastleStoryArchipelago
             float diagnosticX = Mathf.Max(6, Screen.width - 690);
             float diagnosticY = Mathf.Max(6, Screen.height - 190);
             GUI.Box(new Rect(diagnosticX, diagnosticY, 680, 180), "");
-            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story AP v0.6.6 [EXPERIMENTAL]");
+            GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 8, 650, 22), "Castle Story Archipelago — Gameplay");
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 32, 650, 22),
                 "Session: " + (token == "" ? "No session" :
                     (bridgeConnected ? "CONNECTED" : "OFFLINE")) +
@@ -654,9 +900,12 @@ namespace CastleStoryArchipelago
                 " | Conquest candidate captures=" + conquestCaptured +
                 " | Win events=" + conquestWinEvents);
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 80, 650, 22),
-                "Invasion sending=" + (waveChecks.Value ? "ON" : "OFF") +
-                " | Conquest captures=" + (captureChecks.Value ? "ON" : "OFF") +
-                " | Victory=" + (victoryChecks.Value ? "ON" : "OFF"));
+                "Invasion sending=" + (IsActiveInvasionMission() ?
+                    "AUTO (seed)" : waveChecks.Value ? "ON (legacy)" : "OFF") +
+                " | Conquest captures=" + (IsActiveConquestMission() ?
+                    "AUTO (seed)" : captureChecks.Value ? "ON (legacy)" : "OFF") +
+                " | Victory=" + (IsActiveConquestMission() ?
+                    "AUTO (seed)" : victoryChecks.Value ? "ON (legacy)" : "OFF"));
             string itemText = "";
             string[] names = { "Archer", "Knight", "Catapult", "Reinforcements", "Wood",
                 "Stone", "Alchemist", "Worker bonus", "Archer bonus", "Knight bonus",
@@ -668,25 +917,45 @@ namespace CastleStoryArchipelago
                     itemText += names[i - 1] + " x" + amount + "  ";
             }
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 107, 650, 45),
-                "AP received inventory (display only): " + (itemText == "" ? "none" : itemText));
+                "AP received inventory: " + (itemText == "" ? "none" : itemText));
             GUI.Label(new Rect(diagnosticX + 10, diagnosticY + 147, 650, 20),
                 "F8 = write status to BepInEx log; do not test with an existing save.");
             GUI.depth = oldDepth;
         }
 
+        private bool pluginShutdownStarted;
+
+        private void OnApplicationQuit()
+        {
+            ShutdownArchipelagoRuntime();
+        }
+
+        private void ShutdownArchipelagoRuntime()
+        {
+            if (pluginShutdownStarted) return;
+            pluginShutdownStarted = true;
+            // Unity OnDestroy is not guaranteed on every game-exit path.
+            // Flush the last valid save/check and close only our owned bridge.
+            ScanNewNativeSaves(true);
+            if (checksDirty) WriteChecks();
+            StopLocalBridge();
+        }
+
         private void OnDestroy()
         {
+            ShutdownArchipelagoRuntime();
+            UninstallNativePreRenderHooks();
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged -=
+                OnArchipelagoSceneChanged;
             if (harmony != null) harmony.UnpatchSelf();
-            // The standalone bridge is a child process only when launched by this plugin.
-            // Do not kill a bridge started by the user from PowerShell.
-            if (localBridge != null)
-            {
-                try { if (!localBridge.HasExited) localBridge.Kill(); }
-                catch (Exception error) { Logger.LogWarning("[AP BRIDGE] " + error.Message); }
-                localBridge.Dispose();
-                localBridge = null;
-            }
             DestroyNativeInputShield();
+            RestoreNativeEntries();
+            RestoreNativeMenuLayout();
+            ClearPendingBridgeHandshake();
+            DestroyNativeConnectionPanel();
+            if (nativeArchipelagoButton != null)
+                UnityEngine.Object.Destroy(nativeArchipelagoButton);
+            nativeArchipelagoButton = null;
             CleanupApUi();
             if (Instance == this) Instance = null;
         }
