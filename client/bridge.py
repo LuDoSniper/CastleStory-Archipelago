@@ -290,6 +290,9 @@ class Bridge:
         self.campaign = {}
         self.source_campaign = {}
         self.protocol_version = 0
+        self.gameplay_protocol = 0
+        self.gameplay_unit_rewards = False
+        self.gameplay_unlocks_required = False
         self.slot_data_provided = False
         self.slot_data_fields = []
         self.manifest_provided = False
@@ -318,6 +321,9 @@ class Bridge:
                 if isinstance(self.campaign, dict) and
                    isinstance(self.campaign.get("missions"), list) else -1,
             "protocol_version": self.protocol_version,
+            "gameplay_protocol": self.gameplay_protocol,
+            "gameplay_unit_rewards": self.gameplay_unit_rewards,
+            "gameplay_unlocks_required": self.gameplay_unlocks_required,
             "bridge_client_version": BRIDGE_CLIENT_VERSION,
             "updated_at": time.time(),
             "slot_data_provided": self.slot_data_provided,
@@ -394,6 +400,16 @@ class Bridge:
                 raise RuntimeError(f"Unsupported Castle Story mode in slot data: {mode!r}")
             self.mode = mode
             self.protocol_version = int(slot_data.get("protocol_version") or 0)
+            native_rules = slot_data.get("gameplay_rules")
+            if isinstance(native_rules, dict) and native_rules.get("version") == 1:
+                self.gameplay_protocol = 1
+                self.gameplay_unit_rewards = native_rules.get("native_unit_rewards") is True
+                self.gameplay_unlocks_required = (
+                    native_rules.get("unlock_required_for_equipped_units") is True)
+            else:
+                self.gameplay_protocol = 0
+                self.gameplay_unit_rewards = False
+                self.gameplay_unlocks_required = False
             received_campaign = slot_data.get("campaign")
             if "campaign" not in slot_data:
                 self.campaign = {}
@@ -425,6 +441,9 @@ class Bridge:
             LOG.info("AP slot_data: keys=%s protocol=%s campaign=%s missions=%s",
                      self.slot_data_fields, self.protocol_version,
                      self.campaign_status, len(self.campaign.get("missions", [])))
+            LOG.info("[AP GAMEPLAY] protocol=%s native_units=%s unlocks=%s",
+                     self.gameplay_protocol, self.gameplay_unit_rewards,
+                     self.gameplay_unlocks_required)
             if self.campaign_message:
                 LOG.warning("[AP CAMPAIGN] %s", self.campaign_message)
             self.goal_wave = int(slot_data.get("goal_wave", 10))
