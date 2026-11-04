@@ -136,6 +136,15 @@ class NativeGameplaySafetyTests(unittest.TestCase):
         self.assertNotIn("if (File.Exists(path)) File.Delete(path);", source)
         self.assertIn("ClearNativeBonusSceneTemplate();", scene)
 
+    def test_future_gameplay_api_probe_is_read_only_and_bounded(self):
+        probe = (ROOT / "mod/GameApiProbe.cs").read_text(encoding="utf-8")
+        self.assertIn("ProbeNativeGameplayEffects();", probe)
+        self.assertIn("anchor.Assembly.GetTypes()", probe)
+        self.assertIn("logged >= 36", probe)
+        self.assertIn("methods >= 12", probe)
+        self.assertIn("[AP GAMEPLAY API]", probe)
+        self.assertNotIn("method.Invoke(", probe)
+
     def test_conquest_checks_are_seed_automatic_and_accept_offline_ledger(self):
         mod = PLUGIN.read_text(encoding="utf-8")
         self.assertIn("private bool IsActiveConquestMission()", mod)
