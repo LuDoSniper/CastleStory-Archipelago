@@ -1,6 +1,6 @@
 """Options for Castle Story Archipelago campaign generation."""
 from dataclasses import dataclass
-from Options import Choice, OptionDict, OptionSet, PerGameCommonOptions, Range
+from Options import Choice, OptionDict, OptionSet, PerGameCommonOptions, Range, Toggle
 
 class GameMode(Choice):
     """Invasion only, Conquest only, or both modes in a single campaign."""
@@ -40,6 +40,15 @@ class InvasionMapPool(OptionSet):
     display_name = "Invasion Map IDs"
     default = set()
 
+class GameplayRewards(Toggle):
+    """Enable native Castle Story effects for items in newly generated seeds.
+
+    A disabled slot keeps AP location checks but does not spawn gifted units.
+    Older ArchiLAN seeds that do not provide gameplay_protocol stay unaffected.
+    """
+    display_name = "Enable Native Gameplay Rewards"
+    default = 1
+
 @dataclass
 class CastleStoryOptions(PerGameCommonOptions):
     game_mode: GameMode
@@ -47,3 +56,4 @@ class CastleStoryOptions(PerGameCommonOptions):
     conquest_shards: ConquestShards
     conquest_map_capacities: ConquestMapCapacities
     invasion_map_pool: InvasionMapPool
+    gameplay_rewards: GameplayRewards
