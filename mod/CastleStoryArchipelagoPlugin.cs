@@ -24,7 +24,6 @@ namespace CastleStoryArchipelago
         private int currentApSlotNumber;
         private bool bridgeConnected;
         private bool gameplayUnitRewardsEnabled;
-        private bool gameplayRequireUnlocks;
         // This is set only after the native Castle Story start guard validates
         // the exact Archipelago map and game mode.
         private string startedMission = "";
@@ -604,11 +603,13 @@ namespace CastleStoryArchipelago
                     // original gameplay and experimental reward settings.
                     gameplayUnitRewardsEnabled = session.gameplay_protocol == 1 &&
                         session.gameplay_unit_rewards;
-                    gameplayRequireUnlocks = gameplayUnitRewardsEnabled &&
-                        session.gameplay_unlocks_required;
+                    // Historical v0.9.0 slot data may request gift gating.
+                    // Gifted units intentionally bypass crafting research;
+                    // that flag is obsolete for the native reward pipeline.
                     Logger.LogInfo("[AP GAMEPLAY] protocol=" + session.gameplay_protocol +
                         " nativeUnitRewards=" + gameplayUnitRewardsEnabled +
-                        " unlockRequirements=" + gameplayRequireUnlocks);
+                        " giftedUnitsBypassCrafting=true" +
+                        " legacyGiftGateIgnored=" + session.gameplay_unlocks_required);
                     Logger.LogInfo("[AP RUN ID] seed=" + seed +
                         " team=" + currentApTeam +
                         " slot=" + currentApSlotNumber +
