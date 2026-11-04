@@ -79,8 +79,9 @@ namespace CastleStoryArchipelago
                 }
                 harmony.Patch(nativeSpawnMethod, postfix: new HarmonyMethod(
                     AccessTools.Method(typeof(CastleStoryArchipelagoPlugin), "AfterNativeUnitSpawn")));
-                Logger.LogInfo("[AP BONUS] SpawnUnit hook attached; active spawn opt-in=" +
-                    nativeBonusSpawning.Value);
+                Logger.LogInfo("[AP BONUS] SpawnUnit hook attached; legacy opt-in=" +
+                    nativeBonusSpawning.Value +
+                    " (new-seed native rewards read from Archipelago slot data).");
             }
             catch (Exception error)
             {
@@ -215,9 +216,9 @@ namespace CastleStoryArchipelago
             }
         }
 
-        private void SaveBonusRewards()
+        private bool SaveBonusRewards()
         {
-            if (String.IsNullOrEmpty(token) || activeBonusToken != token) return;
+            if (String.IsNullOrEmpty(token) || activeBonusToken != token) return false;
             try
             {
                 string path = BonusJournalPath();
@@ -225,10 +226,12 @@ namespace CastleStoryArchipelago
                 WriteCheckLedgerFile(path, JsonUtility.ToJson(new BonusRewardJournal {
                     token = token, tickets = tickets
                 }));
+                return true;
             }
             catch (Exception error)
             {
                 Logger.LogWarning("[AP BONUS] Cannot save journal: " + error);
+                return false;
             }
         }
 
@@ -321,7 +324,14 @@ namespace CastleStoryArchipelago
             }
             ticket.state = "spawning";
             ticket.note = "Native SpawnUnit invoked. Do not replay after a crash.";
-            SaveBonusRewards();
+            // Never spawn if the intent cannot first be safely persisted.
+            // Otherwise a restart could replay a gift that already existed.
+            if (!SaveBonusRewards())
+            {
+                ticket.state = "pending";
+                ticket.note = "Reward journal unavailable; no unit spawned.";
+                return;
+            }
             try
             {
                 bonusSpawnInProgress = true;
@@ -366,6 +376,7 @@ namespace CastleStoryArchipelago
             foreach (var ticket in bonusRewards.Values.OrderBy(x => x.index))
                 Logger.LogInfo("[AP BONUS] index=" + ticket.index +
                     " item=" + ticket.item + " state=" + ticket.state +
+                    " unlockReady=" + BonusUnlockReady(ticket.item) +
                     " note=" + ticket.note);
             Logger.LogInfo("[AP GAMEPLAY] seed-native rewards=" +
                 gameplayUnitRewardsEnabled + " emergencyDisabled=" +
