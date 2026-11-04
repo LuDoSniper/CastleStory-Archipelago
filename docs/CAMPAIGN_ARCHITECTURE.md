@@ -41,8 +41,8 @@ against the server's own slot data; reconnects do not repeat completed checks.
   arguments only after verifying the spawned unit's local ownership. A
   received reinforcement or equipped unit can replay that native adapter
   without inventing AssetKey, owner GameObject, or occupation enum members.
-- Advanced equipped gifts remain pending until the corresponding unlock item
-  has been received. Native unit grants count toward the **normal** game
+- Equipped gifts bypass the crafting unlock entirely. They can stay pending only
+  while awaiting a verified native game-owned spawn template. Native unit grants count toward the **normal** game
   population limit; they are not currently cap-neutral.
 - Per-seed, per-item-index journals record a `spawning` intent durably
   BEFORE calling SpawnUnit. A crash or ambiguous return leaves a non-retried
@@ -58,8 +58,8 @@ against the server's own slot data; reconnects do not repeat completed checks.
    `Stone Supply`, and `Wisp Supply`; do not create fake inventory values.
 3. Locate exact native build/equipment methods before enforcing received
    Archer/Knight/Alchemist/Catapult unlocks on *vanilla* production menus.
-   Gating gifted advanced units is implemented, but gating every ordinary
-   unit and building would be premature.
+   Gifted advanced units must never depend on those crafting restrictions.
+   Actual native production/building locks are still pending.
 4. Verify crystal capture keys and Conquest victory events across multiple
    maps, save reloads, and a complete Hybrid goal.
 5. Design per-save (rather than solely per-slot) delivered-unit reconciliation
