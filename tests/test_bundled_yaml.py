@@ -9,6 +9,8 @@ class BundledYamlTests(unittest.TestCase):
         hybrid = (ROOT / "examples/CastleStoryHybrid.template.yaml").read_text(encoding="utf-8")
         self.assertIn("game_mode: invasion", default)
         self.assertIn("invasion_map_pool: []", default)
+        self.assertIn("gameplay_rewards: true", default)
+        self.assertIn("gameplay_rewards: true", hybrid)
         self.assertIn("game_mode: hybrid", hybrid)
         self.assertIn("NOT GENERATABLE", hybrid)
         self.assertIn("conquest_map_capacities: {}", hybrid)
