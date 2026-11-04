@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace CastleStoryArchipelago
 {
-    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.9.0")]
+    [BepInPlugin("fr.castlestory.archipelago", "Castle Story Archipelago", "0.9.1")]
     public sealed partial class CastleStoryArchipelagoPlugin : BaseUnityPlugin
     {
         private const int WaveBase = 276810000;
@@ -126,8 +126,8 @@ namespace CastleStoryArchipelago
             LoadRememberedConnection();
             InitializeApSaveRegistry();
             File.WriteAllText(Path.Combine(directory, "diagnostic.txt"),
-                "Castle Story Archipelago v0.9.0 Awake() OK." + Environment.NewLine);
-            Logger.LogInfo("Castle Story Archipelago v0.9.0 initialised.");
+                "Castle Story Archipelago v0.9.1 Awake() OK." + Environment.NewLine);
+            Logger.LogInfo("Castle Story Archipelago v0.9.1 initialised.");
             waveChecks = Config.Bind("Invasion", "EnableWaveChecks", false,
                 "Legacy-only opt-in for old slots without a campaign. A launched Archipelago seed enables Invasion checks automatically.");
             captureChecks = Config.Bind("Conquest", "EnableCaptureChecks", false,
@@ -603,7 +603,7 @@ namespace CastleStoryArchipelago
                     // original gameplay and experimental reward settings.
                     gameplayUnitRewardsEnabled = session.gameplay_protocol == 1 &&
                         session.gameplay_unit_rewards;
-                    // Historical v0.9.0 slot data may request gift gating.
+                    // Historical v0.9.1 slot data may request gift gating.
                     // Gifted units intentionally bypass crafting research;
                     // that flag is obsolete for the native reward pipeline.
                     Logger.LogInfo("[AP GAMEPLAY] protocol=" + session.gameplay_protocol +
@@ -727,7 +727,7 @@ namespace CastleStoryArchipelago
                     {
                         statusLine = modernBridge ?
                             "Session Archipelago périmée : relance le bridge et reconnecte-toi." :
-                            "Bridge Archipelago ancien : installe le client 0.9.0 complet.";
+                            "Bridge Archipelago ancien : installe le client 0.9.1 complet.";
                         campaignStatus = modernBridge ? "stale" : "obsolete_bridge";
                         campaignMessage = statusLine;
                     }
