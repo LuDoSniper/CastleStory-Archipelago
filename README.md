@@ -1,6 +1,83 @@
-# Castle Story × Archipelago — v0.8.1 (checks persistants et livrés au bridge)
+# Castle Story × Archipelago — v0.9.0 (premier gameplay de randomisation)
 
 Castle Story (Unity 5.6 / BepInEx 5) ↔ Archipelago ↔ ArchiLAN.
+
+## v0.9.0 — Première passe de gameplay réel
+
+L'interface native et la persistance des sauvegardes des versions précédentes
+restent inchangées. Cette version ajoute un **contrat de gameplay v1** entre
+l'APWorld, le bridge et le mod Unity. Les anciennes seeds sans ce contrat
+gardent le comportement précédent ; **il faut une nouvelle seed générée
+avec le nouvel APWorld pour tester les récompenses automatiques**.
+
+### Fonctionnel dans le code (CI et simulation protocole)
+
+- **Checks Invasion** : chaque vague franchie produit une location
+  Archipelago unique ; l'historique par seed/équipe/slot est conservé.
+- **Checks Conquête** : une mission Conquête effectivement lancée ou chargée
+  dans la seed active envoie automatiquement ses captures de cristaux et sa
+  victoire, même si les anciennes options expérimentales sont sur `false`.
+  Le filtre d'appartenance au joueur, le dédoublonnage des cristaux et la
+  correspondance carte/mission restent obligatoires.
+- **Récompenses vivantes** : `Bricktron Reinforcement`, `Equipped Worker`,
+  `Equipped Archer`, `Equipped Knight`, `Equipped Alchemist` peuvent
+  déclencher la création d'un vrai Bricktron via
+  `Brix.Game.Network.UNetProjectCmd.SpawnUnit`, **mais uniquement après
+  l'observation en jeu d'un modèle natif possédé localement**. Ni AssetKey,
+  ni propriétaire réseau, ni position initiale ne sont inventés.
+- **Progression de récompenses** : `Archer Unlock`, `Knight Unlock` et
+  `Alchemist Unlock` autorisent les unités bonus correspondantes. Si
+  `Equipped Archer` arrive avant `Archer Unlock`, le cadeau reste en
+  attente. Ces unlocks **ne verrouillent pas encore toutes les commandes
+  de construction ou d'équipement vanilla** : ce serait un changement plus
+  large à faire après validation des APIs natives de ces menus.
+- **Pas de doublons** : les objets reçus sont identifiés par leur index
+  Archipelago et persistés dans `bonus_rewards_<token>.json`. Un cadeau
+  passe à `spawning` avant l'appel natif ; un appel incertain finit en
+  `review` et ne se répète pas automatiquement. Les templates Unity
+  sont oubliés à chaque changement de scène.
+- **Pool de récompenses utilisable** : la nouvelle génération adapte son
+  contenu au nombre de checks ; aucun unlock n'est placé sans un cadeau
+  d'unité correspondant. Les doublons éventuels de renforts sont choisis
+  de manière déterministe à partir de la seed. Les identifiants Archipelago
+  préexistants restent les mêmes.
+
+### Pas encore revendiqué comme fonctionnel
+
+`Wood Supply`, `Stone Supply`, `Wisp Supply`, `Catapult Unlock` et
+les manipulations du plafond des cristaux demandent encore un adaptateur
+natif confirmé. Ces objets restent reconnus dans le protocole mais **ne
+sont pas inclus dans le nouveau pool de récompenses actives**.
+Les unités cadeaux comptent pour l'instant dans le plafond de population
+normal du jeu : aucune exclusion artificielle non validée n'est appliquée.
+
+### Premier test gameplay conseillé
+
+1. Installer le nouveau `castle_story.apworld` dans ArchiLan, puis
+   **générer une nouvelle seed** avec `gameplay_rewards: true` (exemple
+   `CastleStoryPlayer.yaml`). Ne pas écraser les anciennes seeds ou saves.
+2. Installer le **kit client v0.9.0 complet** (DLL et bridge), connecter le
+   nouveau slot, puis commencer **une partie solo de test jetable**.
+3. Jouer et passer une vague, puis vérifier que le check arrive sur ArchiLan.
+   Un cadeau `Equipped Worker` ou `Bricktron Reinforcement` reçu pendant
+   la partie doit rester `pending` jusqu'à la découverte d'une création
+   native d'unité locale, puis devenir `delivered` après confirmation.
+   Une unité avancée attend aussi son item Unlock correspondant.
+4. **F10** imprime les tickets des récompenses, `[AP BONUS]`,
+   `[AP REWARD DELIVERED]`, `[AP REWARD REVIEW]` dans
+   `BepInEx/LogOutput.log`. **F8** affiche le diagnostic des checks et des
+   objets reçus. Si aucune unité n'est créée, conserver ces logs avant de
+   tenter autre chose : ne pas forcer un spawn sans modèle vérifié.
+5. Pour tester Conquête ou Hybride, renseigner de vraies cartes Conquête et
+   leurs nombres de cristaux vérifiés. Le YAML Hybride fourni est seulement
+   un modèle, pas une seed prête à générer.
+
+Le paramètre BepInEx `Bonus Rewards/DisableSeedUnitRewards=true` désactive
+immédiatement les cadeaux natifs de gameplay sur une nouvelle seed, sans
+désactiver les checks ; il faut relancer le jeu pour recharger la configuration.
+Le paramètre expérimental `EnableNativeBonusSpawns` concerne toujours les
+anciens tests, et n'est pas nécessaire pour les nouvelles seeds. Aucune
+validation automatisée ne remplace le test réel des méthodes Unity 5.6.
 
 ## v0.8.1 — Fiabilisation de l'envoi des checks
 
