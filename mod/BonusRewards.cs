@@ -126,7 +126,9 @@ namespace CastleStoryArchipelago
         {
             try
             {
-                foreach (Component part in gameObject.GetComponents<Component>())
+                // Unity may attach Affiliation to the unit's child visual/
+                // ownership object rather than to its root GameObject.
+                foreach (Component part in gameObject.GetComponentsInChildren<Component>(true))
                 {
                     if (part == null || !part.GetType().Name.Contains("Affiliation")) continue;
                     var factionProperty = AccessTools.Property(part.GetType(), "Faction");
@@ -375,9 +377,13 @@ namespace CastleStoryArchipelago
                 (nativeBonusSpawning != null && nativeBonusSpawning.Value) +
                 "; tracked in this match=" + trackedBonusInstanceIds.Count);
             if (nativeSpawnMethod != null)
-                Logger.LogInfo("[AP BONUS] Native method " + nativeSpawnMethod.ToString() +
-                    " roles=" + String.Join(",", Enum.GetNames(
-                        nativeSpawnMethod.GetParameters()[4].ParameterType)));
+            {
+                Type roleType = nativeSpawnMethod.GetParameters()[4].ParameterType;
+                Logger.LogInfo("[AP BONUS] Native method " +
+                    nativeSpawnMethod.ToString() + " roles=" +
+                    (roleType.IsEnum ? String.Join(",", Enum.GetNames(roleType)) :
+                     "unsupported occupation type"));
+            }
         }
     }
 }
