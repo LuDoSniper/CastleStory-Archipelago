@@ -23,6 +23,8 @@ namespace CastleStoryArchipelago
         private int currentApTeam;
         private int currentApSlotNumber;
         private bool bridgeConnected;
+        private bool gameplayUnitRewardsEnabled;
+        private bool gameplayRequireUnlocks;
         // This is set only after the native Castle Story start guard validates
         // the exact Archipelago map and game mode.
         private string startedMission = "";
@@ -67,6 +69,9 @@ namespace CastleStoryArchipelago
             public CampaignFile campaign;
             public int campaign_mission_count;
             public int protocol_version;
+            public int gameplay_protocol;
+            public bool gameplay_unit_rewards;
+            public bool gameplay_unlocks_required;
             public string bridge_client_version;
             public double updated_at;
             public bool slot_data_provided;
@@ -569,6 +574,15 @@ namespace CastleStoryArchipelago
                     currentApTeam = session.team;
                     currentApSlotNumber = session.slot;
                     currentApSlotName = session.slot_name ?? "";
+                    // No opt-in marker in existing seeds: preserve their
+                    // original gameplay and experimental reward settings.
+                    gameplayUnitRewardsEnabled = session.gameplay_protocol == 1 &&
+                        session.gameplay_unit_rewards;
+                    gameplayRequireUnlocks = gameplayUnitRewardsEnabled &&
+                        session.gameplay_unlocks_required;
+                    Logger.LogInfo("[AP GAMEPLAY] protocol=" + session.gameplay_protocol +
+                        " nativeUnitRewards=" + gameplayUnitRewardsEnabled +
+                        " unlockRequirements=" + gameplayRequireUnlocks);
                     Logger.LogInfo("[AP RUN ID] seed=" + seed +
                         " team=" + currentApTeam +
                         " slot=" + currentApSlotNumber +
